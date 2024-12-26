@@ -28,14 +28,17 @@ where
     T: DeserializeOwned,
 {
     tracing::debug!("Attempting to parse SOAP request: {}", body);
+    let attempt = quick_xml::de::from_str::<serde_json::Value>(body);
+    tracing::trace!("Raw parse attempt: {:#?}", attempt);
+    
     quick_xml::de::from_str::<SoapEnvelope<T>>(body).map_err(|e| {
+        tracing::error!("XML deserialization error: {:#?}", e);
         SoapError::Soap(SoapProtocolError::ParseError(format!(
             "Failed to parse SOAP request: {}",
             e
         )))
     })
 }
-
 pub fn create_soap_response<T: Serialize>(
     namespace: &str,
     response: T,

@@ -20,7 +20,7 @@ pub struct SoapEnvelope<T> {
 #[derive(Debug, Deserialize)]
 pub struct SoapBody<T> {
     #[serde(flatten)]
-    pub action: NamespacedAction<T>,
+    pub action: T,
 }
 
 #[derive(Debug, Deserialize)]

@@ -16,10 +16,11 @@ httpdate = "1.0.3"
 axum = { version = "0.7.9", features = ["http1", "tokio", "macros"] }
 askama = "0.12.1"
 futures = "0.3.31"
-serde = { version = "1.0.215", features = ["derive"] }
+serde = { version = "1.0.216", features = ["derive"] }
 serde-xml-rs = "0.6"
 serde_with = "1.13.0"
 quick-xml = { version = "0.37.1", features = ["serialize"] }
+serde_json = "1.0.133"
 
 [dev-dependencies]
 tokio = { version = "1.42.0", features = ["test-util", "test-util"] }

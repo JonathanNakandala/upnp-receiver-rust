@@ -1,5 +1,7 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use serde::{Deserialize, Serialize};
+use tracing::info;
+use crate::server::soap::types::av_transport_request::{GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest, PlayRequest, SetAVTransportURIRequest, StopRequest};
 use crate::server::soap::types::soap_response::EmptyResponse;
 
 // Action Types
@@ -20,7 +22,7 @@ impl TryFrom<&str> for AVTransportActionType {
     fn try_from(action: &str) -> Result<Self, Self::Error> {
         let action = action.trim_matches('"');
         let action_name = action.split('#').last().unwrap_or(action);
-
+        info!(action_name=action_name, "Matching Action Name with match statement");
         match action_name {
             "SetAVTransportURI" => Ok(Self::SetAVTransportURI),
             "Play" => Ok(Self::Play),
@@ -57,51 +59,6 @@ pub enum AVTransportResponse {
     TransportInfo(GetTransportInfoResponse),
     MediaInfo(GetMediaInfoResponse),
     PositionInfo(GetPositionInfoResponse),
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct SetAVTransportURIRequest {
-    instance_id: u32,
-    pub(crate) current_uri: String,
-    pub(crate) current_uri_metadata: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct PlayRequest {
-    instance_id: u32,
-    speed: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct PauseRequest {
-    instance_id: u32,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct StopRequest {
-    instance_id: u32,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct GetTransportInfoRequest {
-    instance_id: u32,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct GetMediaInfoRequest {
-    instance_id: u32,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct GetPositionInfoRequest {
-    instance_id: u32,
 }
 
 // Response Types

@@ -1,8 +1,7 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::{
-    AVTransportResponse, GetMediaInfoRequest, GetPositionInfoRequest, GetPositionInfoResponse,
-    GetTransportInfoRequest, GetTransportInfoResponse, PauseRequest, PlayRequest,
-    SetAVTransportURIRequest, StopRequest,
+    AVTransportResponse, GetPositionInfoResponse,
+    GetTransportInfoResponse,
 };
 use crate::server::soap::types::soap_response::EmptyResponse;
 use crate::server::soap::types::{UPnPAction, UPnPService};
@@ -13,28 +12,29 @@ use std::sync::Arc;
 
 use axum::http::Response;
 use axum::response::IntoResponse;
+use serde::de::VariantAccess;
 use serde::Deserialize;
 use tracing::debug;
+use crate::server::soap::types::av_transport_request::{GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest, PlayRequest, SetAVTransportURIRequest, StopRequest};
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "Action")]
-#[serde(rename_all = "PascalCase")]
 pub enum AVTransportAction {
-    #[serde(rename = "u:SetAVTransportURI")]
+    #[serde(rename = "SetAVTransportURI")]
     SetAVTransportURI(SetAVTransportURIRequest),
-    #[serde(rename = "u:Play")]
+    #[serde(rename = "Play")]
     Play(PlayRequest),
-    #[serde(rename = "u:Pause")]
+    #[serde(rename = "Pause")]
     Pause(PauseRequest),
-    #[serde(rename = "u:Stop")]
+    #[serde(rename = "Stop")]
     Stop(StopRequest),
-    #[serde(rename = "u:GetTransportInfo")]
+    #[serde(rename = "GetTransportInfo")]
     GetTransportInfo(GetTransportInfoRequest),
-    #[serde(rename = "u:GetMediaInfo")]
+    #[serde(rename = "GetMediaInfo")]
     GetMediaInfo(GetMediaInfoRequest),
-    #[serde(rename = "u:GetPositionInfo")]
+    #[serde(rename = "GetPositionInfo")]
     GetPositionInfo(GetPositionInfoRequest),
 }
+
 
 impl UPnPAction for AVTransportAction {
     type Response = AVTransportResponse;

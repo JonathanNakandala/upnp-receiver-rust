@@ -48,7 +48,7 @@ impl UPnPServiceRouter {
         }
 
         let envelope: SoapEnvelope<S::Action> = parse_soap_request(&body)?;
-        S::handle_action(envelope.body.action.inner, renderer).await
+        S::handle_action(envelope.body.action, renderer).await
     }
 
     async fn handle_av_transport(
