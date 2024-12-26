@@ -1,6 +1,6 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::handlers::av_transport::AVTransportService;
-use crate::server::soap::types::soap::{ParsedSoapAction, SoapEnvelope};
+use crate::server::soap::types::soap::SoapEnvelope;
 use crate::server::soap::types::UPnPService;
 use crate::server::soap::{extract_soap_action, parse_soap_request};
 use crate::services::MediaRenderer;
@@ -10,7 +10,7 @@ use axum::http::{HeaderMap, Response};
 use axum::routing::post;
 use axum::Router;
 use std::sync::Arc;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, info, instrument, trace};
 
 pub struct UPnPServiceRouter {
     renderer: Arc<MediaRenderer>,
@@ -36,10 +36,12 @@ impl UPnPServiceRouter {
         body: String,
     ) -> Result<Response<Body>, SoapError> {
         // Extract SOAP action first
+        debug!("Extracting Soap Action");
         let soap_action = extract_soap_action(&headers)?;
 
         // Validate service type
         if !soap_action.contains(S::service_type()) {
+            info!(soap_action=soap_action, service_type=S::service_type(), "Could not map service type");
             return Err(SoapError::Soap(SoapProtocolError::InvalidAction(
                 "Invalid service type".into(),
             )));

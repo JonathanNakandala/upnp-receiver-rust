@@ -1,4 +1,3 @@
-use crate::server::soap::action::SoapAction;
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::{
     AVTransportResponse, GetMediaInfoRequest, GetPositionInfoRequest, GetPositionInfoResponse,
@@ -9,7 +8,6 @@ use crate::server::soap::types::soap_response::EmptyResponse;
 use crate::server::soap::types::{UPnPAction, UPnPService};
 use crate::server::soap::utils::create_soap_response;
 use crate::services::MediaRenderer;
-use async_trait::async_trait;
 use axum::body::Body;
 use std::sync::Arc;
 

@@ -1,12 +1,10 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::soap::SoapEnvelope;
-use crate::server::soap::types::soap_response::{
-    SoapResponse, SoapResponseBody, SoapResponseEnvelope,
-};
-use axum::http::{header, HeaderMap, StatusCode};
+
+use axum::http::{ HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 use tracing::debug;
 
 pub fn extract_soap_action(headers: &HeaderMap) -> Result<String, SoapError> {
@@ -22,7 +20,7 @@ pub fn extract_soap_action(headers: &HeaderMap) -> Result<String, SoapError> {
 
     // Remove quotes if present
     let action = raw_action.trim_matches('"');
-    debug!("Received SOAP action header: {}", action);
+    debug!(action=action, "Sucessfully Parsed SOAP action header");
     Ok(action.to_string())
 }
 pub fn parse_soap_request<T>(body: &str) -> Result<SoapEnvelope<T>, SoapError>

@@ -1,4 +1,3 @@
-use crate::server::soap::handlers::av_transport::AVTransportService;
 use crate::server::soap::handlers::UPnPServiceRouter;
 use crate::server::templates::{
     MediaRendererAvTransportTemplate, MediaRendererConnectionManagerTemplate,
@@ -11,7 +10,7 @@ use axum::{
     extract::State,
     http::{header, StatusCode},
     response::IntoResponse,
-    routing::{get, post},
+    routing::get,
     Router,
 };
 use std::net::{IpAddr, SocketAddr};

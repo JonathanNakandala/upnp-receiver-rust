@@ -1,4 +1,3 @@
-// src/server/soap/mod.rs
 mod action;
 pub mod error;
 pub mod handlers;

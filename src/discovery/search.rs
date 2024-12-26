@@ -3,17 +3,11 @@ use crate::discovery::{
     messages::SsdpMessage,
     service::{ServiceInfo, SsdpService},
 };
-use std::net::SocketAddr;
 use std::time::Duration;
-use tracing::{debug, trace};
+use tracing::debug;
 
 use super::messages::SsdpHeader;
 
-#[derive(Debug)]
-pub struct SearchRequest {
-    pub target: String,
-    pub address: SocketAddr,
-}
 
 #[derive(Debug)]
 pub enum SearchTarget {

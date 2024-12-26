@@ -1,6 +1,6 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use async_trait::async_trait;
-use axum::extract::{FromRequest, FromRequestParts};
+use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::HeaderMap;
 use serde::Deserialize;
