@@ -1,0 +1,28 @@
+[package]
+name = "upnp-receiver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.42.0", features = ["net", "macros", "rt", "rt-multi-thread", "time", "sync", "signal"] }
+thiserror = "2.0.4"
+uuid = { version = "1.7", features = ["v4"] }
+derive_builder = "0.20"
+async-trait = "0.1.83"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
+local-ip-address = "0.6.3"
+httpdate = "1.0.3"
+axum = { version = "0.7.9", features = ["http1", "tokio", "macros"] }
+askama = "0.12.1"
+futures = "0.3.31"
+serde = { version = "1.0.215", features = ["derive"] }
+serde-xml-rs = "0.6"
+serde_with = "1.13.0"
+quick-xml = { version = "0.37.1", features = ["serialize"] }
+
+[dev-dependencies]
+tokio = { version = "1.42.0", features = ["test-util", "test-util"] }
+reqwest = { version = "0.11", features = ["json"] }
+test-log = { version = "0.2", features = ["trace"] }
+env_logger = "0.10"

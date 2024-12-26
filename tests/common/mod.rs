@@ -1,0 +1,74 @@
+extern crate upnp_receiver;
+pub mod soap_client;
+
+pub use soap_client::SoapClient;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::oneshot;
+use upnp_receiver::services::MediaRenderer;
+use upnp_receiver::{HttpServer, MediaRendererConfig};
+pub struct TestServer {
+    pub address: SocketAddr,
+    shutdown_tx: oneshot::Sender<()>,
+}
+
+impl TestServer {
+    pub async fn new() -> Self {
+        tracing::debug!("Creating new test server");
+
+        let renderer = MediaRenderer::new(
+            MediaRendererConfig::builder()
+                .port(0)
+                .friendly_name("Test Renderer".to_string())
+                .build(),
+        )
+            .unwrap();
+
+        tracing::debug!("Created media renderer");
+
+        let http_server = HttpServer::new(Arc::new(renderer));
+        let bind_addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+
+        // Create and bind the TCP listener
+        let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tracing::info!(address = %addr, "Server bound to address");
+
+        // Let the HttpServer create its own Router with proper routes
+        tokio::spawn(async move {
+            tracing::info!("Starting server");
+            axum::serve(listener, http_server.router())
+                .with_graceful_shutdown(async {
+                    shutdown_rx.await.ok();
+                    tracing::info!("Server shutting down");
+                })
+                .await
+                .unwrap();
+        });
+
+        Self {
+            address: addr,
+            shutdown_tx,
+        }
+    }
+
+    pub async fn wait_for_ready(&self) -> bool {
+        tracing::debug!("Waiting for server to be ready");
+        // Attempt to connect and check server is ready
+        for i in 0..5 {
+            if reqwest::get(format!("http://{}/description.xml", self.address))
+                .await
+                .is_ok()
+            {
+                tracing::info!("Server is ready");
+                return true;
+            }
+            tracing::debug!(attempt = i + 1, "Server not ready, retrying");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        tracing::warn!("Server failed to become ready");
+        false
+    }
+}
