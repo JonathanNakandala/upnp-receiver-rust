@@ -73,13 +73,31 @@ pub enum AVTransportResponse {
 #[serde(rename_all = "PascalCase")]
 pub struct SetAVTransportURIResponse {}
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum TransportState {
+    STOPPED,
+    PLAYING,
+    TRANSITIONING,
+    PAUSED_PLAYBACK,
+    PAUSED_RECORDING,
+    RECORDING,
+    NO_MEDIA_PRESENT,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum TransportStatus {
+    OK,
+    ERROR_OCCURRED,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct GetTransportInfoResponse {
-    pub current_transport_state: String,
-    pub current_transport_status: String,
+    pub current_transport_state: TransportState,
+    pub current_transport_status: TransportStatus,
     pub current_speed: String,
 }
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct GetMediaInfoResponse {

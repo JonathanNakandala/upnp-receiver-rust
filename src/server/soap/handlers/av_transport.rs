@@ -18,7 +18,6 @@ use crate::server::soap::types::av_transport_request::{
 };
 use axum::http::Response;
 use axum::response::IntoResponse;
-use serde::de::VariantAccess;
 use serde::Deserialize;
 use tracing::debug;
 
