@@ -1,6 +1,6 @@
-use serde::Deserialize;
 use quick_xml::de::{from_str, DeError};
 use serde::de::{Deserializer, Visitor};
+use serde::Deserialize;
 use std::fmt;
 
 pub trait UPnPRequestWithInstance {
@@ -20,16 +20,15 @@ impl UPnPRequestWithInstance for UPnPInstanceRequest {
     }
 }
 
-// Struct for SetAVTransportURIRequest
 #[derive(Debug, Deserialize)]
 pub struct SetAVTransportURIRequest {
-    #[serde(rename = "InstanceID", deserialize_with = "deserialize_text")]
+    #[serde(rename = "InstanceID")]
     pub instance_id: String,
 
-    #[serde(rename = "CurrentURI", deserialize_with = "deserialize_text")]
+    #[serde(rename = "CurrentURI")]
     pub current_uri: String,
 
-    #[serde(rename = "CurrentURIMetaData", deserialize_with = "deserialize_optional_text")]
+    #[serde(rename = "CurrentURIMetaData")]
     pub current_uri_metadata: Option<String>,
 }
 
@@ -88,7 +87,6 @@ where
     deserializer.deserialize_option(OptionalTextVisitor)
 }
 
-
 // Struct for PlayRequest
 #[derive(Debug, Deserialize)]
 pub struct PlayRequest {
@@ -138,7 +136,9 @@ pub struct GetPositionInfoRequest {
 enum OptionalTextWrapper {
     None,
     Text(String),
-    Object { #[serde(rename = "$text")] text: String },
+    Object {
+        #[serde(rename = "$text")]
+        text: String,
+    },
     EmptyObject {},
 }
-

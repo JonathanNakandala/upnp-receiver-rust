@@ -1,11 +1,14 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
+use crate::server::soap::types::av_transport_request::{
+    GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest,
+    PlayRequest, SetAVTransportURIRequest, StopRequest,
+};
+use crate::server::soap::types::soap_response::EmptyResponse;
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use crate::server::soap::types::av_transport_request::{GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest, PlayRequest, SetAVTransportURIRequest, StopRequest};
-use crate::server::soap::types::soap_response::EmptyResponse;
 
 // Action Types
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub enum AVTransportActionType {
     SetAVTransportURI,
@@ -16,13 +19,16 @@ pub enum AVTransportActionType {
     GetMediaInfo,
     GetPositionInfo,
 }
-impl TryFrom<&str> for AVTransportActionType {
+impl TryFrom<&String> for AVTransportActionType {
     type Error = SoapError;
 
-    fn try_from(action: &str) -> Result<Self, Self::Error> {
+    fn try_from(action: &String) -> Result<Self, Self::Error> {
         let action = action.trim_matches('"');
         let action_name = action.split('#').last().unwrap_or(action);
-        info!(action_name=action_name, "Matching Action Name with match statement");
+        info!(
+            action_name = action_name,
+            "Matching Action Name with match statement"
+        );
         match action_name {
             "SetAVTransportURI" => Ok(Self::SetAVTransportURI),
             "Play" => Ok(Self::Play),
@@ -55,23 +61,17 @@ pub enum AVTransportAction {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum AVTransportResponse {
-    Empty (EmptyResponse),
+    Empty(EmptyResponse),
     SetAVTransportURI(SetAVTransportURIResponse),
     TransportInfo(GetTransportInfoResponse),
     MediaInfo(GetMediaInfoResponse),
     PositionInfo(GetPositionInfoResponse),
 }
 
-
-
-
 // Response Types
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct SetAVTransportURIResponse {
-
-}
-
+pub struct SetAVTransportURIResponse {}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]

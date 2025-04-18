@@ -1,8 +1,10 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
+use crate::server::soap::parser::extract_and_parse_soap_body;
 use crate::server::soap::types::av_transport::{
-    AVTransportResponse, GetMediaInfoResponse, GetPositionInfoResponse, GetTransportInfoResponse,
-    SetAVTransportURIResponse,
+    AVTransportActionType, AVTransportResponse, GetMediaInfoResponse, GetPositionInfoResponse,
+    GetTransportInfoResponse, SetAVTransportURIResponse,
 };
+use crate::server::soap::types::soap_action::ParsedSoapAction;
 use crate::server::soap::types::soap_response::EmptyResponse;
 use crate::server::soap::types::{UPnPAction, UPnPService};
 use crate::server::soap::utils::create_soap_response;
@@ -161,44 +163,23 @@ impl UPnPService for AVTransportService {
     }
 
     fn parse_action(
-        action_name: &str,
-        content: &serde_json::Value,
-    ) -> Result<Self::Action, String> {
+        action: &ParsedSoapAction,
+        content: &String,
+    ) -> Result<Self::Action, SoapError> {
+        let action_name: &str = action.action.as_str();
         match action_name {
             "SetAVTransportURI" => {
-                let instance_id = content
-                    .get("InstanceID")
-                    .and_then(|v| v.get("$text"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0")
-                    .to_string();
-
-                let current_uri = content
-                    .get("CurrentURI")
-                    .and_then(|v| v.get("$text"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-
-                let current_uri_metadata = content
-                    .get("CurrentURIMetaData")
-                    .and_then(|v| v.get("$text"))
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-
-                // Create the request struct
-                let request = SetAVTransportURIRequest {
-                    instance_id,
-                    current_uri,
-                    current_uri_metadata,
-                };
-
+                let request =
+                    extract_and_parse_soap_body::<SetAVTransportURIRequest>(content, action_name)?;
                 Ok(AVTransportAction::SetAVTransportURI(request))
             }
             "GetMediaInfo" => Ok(AVTransportAction::GetMediaInfo(GetMediaInfoRequest {
                 base: UPnPInstanceRequest { instance_id: 1 },
             })),
-            _ => Err(format!("Unknown AVTransport action: {}", action_name)),
+            _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
+                "Action not Implemented Yet {}",
+                action_name
+            )))),
         }
     }
 }

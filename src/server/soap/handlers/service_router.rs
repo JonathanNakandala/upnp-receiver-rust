@@ -1,8 +1,7 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::handlers::av_transport::AVTransportService;
-use crate::server::soap::types::soap::SoapEnvelope;
+use crate::server::soap::parser::parse_soap_action;
 use crate::server::soap::types::UPnPService;
-use crate::server::soap::{extract_soap_action, parse_soap_request};
 use crate::services::MediaRenderer;
 use axum::body::Body;
 use axum::extract::State;
@@ -15,7 +14,6 @@ use tracing::{debug, info, instrument, trace};
 pub struct UPnPServiceRouter {
     renderer: Arc<MediaRenderer>,
 }
-use axum::extract::FromRequest;
 
 impl UPnPServiceRouter {
     pub fn new(renderer: Arc<MediaRenderer>) -> Self {
@@ -37,36 +35,16 @@ impl UPnPServiceRouter {
     ) -> Result<Response<Body>, SoapError> {
         // Extract SOAP action first
         debug!("Extracting Soap Action");
-        let soap_action = extract_soap_action(&headers)?;
-    
-        // Validate service type
-        if !soap_action.contains(S::service_type()) {
-            info!(soap_action=soap_action, service_type=S::service_type(), "Could not map service type");
-            return Err(SoapError::Soap(SoapProtocolError::InvalidAction(
-                "Invalid service type".into(),
-            )));
-        }
-    
-        // Get just the action name without namespace
-        let action_name = soap_action
-        .split('#')
-        .last()
-        .unwrap_or(&soap_action);
-    
-        // Parse the envelope generically first
-        let envelope: SoapEnvelope = parse_soap_request(&body)?;
-        
-        // Debug the content structure
-        debug!("Body content: {:?}", envelope.body.content);
-        
-        // Look for the action in the content (without the namespace prefix)
-        let action_content = envelope.body.content.get(action_name)
-            .ok_or_else(|| SoapError::Soap(SoapProtocolError::MissingField("Action content")))?;
-        
+        let soap_action = parse_soap_action(&headers)?;
+
         // Parse the action content based on the action name
-        let action: S::Action = S::parse_action(action_name, action_content)
-            .map_err(|e| SoapError::Soap(SoapProtocolError::ParseError(format!("Failed to parse action: {}", e))))?;
-        
+        let action: S::Action = S::parse_action(&soap_action, &body).map_err(|e| {
+            SoapError::Soap(SoapProtocolError::ParseError(format!(
+                "Failed to parse action: {}",
+                e
+            )))
+        })?;
+
         // Handle the action
         S::handle_action(action, renderer).await
     }

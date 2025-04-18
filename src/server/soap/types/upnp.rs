@@ -7,6 +7,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::sync::Arc;
 
+use super::soap_action::ParsedSoapAction;
+
 #[async_trait]
 pub trait UPnPService: Send + Sync + 'static {
     type Action: UPnPAction;
@@ -19,7 +21,10 @@ pub trait UPnPService: Send + Sync + 'static {
         action: Self::Action,
         renderer: Arc<MediaRenderer>,
     ) -> Result<Response<Body>, SoapError>;
-    fn parse_action(action_name: &str, content: &serde_json::Value) -> Result<Self::Action, String>;
+    fn parse_action(
+        action_name: &ParsedSoapAction,
+        content: &String,
+    ) -> Result<Self::Action, SoapError>;
 }
 
 /// Represents a UPnP action within a service

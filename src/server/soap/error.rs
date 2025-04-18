@@ -1,6 +1,9 @@
+use std::str::Utf8Error;
+
 use crate::services::error::{ServiceError, TransportError};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use quick_xml::DeError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -10,6 +13,15 @@ pub enum SoapError {
 
     #[error("Service error: {0}")]
     Service(#[from] ServiceError),
+
+    #[error("Parsing error: {0}")]
+    ParsingError(#[from] DeError),
+
+    #[error("QuickXML error: {0}")]
+    QuickXMLError(#[from] quick_xml::Error),
+
+    #[error("UTF-8 error: {0}")]
+    Utf8Error(#[from] Utf8Error),
 }
 
 impl From<TransportError> for SoapError {
@@ -28,6 +40,18 @@ impl IntoResponse for SoapError {
             SoapError::Service(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Service Error: {}", e),
+            ),
+            SoapError::ParsingError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Parsing Error Error: {}", e),
+            ),
+            SoapError::QuickXMLError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Parsing Error Error: {}", e),
+            ),
+            SoapError::Utf8Error(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Parsing Error Error: {}", e),
             ),
         };
 
@@ -52,6 +76,9 @@ impl IntoResponse for SoapError {
 pub enum SoapProtocolError {
     #[error("Invalid SOAP action: {0}")]
     InvalidAction(String),
+
+    #[error("Not Implemented SOAP action: {0}")]
+    NotImplemented(String),
 
     #[error("Parse error: {0}")]
     ParseError(String),

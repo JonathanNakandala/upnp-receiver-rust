@@ -1,5 +1,5 @@
 mod http_server;
-mod soap;
+pub mod soap;
 mod templates;
 
 pub use http_server::HttpServer;
