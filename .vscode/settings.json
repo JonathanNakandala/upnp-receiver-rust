@@ -1,0 +1,5 @@
+{
+    "editor.formatOnSave": true,
+    "rust-analyzer.testExplorer": true,
+    "rust-analyzer.diagnostics.styleLints.enable": true
+}

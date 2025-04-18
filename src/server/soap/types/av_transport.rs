@@ -55,13 +55,24 @@ pub enum AVTransportAction {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum AVTransportResponse {
-    Empty(EmptyResponse),
+    Empty (EmptyResponse),
+    SetAVTransportURI(SetAVTransportURIResponse),
     TransportInfo(GetTransportInfoResponse),
     MediaInfo(GetMediaInfoResponse),
     PositionInfo(GetPositionInfoResponse),
 }
 
+
+
+
 // Response Types
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetAVTransportURIResponse {
+
+}
+
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct GetTransportInfoResponse {

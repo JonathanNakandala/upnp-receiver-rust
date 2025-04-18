@@ -38,7 +38,7 @@ impl UPnPServiceRouter {
         // Extract SOAP action first
         debug!("Extracting Soap Action");
         let soap_action = extract_soap_action(&headers)?;
-
+    
         // Validate service type
         if !soap_action.contains(S::service_type()) {
             info!(soap_action=soap_action, service_type=S::service_type(), "Could not map service type");
@@ -46,9 +46,29 @@ impl UPnPServiceRouter {
                 "Invalid service type".into(),
             )));
         }
-
-        let envelope: SoapEnvelope<S::Action> = parse_soap_request(&body)?;
-        S::handle_action(envelope.body.action, renderer).await
+    
+        // Get just the action name without namespace
+        let action_name = soap_action
+        .split('#')
+        .last()
+        .unwrap_or(&soap_action);
+    
+        // Parse the envelope generically first
+        let envelope: SoapEnvelope = parse_soap_request(&body)?;
+        
+        // Debug the content structure
+        debug!("Body content: {:?}", envelope.body.content);
+        
+        // Look for the action in the content (without the namespace prefix)
+        let action_content = envelope.body.content.get(action_name)
+            .ok_or_else(|| SoapError::Soap(SoapProtocolError::MissingField("Action content")))?;
+        
+        // Parse the action content based on the action name
+        let action: S::Action = S::parse_action(action_name, action_content)
+            .map_err(|e| SoapError::Soap(SoapProtocolError::ParseError(format!("Failed to parse action: {}", e))))?;
+        
+        // Handle the action
+        S::handle_action(action, renderer).await
     }
 
     async fn handle_av_transport(

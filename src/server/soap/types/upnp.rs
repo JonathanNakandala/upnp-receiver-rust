@@ -19,6 +19,7 @@ pub trait UPnPService: Send + Sync + 'static {
         action: Self::Action,
         renderer: Arc<MediaRenderer>,
     ) -> Result<Response<Body>, SoapError>;
+    fn parse_action(action_name: &str, content: &serde_json::Value) -> Result<Self::Action, String>;
 }
 
 /// Represents a UPnP action within a service

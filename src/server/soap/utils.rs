@@ -23,22 +23,32 @@ pub fn extract_soap_action(headers: &HeaderMap) -> Result<String, SoapError> {
     debug!(action=action, "Sucessfully Parsed SOAP action header");
     Ok(action.to_string())
 }
-pub fn parse_soap_request<T>(body: &str) -> Result<SoapEnvelope<T>, SoapError>
-where
-    T: DeserializeOwned,
-{
+pub fn parse_soap_request(body: &str) -> Result<SoapEnvelope, SoapError> {
     tracing::debug!("Attempting to parse SOAP request: {}", body);
-    let attempt = quick_xml::de::from_str::<serde_json::Value>(body);
-    tracing::trace!("Raw parse attempt: {:#?}", attempt);
     
-    quick_xml::de::from_str::<SoapEnvelope<T>>(body).map_err(|e| {
-        tracing::error!("XML deserialization error: {:#?}", e);
-        SoapError::Soap(SoapProtocolError::ParseError(format!(
-            "Failed to parse SOAP request: {}",
-            e
-        )))
-    })
+    // Log the raw body for debugging
+    tracing::debug!("Raw SOAP body:\n{}", body);
+    
+    // Try to parse directly as SoapEnvelope
+    match quick_xml::de::from_str::<SoapEnvelope>(body) {
+        Ok(envelope) => {
+            tracing::debug!("Successfully parsed SOAP envelope");
+            Ok(envelope)
+        },
+        Err(e) => {
+            // More detailed error logging
+            tracing::error!("XML deserialization error: {}", e);
+            tracing::error!("Error details: {:?}", e);
+            
+            // Return appropriate error
+            Err(SoapError::Soap(SoapProtocolError::ParseError(format!(
+                "Failed to parse SOAP request: {}",
+                e
+            ))))
+        }
+    }
 }
+
 pub fn create_soap_response<T: Serialize>(
     namespace: &str,
     response: T,
@@ -54,6 +64,20 @@ pub fn create_soap_response<T: Serialize>(
         quick_xml::se::to_string(&response)
             .map_err(|e| SoapError::Soap(SoapProtocolError::SerializationError(e.to_string())))?
     );
+
+    Ok((StatusCode::OK, [("Content-Type", "text/xml")], xml))
+}
+
+pub fn create_empty_soap_response(action_name: &str, service_type: &str) -> Result<impl IntoResponse, SoapError> {
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:{}Response xmlns:u="{}"></u:{}Response>
+                </s:Body>
+            </s:Envelope>"#,
+                    action_name, service_type, action_name
+                );
 
     Ok((StatusCode::OK, [("Content-Type", "text/xml")], xml))
 }
