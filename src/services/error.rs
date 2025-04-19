@@ -1,7 +1,7 @@
 use std::{io, time::Duration};
 use thiserror::Error;
 
-use super::PlaybackState;
+use crate::server::soap::types::av_transport::TransportState;
 
 #[derive(Error, Debug, Clone)]
 pub enum ServiceError {
@@ -48,8 +48,8 @@ impl From<TransportError> for ServiceError {
 pub enum TransportError {
     #[error("invalid state transition from {from:?} to {to:?}")]
     InvalidStateTransition {
-        from: PlaybackState,
-        to: PlaybackState,
+        from: TransportState,
+        to: TransportState,
     },
 
     #[error("no media present")]

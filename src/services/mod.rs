@@ -10,19 +10,9 @@ pub use av_transport::AVTransport;
 pub use connection_manager::ConnectionManager;
 pub use error::ServiceError;
 pub use media_renderer::MediaRenderer;
-pub use types::{ConnectionState, PlaybackState};
+pub use types::ConnectionState;
 pub mod types {
     use std::time::Duration;
-
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub enum PlaybackState {
-        NoMediaPresent,
-        Stopped,
-        Playing,
-        Paused,
-        Transitioning,
-        Error,
-    }
 
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum ConnectionState {

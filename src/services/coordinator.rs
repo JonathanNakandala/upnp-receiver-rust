@@ -1,6 +1,6 @@
 use super::types::MediaInfo;
+use crate::server::soap::types::av_transport::TransportState;
 use crate::services::error::{ConnectionError, TransportError};
-use crate::services::types::PlaybackState;
 use crate::services::{AVTransport, ConnectionManager, ConnectionState, ServiceError};
 use futures::future::join_all;
 use std::future::Future;
@@ -12,7 +12,7 @@ use tracing::{debug, error, info, trace, warn};
 
 #[derive(Clone, Debug)]
 pub enum ServiceEvent {
-    PlaybackStateChanged(PlaybackState),
+    PlaybackStateChanged(TransportState),
     ConnectionStateChanged(ConnectionState),
     MediaChanged(Option<MediaInfo>),
     Error(ServiceError),

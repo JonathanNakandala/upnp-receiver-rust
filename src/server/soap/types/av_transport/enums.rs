@@ -1,18 +1,20 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TransportState {
-    STOPPED,
-    PLAYING,
-    TRANSITIONING,
-    PAUSED_PLAYBACK,
-    PAUSED_RECORDING,
-    RECORDING,
-    NO_MEDIA_PRESENT,
+    Stopped,
+    Playing,
+    Transitioning,
+    PausedPlayback,
+    PausedRecording,
+    Recording,
+    NoMediaPresent,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TransportStatus {
     OK,
-    ERROR_OCCURRED,
+    ErrorOccurred,
 }

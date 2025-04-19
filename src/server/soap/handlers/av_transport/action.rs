@@ -65,7 +65,7 @@ impl UPnPAction for AVTransportAction {
                 let state = renderer.av_transport.get_state().await?;
                 Ok(AVTransportResponse::TransportInfo(
                     GetTransportInfoResponse {
-                        current_transport_state: TransportState::PLAYING,
+                        current_transport_state: TransportState::Playing,
                         current_transport_status: TransportStatus::OK,
                         current_speed: "1".to_string(),
                     },

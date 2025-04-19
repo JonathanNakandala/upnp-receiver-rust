@@ -1,3 +1,4 @@
+use crate::server::soap::types::av_transport::TransportState;
 use crate::services::error::TransportError;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -5,10 +6,9 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use super::types::MediaInfo;
-use super::PlaybackState;
 
-pub struct TransportState {
-    playback_state: PlaybackState,
+pub struct AVTransportState {
+    playback_state: TransportState,
     media: Option<MediaInfo>,
     position: Duration,
 }
@@ -18,19 +18,16 @@ pub struct PositionInfo {
     pub position: Option<Duration>,
     pub duration: Option<Duration>,
 }
-impl TransportState {
-    fn can_transition_to(&self, target: PlaybackState) -> bool {
-        use PlaybackState::*;
+impl AVTransportState {
+    fn can_transition_to(&self, target: TransportState) -> bool {
+        use TransportState::*;
         match (self.playback_state, target) {
             (NoMediaPresent, Stopped) => self.media.is_some(),
             (Stopped, Playing) => self.media.is_some(),
-            (Playing, Paused) => true,
+            (Playing, PausedPlayback) => true,
             (Playing, Stopped) => true,
-            (Paused, Playing) => true,
-            (Paused, Stopped) => true,
-            (_, Error) => true,
-            (_, Transitioning) => true,
-            (Transitioning, _) => true,
+            (PausedPlayback, Playing) => true,
+            (PausedPlayback, Stopped) => true,
             _ => false,
         }
     }
@@ -47,27 +44,27 @@ pub trait AVTransport: Send + Sync {
     async fn pause(&self) -> Result<(), TransportError>;
     async fn stop(&self) -> Result<(), TransportError>;
     async fn get_position(&self) -> Result<Duration, TransportError>;
-    async fn get_state(&self) -> Result<PlaybackState, TransportError>;
+    async fn get_state(&self) -> Result<TransportState, TransportError>;
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError>;
     async fn get_position_info(&self) -> Result<Option<PositionInfo>, TransportError>;
 }
 
 pub struct AVTransportImpl {
-    state: Arc<RwLock<TransportState>>,
+    state: Arc<RwLock<AVTransportState>>,
 }
 
 impl AVTransportImpl {
     pub fn new() -> Self {
         Self {
-            state: Arc::new(RwLock::new(TransportState {
-                playback_state: PlaybackState::NoMediaPresent,
+            state: Arc::new(RwLock::new(AVTransportState {
+                playback_state: TransportState::NoMediaPresent,
                 media: None,
                 position: Duration::from_secs(0),
             })),
         }
     }
 
-    async fn transition_state(&self, target: PlaybackState) -> Result<(), TransportError> {
+    async fn transition_state(&self, target: TransportState) -> Result<(), TransportError> {
         let mut state = self.state.write().await;
 
         if !state.can_transition_to(target) {
@@ -95,20 +92,20 @@ impl AVTransport for AVTransportImpl {
             metadata,
             duration: None, // Would be set when media is actually loaded
         });
-        state.playback_state = PlaybackState::Stopped;
+        state.playback_state = TransportState::Stopped;
         Ok(())
     }
 
     async fn play(&self) -> Result<(), TransportError> {
-        self.transition_state(PlaybackState::Playing).await
+        self.transition_state(TransportState::Playing).await
     }
 
     async fn pause(&self) -> Result<(), TransportError> {
-        self.transition_state(PlaybackState::Paused).await
+        self.transition_state(TransportState::PausedPlayback).await
     }
 
     async fn stop(&self) -> Result<(), TransportError> {
-        self.transition_state(PlaybackState::Stopped).await
+        self.transition_state(TransportState::Stopped).await
     }
 
     async fn get_position(&self) -> Result<Duration, TransportError> {
@@ -116,7 +113,7 @@ impl AVTransport for AVTransportImpl {
         Ok(state.position)
     }
 
-    async fn get_state(&self) -> Result<PlaybackState, TransportError> {
+    async fn get_state(&self) -> Result<TransportState, TransportError> {
         let state = self.state.read().await;
         Ok(state.playback_state)
     }
