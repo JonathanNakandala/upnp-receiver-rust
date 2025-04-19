@@ -1,6 +1,4 @@
-use super::av_transport_request::{
-    GetMediaInfoRequest, GetTransportInfoRequest, SetAVTransportURIRequest,
-};
+use super::av_transport::{GetMediaInfoRequest, GetTransportInfoRequest, SetAVTransportURIRequest};
 use crate::server::soap::error::SoapError;
 use crate::server::soap::parser::soap_action;
 use async_trait::async_trait;

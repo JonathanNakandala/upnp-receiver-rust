@@ -8,7 +8,7 @@ use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
 
-use crate::server::soap::types::av_transport_request::{
+use crate::server::soap::types::av_transport::{
     GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest,
     PlayRequest, SetAVTransportURIRequest, StopRequest,
 };

@@ -7,7 +7,7 @@ use crate::services::MediaRenderer;
 use axum::body::Body;
 use std::sync::Arc;
 
-use crate::server::soap::types::av_transport_request::{
+use crate::server::soap::types::av_transport::{
     GetMediaInfoRequest, SetAVTransportURIRequest, UPnPInstanceRequest,
 };
 use axum::http::Response;
