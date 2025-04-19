@@ -12,7 +12,12 @@ pub struct TransportState {
     media: Option<MediaInfo>,
     position: Duration,
 }
-
+pub struct PositionInfo {
+    pub uri: String,
+    pub metadata: Option<String>,
+    pub position: Option<Duration>,
+    pub duration: Option<Duration>,
+}
 impl TransportState {
     fn can_transition_to(&self, target: PlaybackState) -> bool {
         use PlaybackState::*;
@@ -44,6 +49,7 @@ pub trait AVTransport: Send + Sync {
     async fn get_position(&self) -> Result<Duration, TransportError>;
     async fn get_state(&self) -> Result<PlaybackState, TransportError>;
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError>;
+    async fn get_position_info(&self) -> Result<Option<PositionInfo>, TransportError>;
 }
 
 pub struct AVTransportImpl {
@@ -118,5 +124,20 @@ impl AVTransport for AVTransportImpl {
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError> {
         let state = self.state.read().await;
         Ok(state.media.clone())
+    }
+
+    async fn get_position_info(&self) -> Result<Option<PositionInfo>, TransportError> {
+        let state = self.state.read().await;
+
+        if let Some(media) = &state.media {
+            Ok(Some(PositionInfo {
+                uri: media.uri.clone(),
+                metadata: media.metadata.clone(),
+                position: Some(state.position),
+                duration: media.duration,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }

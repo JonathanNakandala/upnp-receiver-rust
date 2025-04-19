@@ -8,13 +8,12 @@ use axum::body::Body;
 use std::sync::Arc;
 
 use crate::server::soap::types::av_transport::{
-    GetMediaInfoRequest, SetAVTransportURIRequest, UPnPInstanceRequest,
+    AVTransportAction, GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest,
+    PauseRequest, PlayRequest, SetAVTransportURIRequest, StopRequest,
 };
 use axum::http::Response;
 use axum::response::IntoResponse;
 use tracing::debug;
-
-use super::AVTransportAction;
 
 pub struct AVTransportService;
 #[async_trait::async_trait]
@@ -54,11 +53,35 @@ impl UPnPService for AVTransportService {
                     extract_and_parse_soap_body::<SetAVTransportURIRequest>(content, action_name)?;
                 Ok(AVTransportAction::SetAVTransportURI(request))
             }
-            "GetMediaInfo" => Ok(AVTransportAction::GetMediaInfo(GetMediaInfoRequest {
-                base: UPnPInstanceRequest { instance_id: 1 },
-            })),
+            "Play" => {
+                let request = extract_and_parse_soap_body::<PlayRequest>(content, action_name)?;
+                Ok(AVTransportAction::Play(request))
+            }
+            "Pause" => {
+                let request = extract_and_parse_soap_body::<PauseRequest>(content, action_name)?;
+                Ok(AVTransportAction::Pause(request))
+            }
+            "Stop" => {
+                let request = extract_and_parse_soap_body::<StopRequest>(content, action_name)?;
+                Ok(AVTransportAction::Stop(request))
+            }
+            "GetTransportInfo" => {
+                let request =
+                    extract_and_parse_soap_body::<GetTransportInfoRequest>(content, action_name)?;
+                Ok(AVTransportAction::GetTransportInfo(request))
+            }
+            "GetMediaInfo" => {
+                let request =
+                    extract_and_parse_soap_body::<GetMediaInfoRequest>(content, action_name)?;
+                Ok(AVTransportAction::GetMediaInfo(request))
+            }
+            "GetPositionInfo" => {
+                let request =
+                    extract_and_parse_soap_body::<GetPositionInfoRequest>(content, action_name)?;
+                Ok(AVTransportAction::GetPositionInfo(request))
+            }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
-                "Action not Implemented Yet {}",
+                "Action not Implemented Yet: {}",
                 action_name
             )))),
         }

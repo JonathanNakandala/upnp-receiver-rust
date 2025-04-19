@@ -1,13 +1,15 @@
+use local_ip_address::list_afinet_netifas;
 use std::error::Error;
 use std::net::{IpAddr, Ipv4Addr};
-use local_ip_address::list_afinet_netifas;
 
+// Determines the IP address to listen on
 pub fn get_default_ip() -> Result<IpAddr, Box<dyn Error>> {
     // First try to get all network interfaces
     let network_interfaces = list_afinet_netifas()?;
 
     // Look for non-loopback IPv4 addresses
-    let default_ip = network_interfaces.iter()
+    let default_ip = network_interfaces
+        .iter()
         .find(|(_, ip)| {
             if let IpAddr::V4(addr) = ip {
                 !addr.is_loopback() && !addr.is_link_local() && !addr.is_multicast()

@@ -1,26 +1,10 @@
-use serde::de::{Deserializer, Visitor};
 use serde::Deserialize;
-use std::fmt;
 
-pub trait UPnPRequestWithInstance {
-    fn instance_id(&self) -> u32;
-}
-#[derive(Debug, Deserialize)]
-pub struct UPnPInstanceRequest {
-    #[serde(rename = "InstanceID")]
-    pub instance_id: u32,
-}
-
-impl UPnPRequestWithInstance for UPnPInstanceRequest {
-    fn instance_id(&self) -> u32 {
-        self.instance_id
-    }
-}
 // Struct for PlayRequest
 #[derive(Debug, Deserialize)]
 pub struct PlayRequest {
-    #[serde(flatten)]
-    pub base: UPnPInstanceRequest,
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
     #[serde(rename = "Speed")]
     pub speed: String,
 }
@@ -28,42 +12,42 @@ pub struct PlayRequest {
 // Struct for PauseRequest
 #[derive(Debug, Deserialize)]
 pub struct PauseRequest {
-    #[serde(flatten)]
-    pub base: UPnPInstanceRequest,
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
 }
 
 // Struct for StopRequest
 #[derive(Debug, Deserialize)]
 pub struct StopRequest {
-    #[serde(flatten)]
-    pub base: UPnPInstanceRequest,
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
 }
 
-// Struct for GetTransportInfoRequest
+// Request Data for urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo
 #[derive(Debug, Deserialize)]
 pub struct GetTransportInfoRequest {
-    #[serde(flatten)]
-    pub base: UPnPInstanceRequest,
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
 }
 
-// Struct for GetMediaInfoRequest
+// Request Data for urn:schemas-upnp-org:service:AVTransport:1#GetMediaInfo
 #[derive(Debug, Deserialize)]
 pub struct GetMediaInfoRequest {
-    #[serde(flatten)]
-    pub base: UPnPInstanceRequest,
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
 }
 
 // Struct for GetPositionInfoRequest
 #[derive(Debug, Deserialize)]
 pub struct GetPositionInfoRequest {
-    #[serde(flatten)]
-    pub base: UPnPInstanceRequest,
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SetAVTransportURIRequest {
     #[serde(rename = "InstanceID")]
-    pub instance_id: String,
+    pub instance_id: u32,
 
     #[serde(rename = "CurrentURI")]
     pub current_uri: String,

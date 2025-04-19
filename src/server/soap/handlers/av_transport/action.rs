@@ -1,4 +1,5 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
+use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
     AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, SetAVTransportURIResponse,
     TransportState, TransportStatus,
@@ -8,31 +9,9 @@ use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
 
-use crate::server::soap::types::av_transport::{
-    GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest,
-    PlayRequest, SetAVTransportURIRequest, StopRequest,
-};
-use serde::Deserialize;
+use crate::server::soap::types::av_transport::AVTransportAction;
 
 use super::utils::format_duration;
-
-#[derive(Debug, Deserialize)]
-pub enum AVTransportAction {
-    #[serde(rename = "u:SetAVTransportURI")]
-    SetAVTransportURI(SetAVTransportURIRequest),
-    #[serde(rename = "Play")]
-    Play(PlayRequest),
-    #[serde(rename = "Pause")]
-    Pause(PauseRequest),
-    #[serde(rename = "Stop")]
-    Stop(StopRequest),
-    #[serde(rename = "GetTransportInfo")]
-    GetTransportInfo(GetTransportInfoRequest),
-    #[serde(rename = "GetMediaInfo")]
-    GetMediaInfo(GetMediaInfoRequest),
-    #[serde(rename = "GetPositionInfo")]
-    GetPositionInfo(GetPositionInfoRequest),
-}
 
 impl UPnPAction for AVTransportAction {
     type Response = AVTransportResponse;
@@ -123,6 +102,39 @@ impl UPnPAction for AVTransportAction {
                     }))
                 }
             }
+
+            Self::GetPositionInfo(req) => {
+                if let Some(position) = renderer.av_transport.get_position_info().await? {
+                    Ok(AVTransportResponse::PositionInfo(GetPositionInfoResponse {
+                        track: 1,
+                        track_duration: position
+                            .duration
+                            .map(format_duration)
+                            .unwrap_or_else(|| "00:00:00".to_string()),
+                        track_metadata: position.metadata.unwrap_or_default(),
+                        track_uri: position.uri,
+                        rel_time: position
+                            .position
+                            .map(format_duration)
+                            .unwrap_or_else(|| "00:00:00".to_string()),
+                        abs_time: "00:00:00".to_string(),
+                        rel_count: 0,
+                        abs_count: 0,
+                    }))
+                } else {
+                    Ok(AVTransportResponse::PositionInfo(GetPositionInfoResponse {
+                        track: 0,
+                        track_duration: "00:00:00".to_string(),
+                        track_metadata: "".to_string(),
+                        track_uri: "".to_string(),
+                        rel_time: "00:00:00".to_string(),
+                        abs_time: "00:00:00".to_string(),
+                        rel_count: 0,
+                        abs_count: 0,
+                    }))
+                }
+            }
+
             _ => Err(SoapError::Soap(SoapProtocolError::InvalidAction(
                 "Unknown AV Transport Action".to_string(),
             ))),

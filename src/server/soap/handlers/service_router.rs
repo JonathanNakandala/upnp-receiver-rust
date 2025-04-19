@@ -9,7 +9,7 @@ use axum::http::{HeaderMap, Response};
 use axum::routing::post;
 use axum::Router;
 use std::sync::Arc;
-use tracing::{debug, info, instrument, trace};
+use tracing::{debug, instrument, trace};
 
 pub struct UPnPServiceRouter {
     renderer: Arc<MediaRenderer>,

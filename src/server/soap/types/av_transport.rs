@@ -9,5 +9,7 @@ pub use response::{
 
 pub use request::{
     GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest,
-    PlayRequest, SetAVTransportURIRequest, StopRequest, UPnPInstanceRequest,
+    PlayRequest, SetAVTransportURIRequest, StopRequest,
 };
+
+pub use action::AVTransportAction;

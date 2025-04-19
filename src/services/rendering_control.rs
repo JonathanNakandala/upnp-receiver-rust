@@ -1,4 +1,3 @@
-// src/services/rendering_control.rs
 use crate::services::error::ServiceError;
 use async_trait::async_trait;
 use std::sync::Arc;
