@@ -69,6 +69,8 @@ pub enum TransportError {
 
     #[error("internal error: {0}")]
     Internal(String),
+    #[error("other error: {0}")]
+    Other(String),
 }
 
 #[derive(Error, Debug, Clone)]

@@ -1,9 +1,13 @@
 use std::error::Error;
 use std::net::IpAddr;
 use std::sync::Arc;
-use tracing::info;
+use tokio::sync::Mutex;
+use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::backend::{
+    MediaBackend, MediaBackendAVTransport, MediaProcessBackend, MediaProcessManager,
+};
 use crate::discovery::error::DiscoveryServiceError;
 use crate::discovery::service::{
     MediaRendererConfig, MediaRendererService, Server, ServiceInfo, SsdpService,
@@ -35,10 +39,28 @@ pub struct MediaRenderer {
     pub av_transport: Arc<dyn AVTransport>,
     pub rendering_control: Arc<dyn RenderingControl>,
     pub connection_manager: Arc<dyn ConnectionManager>,
-}
 
+    // Media process manager (optional)
+    media_manager: Option<Arc<Mutex<MediaProcessManager>>>,
+}
 impl MediaRenderer {
     pub fn new(config: MediaRendererConfig) -> Result<Self, Box<dyn Error>> {
+        // Create renderer without media capabilities
+        Self::create_renderer(config, None)
+    }
+
+    pub fn new_with_media_backend(
+        config: MediaRendererConfig,
+        media_manager: Option<Arc<Mutex<MediaProcessManager>>>,
+    ) -> Result<Self, Box<dyn Error>> {
+        Self::create_renderer(config, media_manager)
+    }
+
+    // Private helper to create the renderer with or without media backend
+    fn create_renderer(
+        config: MediaRendererConfig,
+        media_manager: Option<Arc<Mutex<MediaProcessManager>>>,
+    ) -> Result<Self, Box<dyn Error>> {
         let ip_addr = match config.ip_addr {
             Some(ip) => ip,
             None => {
@@ -51,9 +73,26 @@ impl MediaRenderer {
             }
         };
 
-        // Initialize services
-        let av_transport = Arc::new(AVTransportImpl::new());
-        let rendering_control = Arc::new(RenderingControlImpl::new());
+        // Create the media backend if we have a manager
+        let media_backend = media_manager
+            .clone()
+            .map(|mgr| Arc::new(MediaProcessBackend::new(mgr)) as Arc<dyn MediaBackend>);
+
+        // Initialize services based on whether we have a media backend
+        let (av_transport, rendering_control) = if let Some(backend) = media_backend.clone() {
+            info!("Using media backend for AV transport and rendering control");
+            (
+                Arc::new(MediaBackendAVTransport::new(backend.clone())) as Arc<dyn AVTransport>,
+                Arc::new(RenderingControlImpl::new()) as Arc<dyn RenderingControl>, // Keep simple impl for now
+            )
+        } else {
+            warn!("No media backend available, using fallback implementations");
+            (
+                Arc::new(AVTransportImpl::new()) as Arc<dyn AVTransport>,
+                Arc::new(RenderingControlImpl::new()) as Arc<dyn RenderingControl>,
+            )
+        };
+
         let connection_manager = Arc::new(DummyConnectionManager::new());
 
         Ok(Self {
@@ -70,13 +109,17 @@ impl MediaRenderer {
             model_url: config.model_url,
             serial_number: config.serial_number,
             services: MediaRendererConfig::default_services(),
-            // Add service implementations
+            // Set service implementations
             av_transport,
             rendering_control,
             connection_manager,
+            // Store the media manager
+            media_manager,
         })
     }
-
+    pub fn has_media_capabilities(&self) -> bool {
+        self.media_manager.is_some()
+    }
     pub fn ip_addr(&self) -> IpAddr {
         self.ip_addr
     }
@@ -121,7 +164,6 @@ impl MediaRenderer {
         self.unique_id
     }
 }
-
 impl Clone for MediaRenderer {
     fn clone(&self) -> Self {
         Self {
@@ -142,6 +184,8 @@ impl Clone for MediaRenderer {
             av_transport: self.av_transport.clone(),
             rendering_control: self.rendering_control.clone(),
             connection_manager: self.connection_manager.clone(),
+            // Clone the media manager if it exists
+            media_manager: self.media_manager.clone(),
         }
     }
 }
@@ -155,5 +199,14 @@ impl SsdpService for MediaRenderer {
             server: self.server.clone(),
             services: self.services.iter().map(|s| s.to_urn()).collect(),
         })
+    }
+}
+pub struct MediaProcessAVTransport {
+    media_manager: Arc<Mutex<MediaProcessManager>>,
+}
+
+impl MediaProcessAVTransport {
+    pub fn new(media_manager: Arc<Mutex<MediaProcessManager>>) -> Self {
+        Self { media_manager }
     }
 }

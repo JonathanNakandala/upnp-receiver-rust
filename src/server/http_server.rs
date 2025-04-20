@@ -16,8 +16,8 @@ use axum::{
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{debug, error, info, instrument, trace};
 use tower_http::trace::{self, TraceLayer};
+use tracing::{debug, error, info, instrument, trace};
 #[derive(Debug)]
 pub struct XmlResponse(String);
 
@@ -104,7 +104,7 @@ impl HttpServer {
                 TraceLayer::new_for_http()
                     .make_span_with(trace::DefaultMakeSpan::new().level(tracing::Level::INFO))
                     .on_request(trace::DefaultOnRequest::new().level(tracing::Level::INFO))
-                    .on_response(trace::DefaultOnResponse::new().level(tracing::Level::INFO))
+                    .on_response(trace::DefaultOnResponse::new().level(tracing::Level::INFO)),
             )
             .with_state(Arc::clone(&self.renderer))
     }

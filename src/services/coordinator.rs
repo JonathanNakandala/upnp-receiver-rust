@@ -12,7 +12,7 @@ use tracing::{debug, error, info, trace, warn};
 
 #[derive(Clone, Debug)]
 pub enum ServiceEvent {
-    PlaybackStateChanged(TransportState),
+    TransportStateChanged(TransportState),
     ConnectionStateChanged(ConnectionState),
     MediaChanged(Option<MediaInfo>),
     Error(ServiceError),
@@ -54,7 +54,7 @@ impl ServiceCoordinator {
 
         if let Err(e) = self.event_tx.send(event.clone()) {
             let error = match &event {
-                ServiceEvent::PlaybackStateChanged(state) => {
+                ServiceEvent::TransportStateChanged(state) => {
                     warn!(state = ?state, error = %e, "Failed to broadcast playback state");
                     ServiceError::Transport(TransportError::Internal(format!(
                         "Failed to broadcast playback state: {}",
@@ -145,7 +145,7 @@ fn create_broadcast_function(
             trace!(event = ?event, "Attempting to broadcast event");
             if let Err(e) = event_tx.send(event.clone()) {
                 let error = match &event {
-                    ServiceEvent::PlaybackStateChanged(state) => {
+                    ServiceEvent::TransportStateChanged(state) => {
                         warn!(state = ?state, error = %e, "Failed to broadcast playback state");
                         ServiceError::Transport(TransportError::Internal(format!(
                             "Failed to broadcast playback state: {}",
@@ -245,7 +245,7 @@ async fn monitor_playback_state(
                         new_state = ?current_state,
                         "Playback state changed"
                     );
-                    broadcast_event(ServiceEvent::PlaybackStateChanged(current_state)).await?;
+                    broadcast_event(ServiceEvent::TransportStateChanged(current_state)).await?;
                     last_state = Some(current_state);
                 }
             }
