@@ -3,7 +3,11 @@
 //! advertises — service type/version, the actions it implements, and the
 //! SCPD's own UPnP Device Architecture spec version.
 //!
-//! Usage: `upnp-discover [wait-seconds]` (default 3).
+//! Usage: `upnp-discover [wait-seconds] [--vars]`
+//! - `wait-seconds`: how long to listen for search responses (default 3).
+//! - `--vars`/`-v`: also report each state variable that declares an
+//!   `allowedValueList` (enum) or `allowedValueRange` (numeric bounds) —
+//!   the concrete options/ranges a control point may send that variable.
 //!
 //! Progress/errors go through `tracing` (the same timestamp-free
 //! `TextFormatter` the receiver binary uses); the actual report is a
@@ -16,13 +20,43 @@ use std::time::Duration;
 use termtree::Tree;
 use tracing_subscriber::EnvFilter;
 use upnp_receiver::discovery::client::{discover, SsdpResponse};
-use upnp_receiver::discovery::description::{fetch_device_report, DeviceReport, ServiceReport};
+use upnp_receiver::discovery::description::{
+    fetch_device_report, DeviceReport, ServiceReport, VariableConstraint,
+};
 use upnp_receiver::logging::{LogStyle, TextFormatter};
 
 const DEFAULT_WAIT_SECS: u64 = 3;
-/// Column width the wrapped action list targets, including the leading
-/// indent — chosen to comfortably fit an 80-column terminal.
-const ACTIONS_WRAP_WIDTH: usize = 76;
+/// Column width the wrapped action/variable lists target, including the
+/// leading indent — chosen to comfortably fit an 80-column terminal.
+const WRAP_WIDTH: usize = 76;
+
+struct Args {
+    wait: Duration,
+    show_vars: bool,
+}
+
+impl Args {
+    fn parse() -> Self {
+        let mut wait_secs = DEFAULT_WAIT_SECS;
+        let mut show_vars = false;
+
+        for arg in std::env::args().skip(1) {
+            match arg.as_str() {
+                "--vars" | "-v" => show_vars = true,
+                other => {
+                    if let Ok(secs) = other.parse::<u64>() {
+                        wait_secs = secs;
+                    }
+                }
+            }
+        }
+
+        Self {
+            wait: Duration::from_secs(wait_secs),
+            show_vars,
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -31,12 +65,8 @@ async fn main() {
         .event_format(TextFormatter::new(LogStyle::Terminal))
         .init();
 
-    let wait = Duration::from_secs(
-        std::env::args()
-            .nth(1)
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(DEFAULT_WAIT_SECS),
-    );
+    let args = Args::parse();
+    let wait = args.wait;
 
     tracing::info!(wait_secs = wait.as_secs(), "Sending SSDP M-SEARCH (ssdp:all)");
 
@@ -71,11 +101,16 @@ async fn main() {
     let palette = Palette::detect();
     println!();
     for (response, report) in &reports {
-        println!("{}", device_tree(&palette, response, report));
+        println!("{}", device_tree(&palette, response, report, args.show_vars));
     }
 }
 
-fn device_tree(palette: &Palette, response: &SsdpResponse, report: &DeviceReport) -> Tree<String> {
+fn device_tree(
+    palette: &Palette,
+    response: &SsdpResponse,
+    report: &DeviceReport,
+    show_vars: bool,
+) -> Tree<String> {
     let name = if report.friendly_name.is_empty() {
         "(unnamed device)"
     } else {
@@ -115,11 +150,11 @@ fn device_tree(palette: &Palette, response: &SsdpResponse, report: &DeviceReport
         report
             .services
             .iter()
-            .map(|service| service_node(palette, service)),
+            .map(|service| service_node(palette, service, show_vars)),
     )
 }
 
-fn service_node(palette: &Palette, service: &ServiceReport) -> Tree<String> {
+fn service_node(palette: &Palette, service: &ServiceReport, show_vars: bool) -> Tree<String> {
     let (name, version) = split_urn(&service.service_type);
     let header = format!(
         "{bold}{name}:{version}{reset} {dim}(SCPD {major}.{minor}){reset}",
@@ -132,12 +167,65 @@ fn service_node(palette: &Palette, service: &ServiceReport) -> Tree<String> {
         minor = service.spec_version.1,
     );
 
-    if service.actions.is_empty() {
-        return Tree::new(header);
+    let mut node = Tree::new(header);
+
+    if !service.actions.is_empty() {
+        node.push(labeled_block(
+            palette,
+            "Actions",
+            &wrap_csv(&service.actions, WRAP_WIDTH),
+        ));
     }
 
-    let actions = wrap_csv(&service.actions, ACTIONS_WRAP_WIDTH);
-    Tree::new(format!("{}\n{}", header, actions)).with_multiline(true)
+    if show_vars {
+        let constrained: Vec<String> = service
+            .state_variables
+            .iter()
+            .filter_map(|v| v.constraint.as_ref().map(|c| format_variable(palette, &v.name, c)))
+            .collect();
+
+        if !constrained.is_empty() {
+            node.push(labeled_block(
+                palette,
+                "Allowed values",
+                &constrained.join("\n"),
+            ));
+        }
+    }
+
+    node
+}
+
+fn labeled_block(palette: &Palette, label: &str, body: &str) -> Tree<String> {
+    Tree::new(format!(
+        "{dim}{label}:{reset}\n{body}",
+        dim = palette.dim,
+        reset = palette.reset,
+        label = label,
+        body = body,
+    ))
+    .with_multiline(true)
+}
+
+fn format_variable(palette: &Palette, name: &str, constraint: &VariableConstraint) -> String {
+    const INDENT: &str = "    ";
+    let values = match constraint {
+        VariableConstraint::Enum(values) => values.join(", "),
+        VariableConstraint::Range {
+            minimum,
+            maximum,
+            step,
+        } => match step {
+            Some(step) => format!("{}..{} (step {})", minimum, maximum, step),
+            None => format!("{}..{}", minimum, maximum),
+        },
+    };
+
+    format!(
+        "{INDENT}{bold}{name}{reset}: {values}",
+        bold = palette.bold,
+        reset = palette.reset,
+    )
 }
 
 /// `"urn:schemas-upnp-org:service:AVTransport:1"` -> `("AVTransport", "1")`.
