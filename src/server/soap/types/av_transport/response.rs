@@ -46,9 +46,13 @@ pub struct GetTransportInfoResponse {
 pub struct GetMediaInfoResponse {
     pub nr_tracks: u32,
     pub media_duration: String,
+    #[serde(rename = "CurrentURI")]
     pub current_uri: String,
+    #[serde(rename = "CurrentURIMetaData")]
     pub current_uri_metadata: String,
+    #[serde(rename = "NextURI")]
     pub next_uri: String,
+    #[serde(rename = "NextURIMetaData")]
     pub next_uri_metadata: String,
     pub play_medium: String,
     pub record_medium: String,
@@ -85,7 +89,9 @@ pub struct GetDeviceCapabilitiesResponse {
 pub struct GetPositionInfoResponse {
     pub track: u32,
     pub track_duration: String,
+    #[serde(rename = "TrackMetaData")]
     pub track_metadata: String,
+    #[serde(rename = "TrackURI")]
     pub track_uri: String,
     pub rel_time: String,
     pub abs_time: String,
