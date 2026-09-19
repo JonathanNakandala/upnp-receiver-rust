@@ -19,7 +19,6 @@
 //! [`ConnectionManager::GetProtocolInfo`]: crate::services::ConnectionManager::get_protocol_info
 
 use gstreamer as gst;
-use gstreamer::prelude::*;
 use std::collections::BTreeSet;
 
 use super::backend::ensure_initialized;

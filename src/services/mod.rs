@@ -3,7 +3,7 @@ pub mod connection_manager;
 pub mod coordinator;
 pub(crate) mod error;
 pub mod media_renderer;
-mod rendering_control;
+pub mod rendering_control;
 mod types_impl;
 
 pub use av_transport::AVTransport;

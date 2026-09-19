@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::backend::{MediaBackend, MediaBackendAVTransport};
+use crate::backend::{MediaBackend, MediaBackendAVTransport, MediaBackendRenderingControl};
 use crate::discovery::error::DiscoveryServiceError;
 use crate::discovery::service::{
     MediaRendererConfig, MediaRendererService, Server, ServiceInfo, SsdpService,
@@ -85,7 +85,8 @@ impl MediaRenderer {
             info!("Using media backend for AV transport and rendering control");
             (
                 Arc::new(MediaBackendAVTransport::new(backend.clone())) as Arc<dyn AVTransport>,
-                Arc::new(RenderingControlImpl::new()) as Arc<dyn RenderingControl>, // Keep simple impl for now
+                Arc::new(MediaBackendRenderingControl::new(backend.clone()))
+                    as Arc<dyn RenderingControl>,
             )
         } else {
             warn!("No media backend available, using fallback implementations");
