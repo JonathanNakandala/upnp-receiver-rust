@@ -31,6 +31,54 @@ pub fn parse_duration(value: &str) -> Option<std::time::Duration> {
     Some(std::time::Duration::from_secs(total))
 }
 
+/// The rates this renderer accepts for `Play`'s `Speed` argument, matched
+/// against the parsed value from [`parse_play_speed`] (float comparison is
+/// safe here since these are all exact binary fractions). Reverse playback
+/// isn't included — negative-rate seeking needs support from every element
+/// in the pipeline (source, demuxer, decoder), which most audio decoders
+/// don't have.
+pub const SUPPORTED_PLAY_SPEEDS: &[f64] = &[0.25, 0.5, 1.0, 2.0, 4.0];
+
+/// Parses a UPnP `TransportPlaySpeed` value — a plain number (`"1"`, `"2"`)
+/// or a fraction (`"1/2"`) — into a rate multiplier. Doesn't check it
+/// against [`SUPPORTED_PLAY_SPEEDS`]; callers do that separately so they can
+/// tell "malformed" apart from "well-formed but unsupported".
+pub fn parse_play_speed(value: &str) -> Option<f64> {
+    let value = value.trim();
+    if let Ok(speed) = value.parse::<f64>() {
+        return Some(speed);
+    }
+    let (numerator, denominator) = value.split_once('/')?;
+    let numerator: f64 = numerator.trim().parse().ok()?;
+    let denominator: f64 = denominator.trim().parse().ok()?;
+    if denominator == 0.0 {
+        return None;
+    }
+    Some(numerator / denominator)
+}
+
+/// The inverse of [`parse_play_speed`] for the subset of rates this
+/// renderer actually accepts — used to render `GetTransportInfo`'s
+/// `CurrentSpeed`. UPnP control points expect the same fraction notation
+/// back (e.g. `"1/2"`, not `"0.5"`).
+pub fn format_play_speed(speed: f64) -> String {
+    const KNOWN: &[(f64, &str)] = &[
+        (0.25, "1/4"),
+        (0.5, "1/2"),
+        (1.0, "1"),
+        (2.0, "2"),
+        (4.0, "4"),
+    ];
+    for (value, label) in KNOWN {
+        if (speed - value).abs() < f64::EPSILON {
+            return (*label).to_string();
+        }
+    }
+    // Shouldn't happen for a speed that went through SUPPORTED_PLAY_SPEEDS,
+    // but a plain decimal is still a valid TransportPlaySpeed string.
+    speed.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,5 +112,34 @@ mod tests {
             parse_duration("0:00:51.000"),
             Some(Duration::from_secs(51))
         );
+    }
+
+    #[test]
+    fn parses_play_speed_values() {
+        assert_eq!(parse_play_speed("1"), Some(1.0));
+        assert_eq!(parse_play_speed("2"), Some(2.0));
+        assert_eq!(parse_play_speed("1/2"), Some(0.5));
+        assert_eq!(parse_play_speed("1/4"), Some(0.25));
+        assert_eq!(parse_play_speed(" 1 / 2 "), Some(0.5));
+    }
+
+    #[test]
+    fn rejects_malformed_play_speed() {
+        assert_eq!(parse_play_speed(""), None);
+        assert_eq!(parse_play_speed("fast"), None);
+        assert_eq!(parse_play_speed("1/0"), None);
+        assert_eq!(parse_play_speed("1/"), None);
+    }
+
+    #[test]
+    fn play_speed_round_trips_through_supported_values() {
+        for &speed in SUPPORTED_PLAY_SPEEDS {
+            let formatted = format_play_speed(speed);
+            assert_eq!(
+                parse_play_speed(&formatted),
+                Some(speed),
+                "round-trip failed for {speed}"
+            );
+        }
     }
 }

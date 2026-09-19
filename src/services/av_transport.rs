@@ -12,6 +12,7 @@ pub struct AVTransportState {
     media: Option<MediaInfo>,
     position: Duration,
     next: Option<(String, Option<String>)>,
+    speed: f64,
 }
 pub struct PositionInfo {
     pub uri: String,
@@ -53,6 +54,13 @@ pub trait AVTransport: Send + Sync {
     ///
     /// [`MediaBackend::get_status`]: crate::backend::MediaBackend::get_status
     async fn get_status(&self) -> Result<TransportStatus, TransportError>;
+    /// Changes playback rate without restarting the track — UPnP's `Play`
+    /// action's `Speed` argument. See [`MediaBackend::set_play_speed`].
+    ///
+    /// [`MediaBackend::set_play_speed`]: crate::backend::MediaBackend::set_play_speed
+    async fn set_play_speed(&self, speed: f64) -> Result<(), TransportError>;
+    /// The rate last set via `set_play_speed`, defaulting to 1.0.
+    async fn get_play_speed(&self) -> Result<f64, TransportError>;
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError>;
     async fn get_position_info(&self) -> Result<Option<PositionInfo>, TransportError>;
     /// Queues the track to play next — UPnP's `SetNextAVTransportURI`. An
@@ -77,6 +85,7 @@ impl AVTransportImpl {
                 media: None,
                 position: Duration::from_secs(0),
                 next: None,
+                speed: 1.0,
             })),
         }
     }
@@ -169,6 +178,17 @@ impl AVTransport for AVTransportImpl {
     async fn get_status(&self) -> Result<TransportStatus, TransportError> {
         // This fallback impl has no real playback to fail.
         Ok(TransportStatus::OK)
+    }
+
+    async fn set_play_speed(&self, speed: f64) -> Result<(), TransportError> {
+        // No real playback to actually change the rate of; just remember
+        // it so GetTransportInfo's CurrentSpeed reads back correctly.
+        self.state.write().await.speed = speed;
+        Ok(())
+    }
+
+    async fn get_play_speed(&self) -> Result<f64, TransportError> {
+        Ok(self.state.read().await.speed)
     }
 
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError> {

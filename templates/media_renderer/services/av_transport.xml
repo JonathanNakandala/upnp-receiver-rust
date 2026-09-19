@@ -278,7 +278,11 @@
             <name>TransportPlaySpeed</name>
             <dataType>string</dataType>
             <allowedValueList>
+                <allowedValue>1/4</allowedValue>
+                <allowedValue>1/2</allowedValue>
                 <allowedValue>1</allowedValue>
+                <allowedValue>2</allowedValue>
+                <allowedValue>4</allowedValue>
             </allowedValueList>
         </stateVariable>
 

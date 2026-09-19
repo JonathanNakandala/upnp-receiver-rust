@@ -35,6 +35,9 @@ struct PlayerState {
     // `OK` by `load_media`, since a fresh `SetAVTransportURI` is a new
     // attempt regardless of how the previous one ended.
     status: TransportStatus,
+    // Current playback rate, set via `set_play_speed` — UPnP's `Play`
+    // action's `Speed` argument. Reset to 1.0 by `load_media`/`stop`.
+    speed: f64,
     // The single UPnP `SetNextAVTransportURI` lookahead slot. Consumed by
     // the `about-to-finish` handler for a gapless transition; cleared by an
     // explicit `load_media` (a fresh `SetAVTransportURI` invalidates
@@ -49,6 +52,7 @@ impl Default for PlayerState {
             metadata: None,
             transport_state: TransportState::NoMediaPresent,
             status: TransportStatus::OK,
+            speed: 1.0,
             next: None,
         }
     }
@@ -270,6 +274,9 @@ impl MediaBackend for GStreamerBackend {
             // A fresh SetAVTransportURI is a new attempt regardless of how
             // the previous track ended — don't carry a stale error forward.
             state.status = TransportStatus::OK;
+            // A new track starts at normal speed regardless of what the
+            // previous one was playing at.
+            state.speed = 1.0;
             // An explicit SetAVTransportURI starts a new "current track"
             // context — whatever was previously queued to follow the old
             // track no longer applies.
@@ -325,6 +332,7 @@ impl MediaBackend for GStreamerBackend {
         } else {
             TransportState::NoMediaPresent
         };
+        state.speed = 1.0;
         Ok(())
     }
 
@@ -361,6 +369,46 @@ impl MediaBackend for GStreamerBackend {
 
     async fn get_status(&self) -> Result<TransportStatus, MediaBackendError> {
         Ok(self.state.lock().unwrap().status)
+    }
+
+    async fn set_play_speed(&self, speed: f64) -> Result<(), MediaBackendError> {
+        if speed <= 0.0 {
+            // Reverse/zero-rate playback needs every element in the chain
+            // (source, demuxer, decoder) to support negative-rate seeking,
+            // which most audio decoders don't — rejecting outright is more
+            // honest than a seek that silently does nothing or errors deep
+            // in the pipeline.
+            return Err(MediaBackendError::Unsupported(format!(
+                "Reverse or zero playback speed is not supported: {}",
+                speed
+            )));
+        }
+
+        // Re-seek at the new rate from the current position — GStreamer has
+        // no separate "just change the rate" call; a seek is how rate
+        // changes are done, same as a position change.
+        let position = self
+            .playbin
+            .query_position::<gst::ClockTime>()
+            .unwrap_or(gst::ClockTime::ZERO);
+
+        self.playbin
+            .seek(
+                speed,
+                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+                gst::SeekType::Set,
+                position,
+                gst::SeekType::None,
+                gst::ClockTime::NONE,
+            )
+            .map_err(|e| MediaBackendError::GStreamer(format!("Speed change failed: {}", e)))?;
+
+        self.state.lock().unwrap().speed = speed;
+        Ok(())
+    }
+
+    async fn get_play_speed(&self) -> Result<f64, MediaBackendError> {
+        Ok(self.state.lock().unwrap().speed)
     }
 
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {

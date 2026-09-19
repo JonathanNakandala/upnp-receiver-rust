@@ -10,6 +10,7 @@
 
 use quick_xml::escape::escape;
 
+use crate::server::soap::handlers::av_transport::utils::format_play_speed;
 use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
 use crate::services::av_transport::AVTransport;
 
@@ -22,6 +23,7 @@ use crate::services::av_transport::AVTransport;
 pub struct AVTransportEventState {
     pub transport_state: TransportState,
     pub transport_status: TransportStatus,
+    pub play_speed: f64,
     pub current_uri: String,
     pub current_metadata: Option<String>,
     pub next_uri: String,
@@ -41,11 +43,13 @@ impl AVTransportEventState {
             .get_status()
             .await
             .unwrap_or(TransportStatus::OK);
+        let play_speed = av_transport.get_play_speed().await.unwrap_or(1.0);
         let media = av_transport.get_media_info().await.ok().flatten();
 
         Self {
             transport_state,
             transport_status,
+            play_speed,
             current_uri: media.as_ref().map(|m| m.uri.clone()).unwrap_or_default(),
             current_metadata: media.as_ref().and_then(|m| m.metadata.clone()),
             next_uri: media.as_ref().map(|m| m.next_uri.clone()).unwrap_or_default(),
@@ -96,6 +100,7 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
             r#"<InstanceID val="0">"#,
             r#"<TransportState val="{state}"/>"#,
             r#"<TransportStatus val="{status}"/>"#,
+            r#"<TransportPlaySpeed val="{speed}"/>"#,
             r#"<CurrentTransportActions val="{actions}"/>"#,
             r#"<AVTransportURI val="{uri}"/>"#,
             r#"<AVTransportURIMetaData val="{metadata}"/>"#,
@@ -106,6 +111,7 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
         ),
         state = transport_state_str(event.transport_state),
         status = transport_status_str(event.transport_status),
+        speed = format_play_speed(event.play_speed),
         actions = transport_actions_for(event.transport_state),
         uri = escape(&event.current_uri),
         metadata = escape(event.current_metadata.as_deref().unwrap_or("")),
@@ -155,6 +161,7 @@ mod tests {
         AVTransportEventState {
             transport_state,
             transport_status: TransportStatus::OK,
+            play_speed: 1.0,
             current_uri: String::new(),
             current_metadata: None,
             next_uri: String::new(),
@@ -188,6 +195,7 @@ mod tests {
         let body = av_transport_last_change(&AVTransportEventState {
             transport_state: TransportState::Playing,
             transport_status: TransportStatus::OK,
+            play_speed: 1.0,
             current_uri: "http://example.com/a.mp3".to_string(),
             current_metadata: Some("<DIDL-Lite>\"quoted\"</DIDL-Lite>".to_string()),
             next_uri: "http://example.com/b.mp3".to_string(),

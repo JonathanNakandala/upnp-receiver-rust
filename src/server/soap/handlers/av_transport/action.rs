@@ -13,7 +13,9 @@ use tracing::info;
 
 use crate::server::soap::types::av_transport::AVTransportAction;
 
-use super::utils::{format_duration, parse_duration};
+use super::utils::{
+    format_duration, format_play_speed, parse_duration, parse_play_speed, SUPPORTED_PLAY_SPEEDS,
+};
 
 /// Publishes a `LastChange` NOTIFY reflecting the transport state right
 /// after a state-changing action succeeds, so subscribed control points
@@ -75,7 +77,25 @@ impl UPnPAction for AVTransportAction {
             }
             Self::Play(req) => {
                 info!(instance_id = req.instance_id, speed = %req.speed, "Handling Play");
+
+                let speed = parse_play_speed(&req.speed).ok_or_else(|| {
+                    SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                        "Invalid play speed: {}",
+                        req.speed
+                    )))
+                })?;
+                if !SUPPORTED_PLAY_SPEEDS.contains(&speed) {
+                    return Err(SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                        "Unsupported play speed: {} (supported: 1/4, 1/2, 1, 2, 4)",
+                        req.speed
+                    ))));
+                }
+
+                // play() alone is a no-op if we're already Playing (e.g. a
+                // control point scrubbing speed mid-playback), so the speed
+                // change still needs to happen unconditionally after it.
                 renderer.av_transport.play().await?;
+                renderer.av_transport.set_play_speed(speed).await?;
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::Play(PlayResponse {}))
             }
@@ -114,11 +134,12 @@ impl UPnPAction for AVTransportAction {
                 info!(instance_id = req.instance_id, "Handling GetTransportInfo");
                 let state = renderer.av_transport.get_state().await?;
                 let status = renderer.av_transport.get_status().await?;
+                let speed = renderer.av_transport.get_play_speed().await?;
                 Ok(AVTransportResponse::TransportInfo(
                     GetTransportInfoResponse {
                         current_transport_state: state,
                         current_transport_status: status,
-                        current_speed: "1".to_string(),
+                        current_speed: format_play_speed(speed),
                     },
                 ))
             }

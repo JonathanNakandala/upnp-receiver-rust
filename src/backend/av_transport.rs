@@ -89,6 +89,20 @@ impl AVTransport for MediaBackendAVTransport {
         self.backend.get_status().await.map_err(Self::convert_error)
     }
 
+    async fn set_play_speed(&self, speed: f64) -> Result<(), TransportError> {
+        self.backend
+            .set_play_speed(speed)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_play_speed(&self) -> Result<f64, TransportError> {
+        self.backend
+            .get_play_speed()
+            .await
+            .map_err(Self::convert_error)
+    }
+
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError> {
         // Get both URI and duration to construct MediaInfo
         let uri_future = self.backend.get_current_uri();

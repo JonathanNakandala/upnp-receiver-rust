@@ -36,6 +36,17 @@ pub trait MediaBackend: Send + Sync {
     /// concept of their own can always return `Ok(TransportStatus::OK)`.
     async fn get_status(&self) -> Result<TransportStatus, MediaBackendError>;
 
+    /// Changes playback rate without restarting the track — UPnP's `Play`
+    /// action's `Speed` argument (1.0 is normal speed, 2.0 double speed,
+    /// 0.5 half speed, etc.). Takes effect from the current position
+    /// onward and persists until the next `load_media`/`stop`, which reset
+    /// it back to 1.0. A backend with no rate-change mechanism of its own
+    /// should reject anything other than 1.0 with
+    /// `MediaBackendError::Unsupported` rather than silently ignoring it.
+    async fn set_play_speed(&self, speed: f64) -> Result<(), MediaBackendError>;
+    /// The rate last set via `set_play_speed`, defaulting to 1.0.
+    async fn get_play_speed(&self) -> Result<f64, MediaBackendError>;
+
     // Volume control methods (for RenderingControl service)
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError>;
     async fn get_volume(&self) -> Result<u8, MediaBackendError>;

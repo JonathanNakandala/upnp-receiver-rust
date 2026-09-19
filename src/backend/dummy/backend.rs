@@ -12,6 +12,10 @@ pub struct DummyBackend {
     // this to current — it's just remembered and reported back, for API
     // completeness with the real backend.
     next: Mutex<Option<TrackInfo>>,
+    // No real decode pipeline to actually run at a different rate — just
+    // remembered so a `set_play_speed(1.0)` (the only value accepted)
+    // round-trips through `get_play_speed` for API completeness.
+    speed: Mutex<f64>,
 }
 
 impl DummyBackend {
@@ -19,6 +23,7 @@ impl DummyBackend {
         Self {
             manager,
             next: Mutex::new(None),
+            speed: Mutex::new(1.0),
         }
     }
 
@@ -128,6 +133,22 @@ impl MediaBackend for DummyBackend {
     async fn get_status(&self) -> Result<TransportStatus, MediaBackendError> {
         // The simulated backend never actually fails a playback attempt.
         Ok(TransportStatus::OK)
+    }
+
+    async fn set_play_speed(&self, speed: f64) -> Result<(), MediaBackendError> {
+        if speed == 1.0 {
+            *self.speed.lock().await = speed;
+            Ok(())
+        } else {
+            Err(MediaBackendError::Unsupported(format!(
+                "Playback speed control not yet implemented. Requested speed: {}",
+                speed
+            )))
+        }
+    }
+
+    async fn get_play_speed(&self) -> Result<f64, MediaBackendError> {
+        Ok(*self.speed.lock().await)
     }
 
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {
