@@ -2,8 +2,6 @@ use test_log::test;
 mod common;
 use common::{SoapClient, TestServer};
 
-use std::sync::Arc;
-use tokio::sync::OnceCell;
 use tracing_subscriber::{fmt::format::FmtSpan, EnvFilter};
 
 fn init_logging() {
@@ -24,27 +22,17 @@ fn init_logging() {
     // It's okay if this fails - might already be initialized
     let _ = subscriber;
 }
-// Global static server instance
-static SERVER: OnceCell<Arc<TestServer>> = OnceCell::const_new();
-static CLIENT: OnceCell<SoapClient> = OnceCell::const_new();
 
-async fn setup() -> (&'static Arc<TestServer>, &'static SoapClient) {
+// Each test gets its own server bound to an OS-assigned ephemeral port (port 0),
+// so tests can run concurrently without sharing playback state or racing on shutdown.
+async fn setup() -> (TestServer, SoapClient) {
     init_logging();
-    let server = SERVER
-        .get_or_init(|| async {
-            let server = TestServer::new().await;
-            assert!(
-                server.wait_for_ready().await,
-                "Server failed to become ready"
-            );
-            Arc::new(server)
-        })
-        .await;
-
-    let client = CLIENT
-        .get_or_init(|| async { SoapClient::new(server.address) })
-        .await;
-
+    let server = TestServer::new().await;
+    assert!(
+        server.wait_for_ready().await,
+        "Server failed to become ready"
+    );
+    let client = SoapClient::new(server.address);
     (server, client)
 }
 
@@ -65,7 +53,7 @@ async fn assert_response(resp: reqwest::Response, expected_status: u16) {
 
 #[test(tokio::test)]
 async fn test_set_transport_uri() {
-    let (_, client) = setup().await;
+    let (_server, client) = setup().await;
 
     let resp = client
         .set_av_transport_uri("http://example.com/test.mp3", None)
@@ -75,7 +63,7 @@ async fn test_set_transport_uri() {
 
 #[test(tokio::test)]
 async fn test_basic_playback_flow() {
-    let (_, client) = setup().await;
+    let (_server, client) = setup().await;
 
     // Set media
     let resp = client
@@ -104,10 +92,10 @@ async fn test_basic_playback_flow() {
     let resp = client.stop().await;
     assert_response(resp, 200).await;
 }
+
 #[test(tokio::test)]
 async fn test_invalid_state_transitions() {
-    let server = TestServer::new().await;
-    let client = SoapClient::new(server.address);
+    let (_server, client) = setup().await;
 
     // Try to play without setting media first
     let resp = client.play().await;
@@ -118,7 +106,7 @@ async fn test_invalid_state_transitions() {
 
 #[test(tokio::test)]
 async fn test_pause_from_stopped_state() {
-    let (_, client) = setup().await;
+    let (_server, client) = setup().await;
 
     let resp = client.pause().await;
     assert_response(resp, 500).await; // Should fail when trying to pause while stopped
@@ -126,7 +114,7 @@ async fn test_pause_from_stopped_state() {
 
 #[test(tokio::test)]
 async fn test_double_play() {
-    let (_, client) = setup().await;
+    let (_server, client) = setup().await;
 
     // Set media and start playing
     let resp = client
@@ -144,7 +132,7 @@ async fn test_double_play() {
 
 #[test(tokio::test)]
 async fn test_set_transport_uri_while_playing() {
-    let (_, client) = setup().await;
+    let (_server, client) = setup().await;
 
     // Set initial media and play
     let resp = client
