@@ -2,9 +2,12 @@
 //! its services' SCPD documents, to report what the device actually
 //! claims to implement: service types (each carrying its own version in
 //! the URN, e.g. `...:AVTransport:1`), the actions each one advertises,
-//! the UPnP Device Architecture `specVersion` each SCPD declares, and each
+//! the UPnP Device Architecture `specVersion` each SCPD declares, each
 //! state variable's `allowedValueList`/`allowedValueRange` — the enum
-//! values or numeric range a control point is allowed to send it.
+//! values or numeric range a control point is allowed to send it — and
+//! GENA eventing: whether the service declares an `eventSubURL` at all,
+//! and which state variables it marks `sendEvents="yes"` (i.e. which ones
+//! a SUBSCRIBE actually gets you NOTIFYs for).
 
 use crate::discovery::error::DiscoveryServiceError;
 use reqwest::{Client, Url};
@@ -46,6 +49,8 @@ struct ServiceDecl {
     service_id: String,
     #[serde(rename = "SCPDURL")]
     scpd_url: String,
+    #[serde(rename = "eventSubURL", default)]
+    event_sub_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,6 +93,11 @@ struct StateVariableDecl {
     name: String,
     #[serde(rename = "dataType", default)]
     data_type: String,
+    // Per the UPnP Device Architecture, `sendEvents` defaults to "yes" when
+    // the attribute is absent entirely — so this is only treated as "not
+    // evented" when explicitly "no", not merely when missing.
+    #[serde(rename = "@sendEvents", default)]
+    send_events: Option<String>,
     #[serde(rename = "allowedValueList", default)]
     allowed_value_list: Option<AllowedValueList>,
     #[serde(rename = "allowedValueRange", default)]
@@ -132,6 +142,10 @@ pub struct ServiceReport {
     pub spec_version: (u32, u32),
     pub actions: Vec<String>,
     pub state_variables: Vec<StateVariableReport>,
+    /// The service's `eventSubURL` from the device description, if it
+    /// declared a non-empty one — `None` means the service doesn't support
+    /// GENA subscriptions at all, regardless of what its state table says.
+    pub event_sub_url: Option<String>,
 }
 
 /// One state variable's declared type and — where the SCPD constrains it —
@@ -144,6 +158,10 @@ pub struct StateVariableReport {
     pub name: String,
     pub data_type: String,
     pub constraint: Option<VariableConstraint>,
+    /// Whether this variable is evented (`sendEvents="yes"`, or the
+    /// attribute is absent, since that's spec's default) — the variables a
+    /// SUBSCRIBE to `event_sub_url` will actually deliver NOTIFYs for.
+    pub evented: bool,
 }
 
 #[derive(Debug)]
@@ -216,6 +234,7 @@ async fn fetch_service_report(
         .into_iter()
         .map(|v| StateVariableReport {
             constraint: variable_constraint(&v),
+            evented: v.send_events.as_deref() != Some("no"),
             name: v.name,
             data_type: v.data_type,
         })
@@ -227,6 +246,7 @@ async fn fetch_service_report(
         spec_version: (doc.spec_version.major, doc.spec_version.minor),
         actions: doc.action_list.action.into_iter().map(|a| a.name).collect(),
         state_variables,
+        event_sub_url: (!service.event_sub_url.is_empty()).then(|| service.event_sub_url.clone()),
     })
 }
 

@@ -193,7 +193,42 @@ fn service_node(palette: &Palette, service: &ServiceReport, show_vars: bool) -> 
         }
     }
 
+    node.push(gena_node(palette, service));
+
     node
+}
+
+/// GENA eventing support: whether the service declares an `eventSubURL` at
+/// all, and — if so — which state variables actually get evented (a
+/// SUBSCRIBE against a service with no evented variables succeeds but
+/// never delivers a NOTIFY, so that's worth surfacing too).
+fn gena_node(palette: &Palette, service: &ServiceReport) -> Tree<String> {
+    let Some(event_sub_url) = &service.event_sub_url else {
+        return Tree::new(format!(
+            "{dim}GENA: not supported{reset}",
+            dim = palette.dim,
+            reset = palette.reset,
+        ));
+    };
+
+    let evented: Vec<String> = service
+        .state_variables
+        .iter()
+        .filter(|v| v.evented)
+        .map(|v| v.name.clone())
+        .collect();
+
+    let body = if evented.is_empty() {
+        format!("subscribe: {}\n    (no evented state variables declared)", event_sub_url)
+    } else {
+        format!(
+            "subscribe: {}\n{}",
+            event_sub_url,
+            wrap_csv(&evented, WRAP_WIDTH)
+        )
+    };
+
+    labeled_block(palette, "GENA", &body)
 }
 
 fn labeled_block(palette: &Palette, label: &str, body: &str) -> Tree<String> {
