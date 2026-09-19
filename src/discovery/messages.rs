@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use std::time::Duration;
+use uuid::Uuid;
 
 // Constants for SSDP message fields
 const SSDP_HOST: &str = "239.255.255.250:1900";
@@ -72,10 +72,7 @@ impl SsdpMessage {
     }
 
     pub fn new_msearch(search_target: String, mx: Duration) -> Self {
-        Self::MSearch {
-            search_target,
-            mx,
-        }
+        Self::MSearch { search_target, mx }
     }
 
     fn format_usn(uuid: &str, target_type: &str) -> String {
@@ -88,10 +85,14 @@ impl SsdpMessage {
 
     pub fn to_string(&self) -> String {
         match self {
-            SsdpMessage::Notify { header, device_type, services } => {
+            SsdpMessage::Notify {
+                header,
+                device_type,
+                services,
+            } => {
                 let mut messages = Vec::new();
                 let uuid = header.format_uuid();
-                
+
                 // Root device notification
                 messages.push(format!(
                     "NOTIFY * HTTP/1.1\r\n\
@@ -136,8 +137,12 @@ impl SsdpMessage {
                 }
 
                 messages.join("")
-            },
-            SsdpMessage::Response { header, search_target, ext } => {
+            }
+            SsdpMessage::Response {
+                header,
+                search_target,
+                ext,
+            } => {
                 let uuid = header.format_uuid();
                 let usn = Self::format_usn(&uuid, search_target);
                 let mut response = format!(
@@ -156,7 +161,7 @@ impl SsdpMessage {
 
                 response.push_str("\r\n");
                 response
-            },
+            }
             SsdpMessage::MSearch { search_target, mx } => {
                 format!(
                     "M-SEARCH * HTTP/1.1\r\n\
@@ -168,17 +173,21 @@ impl SsdpMessage {
                     search_target,
                     mx.as_secs()
                 )
-            },
+            }
         }
     }
 
     // Add byebye message support
     pub fn to_byebye_string(&self) -> Option<String> {
         match self {
-            SsdpMessage::Notify { header, device_type, services } => {
+            SsdpMessage::Notify {
+                header,
+                device_type,
+                services,
+            } => {
                 let mut messages = Vec::new();
                 let uuid = header.format_uuid();
-                
+
                 // Root device byebye
                 messages.push(format!(
                     "NOTIFY * HTTP/1.1\r\n\
@@ -217,7 +226,7 @@ impl SsdpMessage {
                 }
 
                 Some(messages.join(""))
-            },
+            }
             _ => None,
         }
     }
@@ -241,7 +250,7 @@ mod tests {
         let msg = SsdpMessage::new_notify(
             create_test_header(),
             "urn:schemas-upnp-org:device:MediaRenderer:1".to_string(),
-            vec!["urn:schemas-upnp-org:service:ConnectionManager:1".to_string()]
+            vec!["urn:schemas-upnp-org:service:ConnectionManager:1".to_string()],
         );
 
         let output = msg.to_string();
@@ -258,7 +267,7 @@ mod tests {
         let msg = SsdpMessage::new_response(
             create_test_header(),
             "urn:schemas-upnp-org:service:ConnectionManager:1".to_string(),
-            true
+            true,
         );
 
         let output = msg.to_string();
@@ -274,7 +283,7 @@ mod tests {
         let msg = SsdpMessage::new_notify(
             create_test_header(),
             "urn:schemas-upnp-org:device:MediaRenderer:1".to_string(),
-            vec!["urn:schemas-upnp-org:service:ConnectionManager:1".to_string()]
+            vec!["urn:schemas-upnp-org:service:ConnectionManager:1".to_string()],
         );
 
         let output = msg.to_byebye_string().unwrap();
