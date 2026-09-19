@@ -58,6 +58,33 @@ pub async fn handle_rendering_control_events(
     dispatch(&manager, &method, &headers, remote_addr, initial_body).await
 }
 
+pub async fn handle_connection_manager_events(
+    State(renderer): State<Arc<MediaRenderer>>,
+    ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
+    method: Method,
+    headers: HeaderMap,
+) -> Response<Body> {
+    let manager = Arc::clone(&renderer.connection_manager_events);
+    let initial_body = {
+        let renderer = Arc::clone(&renderer);
+        async move {
+            let ids = renderer
+                .connection_manager
+                .get_current_connection_ids()
+                .await
+                .unwrap_or_default();
+            let ids = ids
+                .iter()
+                .map(i32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            last_change::connection_manager_current_ids_event(&ids)
+        }
+    };
+
+    dispatch(&manager, &method, &headers, remote_addr, initial_body).await
+}
+
 /// Shared SUBSCRIBE/UNSUBSCRIBE logic, generic over which service's
 /// [`EventManager`] and initial-state body it's operating on.
 async fn dispatch(

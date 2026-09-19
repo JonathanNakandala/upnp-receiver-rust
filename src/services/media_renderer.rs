@@ -41,6 +41,7 @@ pub struct MediaRenderer {
     // GENA subscribers, one manager per evented service.
     pub av_transport_events: Arc<EventManager>,
     pub rendering_control_events: Arc<EventManager>,
+    pub connection_manager_events: Arc<EventManager>,
 
     // Media backend (optional) — whichever `MediaBackend` implementation
     // main.rs selected (GStreamer, dummy, or none).
@@ -101,6 +102,7 @@ impl MediaRenderer {
         ));
         let av_transport_events = EventManager::new();
         let rendering_control_events = EventManager::new();
+        let connection_manager_events = EventManager::new();
 
         // Forward transport-state changes the backend makes on its own
         // (reaching end-of-stream, hitting a decode error) to subscribed
@@ -156,6 +158,7 @@ impl MediaRenderer {
             connection_manager,
             av_transport_events,
             rendering_control_events,
+            connection_manager_events,
             media_backend,
         })
     }
@@ -228,6 +231,7 @@ impl Clone for MediaRenderer {
             connection_manager: self.connection_manager.clone(),
             av_transport_events: self.av_transport_events.clone(),
             rendering_control_events: self.rendering_control_events.clone(),
+            connection_manager_events: self.connection_manager_events.clone(),
             media_backend: self.media_backend.clone(),
         }
     }

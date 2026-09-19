@@ -141,6 +141,23 @@ pub fn rendering_control_last_change(volume: u16, muted: bool) -> String {
     wrap_property_set(&inner)
 }
 
+/// Builds the NOTIFY body for ConnectionManager's one evented state
+/// variable, `CurrentConnectionIDs`. Unlike AVTransport/RenderingControl,
+/// ConnectionManager's SCPD doesn't bundle its evented variable into a
+/// synthetic `LastChange` string — it's `sendEvents="yes"` directly, so it's
+/// its own `<e:property>` rather than XML-escaped text inside one.
+pub fn connection_manager_current_ids_event(connection_ids: &str) -> String {
+    format!(
+        concat!(
+            r#"<?xml version="1.0" encoding="utf-8"?>"#,
+            r#"<e:propertyset xmlns:e="urn:schemas-upnp-org:event-1-0">"#,
+            r#"<e:property><CurrentConnectionIDs>{}</CurrentConnectionIDs></e:property>"#,
+            r#"</e:propertyset>"#
+        ),
+        escape(connection_ids)
+    )
+}
+
 fn wrap_property_set(last_change_inner_xml: &str) -> String {
     format!(
         concat!(
@@ -225,5 +242,17 @@ mod tests {
     fn rendering_control_event_reports_unmuted_as_zero() {
         let body = rendering_control_last_change(10, false);
         assert!(body.contains("Mute channel=&quot;Master&quot; val=&quot;0&quot;"));
+    }
+
+    #[test]
+    fn connection_manager_event_reports_current_ids_as_a_direct_property() {
+        let body = connection_manager_current_ids_event("0");
+
+        assert!(body.starts_with(r#"<?xml version="1.0" encoding="utf-8"?>"#));
+        assert!(body.contains("urn:schemas-upnp-org:event-1-0"));
+        // No LastChange wrapper/double-escaping here — CurrentConnectionIDs
+        // is evented directly, so its value appears as plain element text.
+        assert!(body.contains("<CurrentConnectionIDs>0</CurrentConnectionIDs>"));
+        assert!(!body.contains("LastChange"));
     }
 }

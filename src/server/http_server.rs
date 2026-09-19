@@ -1,5 +1,7 @@
 use crate::server::client_logger::{ClientLogEntry, ClientLogger};
-use crate::server::eventing::{handle_av_transport_events, handle_rendering_control_events};
+use crate::server::eventing::{
+    handle_av_transport_events, handle_connection_manager_events, handle_rendering_control_events,
+};
 use crate::server::soap::handlers::UPnPServiceRouter;
 use crate::server::templates::{
     MediaRendererAvTransportTemplate, MediaRendererConnectionManagerTemplate,
@@ -137,6 +139,10 @@ impl HttpServer {
             .route(
                 "/services/RenderingControl/events",
                 any(handle_rendering_control_events),
+            )
+            .route(
+                "/services/ConnectionManager/events",
+                any(handle_connection_manager_events),
             )
             // SOAP control routes
             .merge(UPnPServiceRouter::new(Arc::clone(&self.renderer)).router());
