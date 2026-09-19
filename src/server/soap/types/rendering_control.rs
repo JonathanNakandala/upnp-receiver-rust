@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum RenderingControlAction {
+    ListPresets(ListPresetsRequest),
+    SelectPreset(SelectPresetRequest),
     SetVolume(SetVolumeRequest),
     SetMute(SetMuteRequest),
     GetVolume(GetVolumeRequest),
@@ -10,6 +12,21 @@ pub enum RenderingControlAction {
     SetVolumeDB(SetVolumeDBRequest),
     GetVolumeDB(GetVolumeDBRequest),
     GetVolumeDBRange(GetVolumeDBRangeRequest),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ListPresetsRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SelectPresetRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub preset_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,6 +103,16 @@ pub struct GetMuteResponse {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
+pub struct ListPresetsResponse {
+    pub current_preset_name_list: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SelectPresetResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct SetVolumeResponse {}
 
 #[derive(Debug, Serialize)]
@@ -112,6 +139,8 @@ pub struct GetVolumeDBRangeResponse {
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum RenderingControlResponse {
+    ListPresets(ListPresetsResponse),
+    SelectPreset(SelectPresetResponse),
     SetVolume(SetVolumeResponse),
     SetMute(SetMuteResponse),
     Volume(GetVolumeResponse),

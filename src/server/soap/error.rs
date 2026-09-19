@@ -147,6 +147,9 @@ pub enum SoapProtocolError {
 
     #[error("Play mode not supported: {0}")]
     PlayModeNotSupported(String),
+
+    #[error("Invalid preset name: {0}")]
+    InvalidPresetName(String),
 }
 
 impl SoapProtocolError {
@@ -192,6 +195,10 @@ impl SoapProtocolError {
             SoapProtocolError::PlayModeNotSupported(_) => UPnPErrorCode {
                 code: 712,
                 description: "Play Mode Not Supported",
+            },
+            SoapProtocolError::InvalidPresetName(_) => UPnPErrorCode {
+                code: 701,
+                description: "Invalid Preset Name",
             },
         }
     }

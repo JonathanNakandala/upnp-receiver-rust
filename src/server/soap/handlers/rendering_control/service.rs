@@ -5,7 +5,8 @@ use crate::server::soap::types::UPnPService;
 
 use crate::server::soap::types::rendering_control::{
     GetMuteRequest, GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest,
-    RenderingControlAction, SetMuteRequest, SetVolumeDBRequest, SetVolumeRequest,
+    ListPresetsRequest, RenderingControlAction, SelectPresetRequest, SetMuteRequest,
+    SetVolumeDBRequest, SetVolumeRequest,
 };
 
 pub struct RenderingControlService;
@@ -32,6 +33,16 @@ impl UPnPService for RenderingControlService {
     ) -> Result<Self::Action, SoapError> {
         let action_name: &str = action.action.as_str();
         match action_name {
+            "ListPresets" => {
+                let request =
+                    extract_and_parse_soap_body::<ListPresetsRequest>(content, action_name)?;
+                Ok(RenderingControlAction::ListPresets(request))
+            }
+            "SelectPreset" => {
+                let request =
+                    extract_and_parse_soap_body::<SelectPresetRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SelectPreset(request))
+            }
             "SetVolume" => {
                 let request =
                     extract_and_parse_soap_body::<SetVolumeRequest>(content, action_name)?;

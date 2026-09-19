@@ -30,23 +30,49 @@ pub struct DummyConnectionManager {
     protocol_info: Vec<ProtocolInfo>,
 }
 
+/// Maps a mime type to its registered DLNA media format profile (`DLNA.ORG_PN`),
+/// where one exists — this is what lets strict DLNA control points (Sonos-style
+/// apps, some Samsung/BubbleUPnP transcoding logic) recognize a format as
+/// natively playable instead of assuming it needs transcoding. Formats with
+/// no DLNA-registered profile (Ogg/Vorbis, FLAC) fall back to a plain `*`,
+/// which is spec-legal but gives those control points no profile to key off.
+fn dlna_profile_for_mime_type(mime_type: &str) -> Option<&'static str> {
+    match mime_type {
+        "audio/mpeg" | "audio/x-mpeg" => Some("DLNA.ORG_PN=MP3"),
+        "audio/mp4" | "audio/x-m4a" | "audio/aac" => Some("DLNA.ORG_PN=AAC_ISO"),
+        "audio/vnd.dlna.adts" => Some("DLNA.ORG_PN=AAC_ADTS"),
+        "audio/wav" | "audio/x-wav" | "audio/vnd.wave" | "audio/L16" => {
+            Some("DLNA.ORG_PN=LPCM")
+        }
+        "audio/x-ms-wma" => Some("DLNA.ORG_PN=WMABASE"),
+        _ => None,
+    }
+}
+
 impl DummyConnectionManager {
     pub fn new() -> Self {
         Self::with_supported_mime_types(vec!["audio/mpeg".to_string()])
     }
 
     /// Builds the `protocolInfo` list `GetProtocolInfo` reports from a list
-    /// of supported mime types, one `http-get:*:<mime>:*` sink entry each —
-    /// e.g. from [`gstreamer::supported_mime_types`](crate::backend::gstreamer::supported_mime_types)
-    /// so the renderer only advertises formats it can actually decode.
+    /// of supported mime types, one `http-get:*:<mime>:<additional-info>`
+    /// sink entry each — e.g. from [`gstreamer::supported_mime_types`](crate::backend::gstreamer::supported_mime_types)
+    /// so the renderer only advertises formats it can actually decode. Where
+    /// a mime type has a registered DLNA profile, `additional_info` carries
+    /// `DLNA.ORG_PN=...` instead of a bare `*` (see `dlna_profile_for_mime_type`).
     pub fn with_supported_mime_types(mime_types: Vec<String>) -> Self {
         let protocol_info = mime_types
             .into_iter()
-            .map(|mime_type| ProtocolInfo {
-                protocol: "http-get".to_string(),
-                network: "*".to_string(),
-                mime_type,
-                additional_info: "*".to_string(),
+            .map(|mime_type| {
+                let additional_info = dlna_profile_for_mime_type(&mime_type)
+                    .unwrap_or("*")
+                    .to_string();
+                ProtocolInfo {
+                    protocol: "http-get".to_string(),
+                    network: "*".to_string(),
+                    mime_type,
+                    additional_info,
+                }
             })
             .collect();
 
@@ -115,6 +141,17 @@ mod tests {
         assert_eq!(info.connection_id, 0);
         assert_eq!(info.direction, ConnectionDirection::Input);
         assert_eq!(info.status, ConnectionManagerStatus::Ok);
+    }
+
+    #[tokio::test]
+    async fn advertises_dlna_profile_for_known_mime_types() {
+        let manager = DummyConnectionManager::with_supported_mime_types(vec![
+            "audio/mpeg".to_string(),
+            "audio/ogg".to_string(),
+        ]);
+        let infos = manager.get_protocol_info().await.unwrap();
+        assert_eq!(infos[0].additional_info, "DLNA.ORG_PN=MP3");
+        assert_eq!(infos[1].additional_info, "*");
     }
 
     #[tokio::test]

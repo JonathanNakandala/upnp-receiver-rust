@@ -1,9 +1,9 @@
 use crate::server::eventing::{rendering_control_last_change, EventManager};
-use crate::server::soap::error::SoapError;
+use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::rendering_control::{
     GetMuteResponse, GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse,
-    RenderingControlAction, RenderingControlResponse, SetMuteResponse, SetVolumeDBResponse,
-    SetVolumeResponse,
+    ListPresetsResponse, RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
+    SetMuteResponse, SetVolumeDBResponse, SetVolumeResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -28,6 +28,8 @@ impl UPnPAction for RenderingControlAction {
 
     fn action_name(&self) -> &'static str {
         match self {
+            Self::ListPresets(_) => "ListPresets",
+            Self::SelectPreset(_) => "SelectPreset",
             Self::SetVolume(_) => "SetVolume",
             Self::SetMute(_) => "SetMute",
             Self::GetVolume(_) => "GetVolume",
@@ -44,6 +46,36 @@ impl UPnPAction for RenderingControlAction {
 
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
         match self {
+            // We only ever expose one preset — there's no persisted
+            // configuration to snapshot/restore beyond current volume/mute —
+            // but the actions themselves are required by the RenderingControl
+            // spec, so we implement them rather than leaving them 401.
+            Self::ListPresets(req) => {
+                info!(instance_id = req.instance_id, "Handling ListPresets");
+                Ok(RenderingControlResponse::ListPresets(ListPresetsResponse {
+                    current_preset_name_list: "FactoryDefaults".to_string(),
+                }))
+            }
+            Self::SelectPreset(req) => {
+                if req.preset_name != "FactoryDefaults" {
+                    warn!(
+                        instance_id = req.instance_id,
+                        preset_name = %req.preset_name,
+                        "Handling SelectPreset"
+                    );
+                    return Err(SoapError::Soap(SoapProtocolError::InvalidPresetName(
+                        format!("Unknown preset: {}", req.preset_name),
+                    )));
+                }
+                info!(
+                    instance_id = req.instance_id,
+                    preset_name = %req.preset_name,
+                    "Handling SelectPreset"
+                );
+                Ok(RenderingControlResponse::SelectPreset(
+                    SelectPresetResponse {},
+                ))
+            }
             Self::SetVolume(req) => {
                 let result = renderer
                     .rendering_control

@@ -33,7 +33,7 @@ async fn test_get_protocol_info() {
     let resp = client.get_protocol_info().await;
     let body = assert_response(resp, 200).await;
     assert!(
-        body.contains("<Sink>http-get:*:audio/mpeg:*</Sink>"),
+        body.contains("<Sink>http-get:*:audio/mpeg:DLNA.ORG_PN=MP3</Sink>"),
         "Unexpected body: {}",
         body
     );

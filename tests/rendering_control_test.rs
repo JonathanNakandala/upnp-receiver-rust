@@ -27,6 +27,40 @@ async fn assert_response(resp: reqwest::Response, expected_status: u16) -> Strin
 }
 
 #[test(tokio::test)]
+async fn test_list_presets_reports_factory_defaults() {
+    let (_server, client) = setup().await;
+
+    let resp = client.list_presets().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentPresetNameList>FactoryDefaults</CurrentPresetNameList>"),
+        "Unexpected body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_select_preset_accepts_factory_defaults() {
+    let (_server, client) = setup().await;
+
+    let resp = client.select_preset("FactoryDefaults").await;
+    assert_response(resp, 200).await;
+}
+
+#[test(tokio::test)]
+async fn test_select_preset_rejects_unknown_name() {
+    let (_server, client) = setup().await;
+
+    let resp = client.select_preset("Bogus").await;
+    let body = assert_response(resp, 400).await;
+    assert!(
+        body.contains("701"),
+        "Expected UPnP error 701 (Invalid Preset Name): {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
 async fn test_get_volume_default() {
     let (_server, client) = setup().await;
 
