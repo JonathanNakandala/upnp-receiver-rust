@@ -68,3 +68,15 @@ pub struct SetAVTransportURIRequest {
     #[serde(rename = "CurrentURIMetaData")]
     pub current_uri_metadata: Option<String>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct SetNextAVTransportURIRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+
+    #[serde(rename = "NextURI")]
+    pub next_uri: String,
+
+    #[serde(rename = "NextURIMetaData")]
+    pub next_uri_metadata: Option<String>,
+}

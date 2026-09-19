@@ -10,7 +10,7 @@ use crate::discovery::service::{
     MediaRendererConfig, MediaRendererService, Server, ServiceInfo, SsdpService,
 };
 use crate::ip::get_default_ip;
-use crate::server::eventing::{av_transport_last_change, EventManager};
+use crate::server::eventing::{av_transport_last_change, AVTransportEventState, EventManager};
 use crate::services::{
     av_transport::{AVTransport, AVTransportImpl},
     connection_manager::{ConnectionManager, DummyConnectionManager},
@@ -112,10 +112,26 @@ impl MediaRenderer {
         if let Some(backend) = &media_backend {
             let mut state_changes = backend.state_changes();
             let events = av_transport_events.clone();
+            let av_transport_for_state = av_transport.clone();
             tokio::spawn(async move {
                 while state_changes.changed().await.is_ok() {
-                    let state = *state_changes.borrow();
-                    events.broadcast(av_transport_last_change(state));
+                    let event = AVTransportEventState::snapshot(av_transport_for_state.as_ref()).await;
+                    events.broadcast(av_transport_last_change(&event));
+                }
+            });
+
+            // Same idea, but for a gapless track promotion — the transport
+            // state doesn't change across one (it stays Playing), so
+            // state_changes above wouldn't fire; this is what lets a
+            // subscribed control point see AVTransportURI/NextAVTransportURI
+            // update without polling GetMediaInfo.
+            let mut track_changes = backend.track_changes();
+            let events = av_transport_events.clone();
+            let av_transport_for_track = av_transport.clone();
+            tokio::spawn(async move {
+                while track_changes.changed().await.is_ok() {
+                    let event = AVTransportEventState::snapshot(av_transport_for_track.as_ref()).await;
+                    events.broadcast(av_transport_last_change(&event));
                 }
             });
         }

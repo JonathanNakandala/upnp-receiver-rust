@@ -12,5 +12,5 @@ mod last_change;
 mod manager;
 
 pub use handler::{handle_av_transport_events, handle_rendering_control_events};
-pub use last_change::{av_transport_last_change, rendering_control_last_change};
+pub use last_change::{av_transport_last_change, rendering_control_last_change, AVTransportEventState};
 pub use manager::EventManager;

@@ -3,6 +3,16 @@ use std::time::Duration;
 
 use super::MediaBackendError;
 use crate::server::soap::types::av_transport::TransportState;
+
+/// A track identified by URI plus its (opaque, DIDL-Lite) metadata — the
+/// shape both the queued "next" track and a `track_changes` notification
+/// carry.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TrackInfo {
+    pub uri: String,
+    pub metadata: Option<String>,
+}
+
 #[async_trait]
 pub trait MediaBackend: Send + Sync {
     // Media playback methods
@@ -38,4 +48,32 @@ pub trait MediaBackend: Send + Sync {
     /// Implementations with no such async transitions can return a channel
     /// that never fires.
     fn state_changes(&self) -> tokio::sync::watch::Receiver<TransportState>;
+
+    // Gapless queueing — UPnP's `SetNextAVTransportURI`/`NextAVTransportURI`.
+    // AVTransport:1 only ever supports a single lookahead slot, not a real
+    // playlist: a control point wanting more calls `set_next_media` again
+    // after each transition.
+    /// Queues `uri`/`metadata` to play immediately after the current track
+    /// finishes. A backend with a gapless mechanism (`GStreamerBackend` uses
+    /// `playbin`'s `about-to-finish` signal) switches to it without a gap;
+    /// one without can just remember it and swap in `load_media`+`play` on
+    /// its own end-of-stream detection — still correct, just not gapless.
+    async fn set_next_media(
+        &self,
+        uri: &str,
+        metadata: Option<String>,
+    ) -> Result<(), MediaBackendError>;
+    /// Clears whatever's queued via `set_next_media` — UPnP's
+    /// `SetNextAVTransportURI(NextURI="")` semantics.
+    async fn clear_next_media(&self) -> Result<(), MediaBackendError>;
+    /// What's currently queued via `set_next_media`, if anything.
+    async fn get_next_media(&self) -> Result<Option<TrackInfo>, MediaBackendError>;
+
+    /// Fires when the *current* track changes without a direct
+    /// `load_media` call from us — i.e. a gapless promotion of the queued
+    /// next track. `state_changes` alone wouldn't cover this: the transport
+    /// state doesn't change (stays `Playing`) across a gapless transition,
+    /// only the URI/metadata does. Implementations with no gapless
+    /// mechanism can return a channel that never fires.
+    fn track_changes(&self) -> tokio::sync::watch::Receiver<TrackInfo>;
 }

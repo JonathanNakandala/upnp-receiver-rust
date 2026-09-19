@@ -1,17 +1,25 @@
 use super::error::DummyProcessError;
 use super::manager::DummyBackendManager;
-use crate::backend::{MediaBackend, MediaBackendError};
+use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
 use crate::server::soap::types::av_transport::TransportState;
 use async_trait::async_trait;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 pub struct DummyBackend {
     manager: Arc<Mutex<DummyBackendManager>>,
+    // The simulated backend never reaches end-of-stream on its own (see
+    // `state_changes` below), so there's no gapless mechanism to promote
+    // this to current — it's just remembered and reported back, for API
+    // completeness with the real backend.
+    next: Mutex<Option<TrackInfo>>,
 }
 
 impl DummyBackend {
     pub fn new(manager: Arc<Mutex<DummyBackendManager>>) -> Self {
-        Self { manager }
+        Self {
+            manager,
+            next: Mutex::new(None),
+        }
     }
 
     // Helper to convert error types
@@ -157,6 +165,34 @@ impl MediaBackend for DummyBackend {
         // has a state transition of its own to report, so the sender is
         // dropped immediately and this receiver never fires.
         let (_tx, rx) = tokio::sync::watch::channel(TransportState::NoMediaPresent);
+        rx
+    }
+
+    async fn set_next_media(
+        &self,
+        uri: &str,
+        metadata: Option<String>,
+    ) -> Result<(), MediaBackendError> {
+        *self.next.lock().await = Some(TrackInfo {
+            uri: uri.to_string(),
+            metadata,
+        });
+        Ok(())
+    }
+
+    async fn clear_next_media(&self) -> Result<(), MediaBackendError> {
+        *self.next.lock().await = None;
+        Ok(())
+    }
+
+    async fn get_next_media(&self) -> Result<Option<TrackInfo>, MediaBackendError> {
+        Ok(self.next.lock().await.clone())
+    }
+
+    fn track_changes(&self) -> tokio::sync::watch::Receiver<TrackInfo> {
+        // Never gaplessly promotes anything on its own (see `next` above),
+        // so — same reasoning as `state_changes` — this never fires.
+        let (_tx, rx) = tokio::sync::watch::channel(TrackInfo::default());
         rx
     }
 }

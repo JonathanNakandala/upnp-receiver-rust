@@ -26,6 +26,26 @@
             </argumentList>
         </action>
         <action>
+            <name>SetNextAVTransportURI</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>NextURI</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>NextAVTransportURI</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>NextURIMetaData</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>NextAVTransportURIMetaData</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
             <name>Play</name>
             <argumentList>
                 <argument>
@@ -272,12 +292,16 @@
             <dataType>string</dataType>
         </stateVariable>
 
-        <stateVariable sendEvents="yes">
+        <!-- Evented as part of the bundled LastChange NOTIFY, like every
+             other state variable here — sendEvents="yes" belongs only on
+             LastChange itself. (This pair was previously marked yes
+             directly, which doesn't match this service's eventing model.) -->
+        <stateVariable sendEvents="no">
             <name>NextAVTransportURI</name>
             <dataType>string</dataType>
         </stateVariable>
 
-        <stateVariable sendEvents="yes">
+        <stateVariable sendEvents="no">
             <name>NextAVTransportURIMetaData</name>
             <dataType>string</dataType>
         </stateVariable>

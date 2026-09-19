@@ -90,15 +90,17 @@ impl AVTransport for MediaBackendAVTransport {
         let uri_future = self.backend.get_current_uri();
         let duration_future = self.backend.get_duration();
         let metadata_future = self.backend.get_metadata();
+        let next_future = self.backend.get_next_media();
 
         // Execute them in parallel
-        let (uri_result, duration_result, metadata_result) =
-            tokio::join!(uri_future, duration_future, metadata_future);
+        let (uri_result, duration_result, metadata_result, next_result) =
+            tokio::join!(uri_future, duration_future, metadata_future, next_future);
 
         // Handle results
         let uri = uri_result.map_err(Self::convert_error)?;
         let duration = duration_result.map_err(Self::convert_error)?;
         let metadata = metadata_result.map_err(Self::convert_error)?;
+        let next = next_result.map_err(Self::convert_error)?;
 
         // If we have a URI, construct MediaInfo
         if let Some(uri) = uri {
@@ -106,9 +108,29 @@ impl AVTransport for MediaBackendAVTransport {
                 uri,
                 metadata,
                 duration,
+                next_uri: next.as_ref().map(|t| t.uri.clone()).unwrap_or_default(),
+                next_metadata: next.and_then(|t| t.metadata),
             }))
         } else {
             Ok(None)
+        }
+    }
+
+    async fn set_next_transport_uri(
+        &self,
+        uri: String,
+        metadata: Option<String>,
+    ) -> Result<(), TransportError> {
+        if uri.is_empty() {
+            self.backend
+                .clear_next_media()
+                .await
+                .map_err(Self::convert_error)
+        } else {
+            self.backend
+                .set_next_media(&uri, metadata)
+                .await
+                .map_err(Self::convert_error)
         }
     }
 

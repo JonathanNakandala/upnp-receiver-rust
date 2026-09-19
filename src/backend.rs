@@ -9,5 +9,5 @@ pub use av_transport::MediaBackendAVTransport;
 pub use dummy::DummyBackend;
 pub use error::MediaBackendError;
 pub use gstreamer::GStreamerBackend;
-pub use media_backend::MediaBackend;
+pub use media_backend::{MediaBackend, TrackInfo};
 pub use rendering_control::MediaBackendRenderingControl;

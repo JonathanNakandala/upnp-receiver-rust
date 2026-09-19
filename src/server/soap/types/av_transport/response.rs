@@ -7,6 +7,10 @@ pub struct SetAVTransportURIResponse {}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
+pub struct SetNextAVTransportURIResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct PlayResponse {}
 
 #[derive(Debug, Serialize)]
@@ -59,6 +63,7 @@ pub struct GetPositionInfoResponse {
 #[serde(untagged)]
 pub enum AVTransportResponse {
     SetAVTransportURI(SetAVTransportURIResponse),
+    SetNextAVTransportURI(SetNextAVTransportURIResponse),
     Play(PlayResponse),
     Pause(PauseResponse),
     Stop(StopResponse),

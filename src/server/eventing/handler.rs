@@ -13,8 +13,8 @@ use axum::response::IntoResponse;
 use tracing::info;
 
 use super::last_change;
+use super::last_change::AVTransportEventState;
 use super::manager::{EventManager, SubscribeError};
-use crate::server::soap::types::av_transport::TransportState;
 use crate::services::MediaRenderer;
 
 pub async fn handle_av_transport_events(
@@ -27,12 +27,8 @@ pub async fn handle_av_transport_events(
     let initial_body = {
         let renderer = Arc::clone(&renderer);
         async move {
-            let state = renderer
-                .av_transport
-                .get_state()
-                .await
-                .unwrap_or(TransportState::NoMediaPresent);
-            last_change::av_transport_last_change(state)
+            let event = AVTransportEventState::snapshot(renderer.av_transport.as_ref()).await;
+            last_change::av_transport_last_change(&event)
         }
     };
 

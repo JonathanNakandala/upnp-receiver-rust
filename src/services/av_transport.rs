@@ -11,6 +11,7 @@ pub struct AVTransportState {
     playback_state: TransportState,
     media: Option<MediaInfo>,
     position: Duration,
+    next: Option<(String, Option<String>)>,
 }
 pub struct PositionInfo {
     pub uri: String,
@@ -48,6 +49,14 @@ pub trait AVTransport: Send + Sync {
     async fn get_state(&self) -> Result<TransportState, TransportError>;
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError>;
     async fn get_position_info(&self) -> Result<Option<PositionInfo>, TransportError>;
+    /// Queues the track to play next — UPnP's `SetNextAVTransportURI`. An
+    /// empty `uri` clears whatever was previously queued (spec semantics
+    /// for `SetNextAVTransportURI(NextURI="")`).
+    async fn set_next_transport_uri(
+        &self,
+        uri: String,
+        metadata: Option<String>,
+    ) -> Result<(), TransportError>;
 }
 
 pub struct AVTransportImpl {
@@ -61,6 +70,7 @@ impl AVTransportImpl {
                 playback_state: TransportState::NoMediaPresent,
                 media: None,
                 position: Duration::from_secs(0),
+                next: None,
             })),
         }
     }
@@ -92,8 +102,13 @@ impl AVTransport for AVTransportImpl {
             uri,
             metadata,
             duration: None, // Would be set when media is actually loaded
+            next_uri: String::new(),
+            next_metadata: None,
         });
         state.playback_state = TransportState::Stopped;
+        // A fresh SetAVTransportURI starts a new "current track" context —
+        // whatever was queued to follow the old one no longer applies.
+        state.next = None;
         Ok(())
     }
 
@@ -147,7 +162,15 @@ impl AVTransport for AVTransportImpl {
 
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError> {
         let state = self.state.read().await;
-        Ok(state.media.clone())
+        Ok(state.media.clone().map(|media| MediaInfo {
+            next_uri: state
+                .next
+                .as_ref()
+                .map(|(uri, _)| uri.clone())
+                .unwrap_or_default(),
+            next_metadata: state.next.as_ref().and_then(|(_, m)| m.clone()),
+            ..media
+        }))
     }
 
     async fn get_position_info(&self) -> Result<Option<PositionInfo>, TransportError> {
@@ -163,5 +186,19 @@ impl AVTransport for AVTransportImpl {
         } else {
             Ok(None)
         }
+    }
+
+    async fn set_next_transport_uri(
+        &self,
+        uri: String,
+        metadata: Option<String>,
+    ) -> Result<(), TransportError> {
+        let mut state = self.state.write().await;
+        state.next = if uri.is_empty() {
+            None
+        } else {
+            Some((uri, metadata))
+        };
+        Ok(())
     }
 }

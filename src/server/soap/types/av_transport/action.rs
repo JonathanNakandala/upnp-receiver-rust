@@ -1,6 +1,6 @@
 use super::{
     GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest,
-    PlayRequest, SeekRequest, SetAVTransportURIRequest, StopRequest,
+    PlayRequest, SeekRequest, SetAVTransportURIRequest, SetNextAVTransportURIRequest, StopRequest,
 };
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use serde::Deserialize;
@@ -9,6 +9,7 @@ use tracing::info;
 #[serde(rename_all = "PascalCase")]
 pub enum AVTransportAction {
     SetAVTransportURI(SetAVTransportURIRequest),
+    SetNextAVTransportURI(SetNextAVTransportURIRequest),
     Play(PlayRequest),
     Pause(PauseRequest),
     Stop(StopRequest),
@@ -22,6 +23,7 @@ pub enum AVTransportAction {
 #[serde(rename_all = "PascalCase")]
 pub enum AVTransportActionType {
     SetAVTransportURI,
+    SetNextAVTransportURI,
     Play,
     Pause,
     Stop,
@@ -42,6 +44,7 @@ impl TryFrom<&String> for AVTransportActionType {
         );
         match action_name {
             "SetAVTransportURI" => Ok(Self::SetAVTransportURI),
+            "SetNextAVTransportURI" => Ok(Self::SetNextAVTransportURI),
             "Play" => Ok(Self::Play),
             "Pause" => Ok(Self::Pause),
             "Stop" => Ok(Self::Stop),

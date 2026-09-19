@@ -61,5 +61,9 @@ pub mod types {
         pub uri: String,
         pub metadata: Option<String>,
         pub duration: Option<Duration>,
+        // UPnP's single `SetNextAVTransportURI` lookahead slot — empty
+        // string/`None` when nothing's queued.
+        pub next_uri: String,
+        pub next_metadata: Option<String>,
     }
 }

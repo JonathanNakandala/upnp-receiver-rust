@@ -1,10 +1,10 @@
-use crate::server::eventing::{av_transport_last_change, EventManager};
+use crate::server::eventing::{av_transport_last_change, AVTransportEventState, EventManager};
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
     AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
-    PlayResponse, SeekResponse, SetAVTransportURIResponse, StopResponse, TransportState,
-    TransportStatus,
+    PlayResponse, SeekResponse, SetAVTransportURIResponse, SetNextAVTransportURIResponse,
+    StopResponse, TransportStatus,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -20,12 +20,8 @@ use super::utils::{format_duration, parse_duration};
 /// find out immediately instead of waiting for their next GetTransportInfo
 /// poll.
 async fn publish_transport_state(renderer: &MediaRenderer, events: &Arc<EventManager>) {
-    let state = renderer
-        .av_transport
-        .get_state()
-        .await
-        .unwrap_or(TransportState::NoMediaPresent);
-    events.broadcast(av_transport_last_change(state));
+    let event = AVTransportEventState::snapshot(renderer.av_transport.as_ref()).await;
+    events.broadcast(av_transport_last_change(&event));
 }
 
 impl UPnPAction for AVTransportAction {
@@ -34,6 +30,7 @@ impl UPnPAction for AVTransportAction {
     fn action_name(&self) -> &'static str {
         match self {
             Self::SetAVTransportURI(_) => "SetAVTransportURI",
+            Self::SetNextAVTransportURI(_) => "SetNextAVTransportURI",
             Self::Play(_) => "Play",
             Self::Pause(_) => "Pause",
             Self::Stop(_) => "Stop",
@@ -59,6 +56,21 @@ impl UPnPAction for AVTransportAction {
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::SetAVTransportURI(
                     SetAVTransportURIResponse {},
+                ))
+            }
+            Self::SetNextAVTransportURI(req) => {
+                info!(
+                    instance_id = req.instance_id,
+                    uri = %req.next_uri,
+                    "Handling SetNextAVTransportURI"
+                );
+                renderer
+                    .av_transport
+                    .set_next_transport_uri(req.next_uri.clone(), req.next_uri_metadata.clone())
+                    .await?;
+                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                Ok(AVTransportResponse::SetNextAVTransportURI(
+                    SetNextAVTransportURIResponse {},
                 ))
             }
             Self::Play(req) => {
@@ -121,8 +133,8 @@ impl UPnPAction for AVTransportAction {
                             .unwrap_or("00:00:00".to_string()),
                         current_uri: media.uri,
                         current_uri_metadata: media.metadata.unwrap_or_default(),
-                        next_uri: "".to_string(),
-                        next_uri_metadata: "".to_string(),
+                        next_uri: media.next_uri,
+                        next_uri_metadata: media.next_metadata.unwrap_or_default(),
                         play_medium: "NETWORK".to_string(),
                         record_medium: "NOT_IMPLEMENTED".to_string(),
                         write_status: "NOT_IMPLEMENTED".to_string(),
@@ -182,10 +194,6 @@ impl UPnPAction for AVTransportAction {
                     }))
                 }
             }
-
-            _ => Err(SoapError::Soap(SoapProtocolError::InvalidAction(
-                "Unknown AV Transport Action".to_string(),
-            ))),
         }
     }
 }

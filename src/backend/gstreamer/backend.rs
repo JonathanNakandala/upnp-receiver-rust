@@ -19,7 +19,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{error, info};
 
-use crate::backend::{MediaBackend, MediaBackendError};
+use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
 use crate::server::soap::types::av_transport::TransportState;
 
 /// What we track ourselves rather than asking GStreamer, either because it
@@ -30,6 +30,11 @@ struct PlayerState {
     uri: Option<String>,
     metadata: Option<String>,
     transport_state: TransportState,
+    // The single UPnP `SetNextAVTransportURI` lookahead slot. Consumed by
+    // the `about-to-finish` handler for a gapless transition; cleared by an
+    // explicit `load_media` (a fresh `SetAVTransportURI` invalidates
+    // whatever the previous track had queued to follow it).
+    next: Option<TrackInfo>,
 }
 
 impl Default for PlayerState {
@@ -38,6 +43,7 @@ impl Default for PlayerState {
             uri: None,
             metadata: None,
             transport_state: TransportState::NoMediaPresent,
+            next: None,
         }
     }
 }
@@ -52,6 +58,11 @@ pub struct GStreamerBackend {
     // ones reach subscribed control points too, instead of only surfacing
     // on their next `GetTransportInfo` poll. See [`MediaBackend::state_changes`].
     state_tx: watch::Sender<TransportState>,
+    // Fires when the queued next track gets gaplessly promoted to current —
+    // see [`MediaBackend::track_changes`] for why this needs to be separate
+    // from `state_tx` (the transport state doesn't change across a gapless
+    // transition, only the URI/metadata does).
+    track_tx: watch::Sender<TrackInfo>,
     bus_watcher_shutdown: Arc<AtomicBool>,
 }
 
@@ -68,6 +79,7 @@ impl GStreamerBackend {
 
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let (state_tx, _) = watch::channel(TransportState::NoMediaPresent);
+        let (track_tx, _) = watch::channel(TrackInfo::default());
         let bus_watcher_shutdown = Arc::new(AtomicBool::new(false));
 
         spawn_bus_watcher(
@@ -76,11 +88,13 @@ impl GStreamerBackend {
             state_tx.clone(),
             bus_watcher_shutdown.clone(),
         );
+        connect_about_to_finish(&playbin, state.clone(), track_tx.clone());
 
         Ok(Self {
             playbin,
             state,
             state_tx,
+            track_tx,
             bus_watcher_shutdown,
         })
     }
@@ -165,6 +179,41 @@ fn stop_after_unprompted_end(
     let _ = state_tx.send(new_state);
 }
 
+/// Connects `playbin`'s `about-to-finish` signal, which is how GStreamer
+/// itself recommends doing gapless playback: it fires a couple of seconds
+/// before end-of-stream, on GStreamer's own streaming thread, and the
+/// idiomatic handler sets the `uri` property to the next track right there
+/// — `playbin` then splices it in with no audible gap. (Contrast with
+/// waiting for EOS and *then* loading the next URI, which always has one.)
+///
+/// If nothing's queued when this fires, we do nothing — `playbin` just
+/// plays out to EOS as normal and the bus watcher's existing EOS handling
+/// takes it from there.
+fn connect_about_to_finish(
+    playbin: &gst::Element,
+    state: Arc<Mutex<PlayerState>>,
+    track_tx: watch::Sender<TrackInfo>,
+) {
+    let playbin_for_signal = playbin.clone();
+    playbin.connect("about-to-finish", false, move |_args| {
+        let next = {
+            let mut state = state.lock().unwrap();
+            let Some(next) = state.next.take() else {
+                return None;
+            };
+            state.uri = Some(next.uri.clone());
+            state.metadata = next.metadata.clone();
+            next
+        };
+
+        info!(uri = %next.uri, "Gapless: promoting queued next track to current");
+        playbin_for_signal.set_property("uri", &next.uri);
+        let _ = track_tx.send(next);
+
+        None
+    });
+}
+
 /// `gst::init()` must run once per process before any element is created,
 /// and isn't itself safe to call concurrently from multiple backends.
 pub(super) fn ensure_initialized() -> Result<(), MediaBackendError> {
@@ -198,6 +247,10 @@ impl MediaBackend for GStreamerBackend {
             state.uri = Some(uri.to_string());
             state.metadata = metadata;
             state.transport_state = TransportState::Stopped;
+            // An explicit SetAVTransportURI starts a new "current track"
+            // context — whatever was previously queued to follow the old
+            // track no longer applies.
+            state.next = None;
         }
 
         // Kick off preroll into Paused so playback can start immediately
@@ -313,6 +366,31 @@ impl MediaBackend for GStreamerBackend {
 
     fn state_changes(&self) -> watch::Receiver<TransportState> {
         self.state_tx.subscribe()
+    }
+
+    async fn set_next_media(
+        &self,
+        uri: &str,
+        metadata: Option<String>,
+    ) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().next = Some(TrackInfo {
+            uri: uri.to_string(),
+            metadata,
+        });
+        Ok(())
+    }
+
+    async fn clear_next_media(&self) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().next = None;
+        Ok(())
+    }
+
+    async fn get_next_media(&self) -> Result<Option<TrackInfo>, MediaBackendError> {
+        Ok(self.state.lock().unwrap().next.clone())
+    }
+
+    fn track_changes(&self) -> watch::Receiver<TrackInfo> {
+        self.track_tx.subscribe()
     }
 }
 
@@ -443,6 +521,72 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    #[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test -- --ignored`"]
+    async fn gapless_transition_promotes_queued_next_track() {
+        let path_a = std::env::temp_dir().join(format!(
+            "upnp_receiver_test_gapless_a_{}.mp3",
+            std::process::id()
+        ));
+        let path_b = std::env::temp_dir().join(format!(
+            "upnp_receiver_test_gapless_b_{}.mp3",
+            std::process::id()
+        ));
+        generate_test_mp3(&path_a);
+        generate_test_mp3(&path_b);
+        let uri_a = format!("file://{}", path_a.display());
+        let uri_b = format!("file://{}", path_b.display());
+
+        let backend = GStreamerBackend::new().unwrap();
+        let mut track_changes = backend.track_changes();
+
+        backend
+            .load_media(&uri_a, Some("track a".to_string()))
+            .await
+            .unwrap();
+        backend
+            .set_next_media(&uri_b, Some("track b".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(
+            backend.get_next_media().await.unwrap(),
+            Some(TrackInfo {
+                uri: uri_b.clone(),
+                metadata: Some("track b".to_string()),
+            })
+        );
+
+        backend.play().await.unwrap();
+
+        // `about-to-finish` fires on its own once GStreamer decides it's
+        // running low on queued data for the current track — wait on the
+        // notification rather than a fixed sleep, same reasoning as the EOS
+        // test above.
+        tokio::time::timeout(Duration::from_secs(5), track_changes.changed())
+            .await
+            .expect("about-to-finish should promote the queued track before the timeout")
+            .unwrap();
+
+        assert_eq!(
+            backend.get_current_uri().await.unwrap(),
+            Some(uri_b),
+            "current URI should have switched to the queued next track"
+        );
+        assert_eq!(
+            backend.get_next_media().await.unwrap(),
+            None,
+            "the queued slot should be consumed once promoted"
+        );
+        assert_eq!(
+            backend.get_playback_state().await.unwrap(),
+            TransportState::Playing,
+            "a gapless transition shouldn't visibly stop playback in between"
+        );
+
+        let _ = std::fs::remove_file(&path_a);
+        let _ = std::fs::remove_file(&path_b);
     }
 
     #[tokio::test]
