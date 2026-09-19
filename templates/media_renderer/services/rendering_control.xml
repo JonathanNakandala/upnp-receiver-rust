@@ -107,5 +107,16 @@
             <name>Mute</name>
             <dataType>boolean</dataType>
         </stateVariable>
+        <stateVariable sendEvents="no">
+            <name>A_ARG_TYPE_InstanceID</name>
+            <dataType>ui4</dataType>
+        </stateVariable>
+        <stateVariable sendEvents="no">
+            <name>A_ARG_TYPE_Channel</name>
+            <dataType>string</dataType>
+            <allowedValueList>
+                <allowedValue>Master</allowedValue>
+            </allowedValueList>
+        </stateVariable>
     </serviceStateTable>
 </scpd>
