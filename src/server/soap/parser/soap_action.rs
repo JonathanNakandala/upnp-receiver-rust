@@ -29,7 +29,7 @@ pub fn parse_soap_action(headers: &HeaderMap) -> Result<ParsedSoapAction, SoapEr
         Some(&"RenderingControl") => UpnpService::RenderingControl,
         Some(other) => {
             return Err(SoapError::Soap(SoapProtocolError::InvalidAction(
-                format!("Unrecognized service: {}", other).into(),
+                format!("Unrecognized service: {}", other),
             )))
         }
         None => {

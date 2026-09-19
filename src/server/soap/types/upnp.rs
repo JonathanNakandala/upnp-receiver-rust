@@ -35,7 +35,7 @@ pub trait UPnPService: Send + Sync + 'static {
 
     fn parse_action(
         action_name: &ParsedSoapAction,
-        content: &String,
+        content: &str,
     ) -> Result<Self::Action, SoapError>;
 }
 

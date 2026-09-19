@@ -13,13 +13,20 @@ use axum::Router;
 use std::sync::Arc;
 use tracing::{debug, trace};
 
-pub struct UPnPServiceRouter {
-    renderer: Arc<MediaRenderer>,
+/// State (the `Arc<MediaRenderer>`) is supplied by the parent router's
+/// `.with_state()` call in `HttpServer::router`, not stored here — this type
+/// just groups route registration.
+pub struct UPnPServiceRouter;
+
+impl Default for UPnPServiceRouter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl UPnPServiceRouter {
-    pub fn new(renderer: Arc<MediaRenderer>) -> Self {
-        Self { renderer }
+    pub fn new() -> Self {
+        Self
     }
     pub fn router(self) -> Router<Arc<MediaRenderer>> {
         trace!("Creating router");

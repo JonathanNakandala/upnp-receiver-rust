@@ -247,9 +247,7 @@ fn connect_about_to_finish(
             }
         };
 
-        let Some(next) = next else {
-            return None;
-        };
+        let next = next?;
 
         info!(uri = %next.uri, "Gapless: promoting queued next track to current");
         playbin_for_signal.set_property("uri", &next.uri);

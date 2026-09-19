@@ -67,7 +67,7 @@ impl MediaBackend for DummyBackend {
             .await
             .load_uri(uri, metadata)
             .await
-            .map_err(|err| Self::convert_error(err))
+            .map_err(Self::convert_error)
     }
 
     async fn play(&self) -> Result<(), MediaBackendError> {
@@ -76,7 +76,7 @@ impl MediaBackend for DummyBackend {
             .await
             .play()
             .await
-            .map_err(|err| Self::convert_error(err))
+            .map_err(Self::convert_error)
     }
 
     async fn pause(&self) -> Result<(), MediaBackendError> {
@@ -85,7 +85,7 @@ impl MediaBackend for DummyBackend {
             .await
             .pause()
             .await
-            .map_err(|err| Self::convert_error(err))
+            .map_err(Self::convert_error)
     }
 
     async fn stop(&self) -> Result<(), MediaBackendError> {
@@ -94,7 +94,7 @@ impl MediaBackend for DummyBackend {
             .await
             .stop()
             .await
-            .map_err(|err| Self::convert_error(err))
+            .map_err(Self::convert_error)
     }
 
     async fn get_position(&self) -> Result<Duration, MediaBackendError> {
@@ -103,7 +103,7 @@ impl MediaBackend for DummyBackend {
             .await
             .get_position()
             .await
-            .map_err(|err| Self::convert_error(err))
+            .map_err(Self::convert_error)
     }
 
     async fn seek(&self, position: Duration) -> Result<(), MediaBackendError> {
@@ -112,7 +112,7 @@ impl MediaBackend for DummyBackend {
             .await
             .seek(position.as_millis() as u64)
             .await
-            .map_err(|err| Self::convert_error(err))
+            .map_err(Self::convert_error)
     }
 
     async fn get_duration(&self) -> Result<Option<Duration>, MediaBackendError> {
@@ -121,7 +121,7 @@ impl MediaBackend for DummyBackend {
             .await
             .get_duration()
             .await
-            .map_err(|err| Self::convert_error(err))
+            .map_err(Self::convert_error)
     }
 
     async fn get_playback_state(&self) -> Result<TransportState, MediaBackendError> {
@@ -131,7 +131,7 @@ impl MediaBackend for DummyBackend {
             .get_state()
             .await
             .map(Self::convert_playback_state)
-            .map_err(|err| Self::convert_error(err))
+            .map_err(Self::convert_error)
     }
 
     async fn get_status(&self) -> Result<TransportStatus, MediaBackendError> {

@@ -125,9 +125,6 @@ pub enum SoapProtocolError {
     #[error("Parse error: {0}")]
     ParseError(String),
 
-    #[error("Invalid request: {0}")]
-    InvalidRequest(String),
-
     #[error("Serialisation Error request: {0}")]
     SerializationError(String),
     #[error("Missing Fieldt: {0}")]
@@ -166,9 +163,7 @@ impl SoapProtocolError {
                     description: "Invalid Action",
                 }
             }
-            SoapProtocolError::ParseError(_)
-            | SoapProtocolError::MissingField(_)
-            | SoapProtocolError::InvalidRequest(_) => UPnPErrorCode {
+            SoapProtocolError::ParseError(_) | SoapProtocolError::MissingField(_) => UPnPErrorCode {
                 code: 402,
                 description: "Invalid Args",
             },

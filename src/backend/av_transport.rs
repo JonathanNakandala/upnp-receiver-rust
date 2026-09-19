@@ -217,20 +217,12 @@ impl AVTransport for MediaBackendAVTransport {
 
         // Only return position info if we have a URI
         if let Some(uri) = uri {
-            let duration = match duration_result {
-                Ok(d) => d,
-                Err(_) => None, // If duration fails, we'll just use None
-            };
-
-            let position = match position_result {
-                Ok(p) => Some(p),
-                Err(_) => None, // If position fails, we'll just use None
-            };
-
-            let metadata = match metadata_result {
-                Ok(m) => m,
-                Err(_) => None, // If metadata fails, we'll just use None
-            };
+            // If duration fails, we'll just use None
+            let duration = duration_result.unwrap_or_default();
+            // If position fails, we'll just use None
+            let position = position_result.ok();
+            // If metadata fails, we'll just use None
+            let metadata = metadata_result.unwrap_or_default();
 
             Ok(Some(PositionInfo {
                 uri,

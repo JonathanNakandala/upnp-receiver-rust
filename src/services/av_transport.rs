@@ -100,6 +100,12 @@ pub struct AVTransportImpl {
     state: Arc<RwLock<AVTransportState>>,
 }
 
+impl Default for AVTransportImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AVTransportImpl {
     pub fn new() -> Self {
         Self {

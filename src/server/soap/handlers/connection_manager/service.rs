@@ -28,7 +28,7 @@ impl UPnPService for ConnectionManagerService {
 
     fn parse_action(
         action: &ParsedSoapAction,
-        content: &String,
+        content: &str,
     ) -> Result<Self::Action, SoapError> {
         let action_name: &str = action.action.as_str();
         match action_name {

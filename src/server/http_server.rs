@@ -145,7 +145,7 @@ impl HttpServer {
                 any(handle_connection_manager_events),
             )
             // SOAP control routes
-            .merge(UPnPServiceRouter::new(Arc::clone(&self.renderer)).router());
+            .merge(UPnPServiceRouter::new().router());
 
         if let Some(logger) = &self.client_logger {
             // Wraps the whole router (routed and unmatched paths alike), so a

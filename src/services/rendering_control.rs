@@ -89,6 +89,12 @@ pub struct RenderingControlImpl {
     state: Arc<RwLock<RenderingState>>,
 }
 
+impl Default for RenderingControlImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RenderingControlImpl {
     pub fn new() -> Self {
         Self {
@@ -161,15 +167,15 @@ mod tests {
         let control = RenderingControlImpl::new();
 
         // Test initial mute state
-        assert_eq!(control.get_mute().await.unwrap(), false);
+        assert!(!control.get_mute().await.unwrap());
 
         // Test setting mute
         control.set_mute(true).await.unwrap();
-        assert_eq!(control.get_mute().await.unwrap(), true);
+        assert!(control.get_mute().await.unwrap());
 
         // Test toggling mute
         control.set_mute(false).await.unwrap();
-        assert_eq!(control.get_mute().await.unwrap(), false);
+        assert!(!control.get_mute().await.unwrap());
     }
 
     #[test]

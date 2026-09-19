@@ -49,6 +49,12 @@ fn dlna_profile_for_mime_type(mime_type: &str) -> Option<&'static str> {
     }
 }
 
+impl Default for DummyConnectionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DummyConnectionManager {
     pub fn new() -> Self {
         Self::with_supported_mime_types(vec!["audio/mpeg".to_string()])

@@ -59,6 +59,12 @@ async fn send_command(stream: &mut TcpStream, command: MediaCommand) -> Result<M
     Ok(response)
 }
 
+impl Default for DummyBackendManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DummyBackendManager {
     pub fn new() -> Self {
         Self {
@@ -250,32 +256,29 @@ impl DummyBackendManager {
             }
 
             // Force kill if still running
-            match child.try_wait() {
-                Ok(None) => {
-                    // Process still running, kill it
-                    #[cfg(unix)]
-                    {
-                        use nix::sys::signal::{kill, Signal};
-                        use nix::unistd::Pid;
+            if let Ok(None) = child.try_wait() {
+                // Process still running, kill it
+                #[cfg(unix)]
+                {
+                    use nix::sys::signal::{kill, Signal};
+                    use nix::unistd::Pid;
 
-                        // Try SIGTERM first
-                        let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM);
+                    // Try SIGTERM first
+                    let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM);
 
-                        // Wait a bit
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    // Wait a bit
+                    tokio::time::sleep(Duration::from_millis(100)).await;
 
-                        // If still running, use SIGKILL
-                        if child.try_wait().map(|s| s.is_none()).unwrap_or(false) {
-                            let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGKILL);
-                        }
-                    }
-
-                    #[cfg(windows)]
-                    {
-                        let _ = child.kill();
+                    // If still running, use SIGKILL
+                    if child.try_wait().map(|s| s.is_none()).unwrap_or(false) {
+                        let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGKILL);
                     }
                 }
-                _ => {} // Already exited
+
+                #[cfg(windows)]
+                {
+                    let _ = child.kill();
+                }
             }
 
             // Ensure connection is closed

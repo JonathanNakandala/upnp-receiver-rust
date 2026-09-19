@@ -208,7 +208,7 @@ fn create_renderer(
     MediaRenderer::new_with_media_backend(config, media_backend, supported_mime_types).map_err(
         |e| {
             error!(error = %e, "Failed to create media renderer");
-            e.into()
+            e
         },
     )
 }

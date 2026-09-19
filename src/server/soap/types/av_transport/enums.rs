@@ -23,9 +23,10 @@ pub enum TransportStatus {
 /// without a real playlist/queue engine are supported — `RANDOM`,
 /// `DIRECT_1` and `INTRO` are left out of the SCPD's `allowedValueList`
 /// rather than accepted and silently ignored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PlayMode {
+    #[default]
     Normal,
     Shuffle,
     RepeatOne,
@@ -50,11 +51,5 @@ impl PlayMode {
             Self::RepeatOne => "REPEAT_ONE",
             Self::RepeatAll => "REPEAT_ALL",
         }
-    }
-}
-
-impl Default for PlayMode {
-    fn default() -> Self {
-        Self::Normal
     }
 }

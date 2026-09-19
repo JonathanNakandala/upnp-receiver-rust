@@ -1,16 +1,12 @@
 pub mod av_transport;
 pub mod connection_manager;
-pub mod coordinator;
 pub(crate) mod error;
 pub mod media_renderer;
 pub mod rendering_control;
 mod types_impl;
 
-pub use av_transport::AVTransport;
-pub use connection_manager::ConnectionManager;
 pub use error::ServiceError;
 pub use media_renderer::MediaRenderer;
-pub use types::ConnectionState;
 pub mod types {
     use std::time::Duration;
 

@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 // Constants for SSDP message fields
 const SSDP_HOST: &str = "239.255.255.250:1900";
+#[cfg(test)]
 const UPNP_VERSION: &str = "UPnP/1.0";
 
 #[derive(Debug, Clone)]
@@ -83,8 +84,11 @@ impl SsdpMessage {
         }
     }
 
-    pub fn to_string(&self) -> String {
-        match self {
+}
+
+impl std::fmt::Display for SsdpMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let rendered = match self {
             SsdpMessage::Notify {
                 header,
                 device_type,
@@ -174,9 +178,13 @@ impl SsdpMessage {
                     mx.as_secs()
                 )
             }
-        }
-    }
+        };
 
+        write!(f, "{}", rendered)
+    }
+}
+
+impl SsdpMessage {
     // Add byebye message support
     pub fn to_byebye_string(&self) -> Option<String> {
         match self {
