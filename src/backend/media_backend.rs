@@ -28,4 +28,14 @@ pub trait MediaBackend: Send + Sync {
     // Media info
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError>;
     async fn get_metadata(&self) -> Result<Option<String>, MediaBackendError>;
+
+    /// A channel that fires whenever the backend's transport state changes
+    /// on its own — not in direct response to a `play`/`pause`/`stop`/
+    /// `load_media` call — e.g. reaching end-of-stream or hitting a decode
+    /// error. Callers that want subscribed control points notified of these
+    /// promptly (rather than only on their next `GetTransportInfo` poll)
+    /// should forward every value this reports as a `LastChange` event.
+    /// Implementations with no such async transitions can return a channel
+    /// that never fires.
+    fn state_changes(&self) -> tokio::sync::watch::Receiver<TransportState>;
 }

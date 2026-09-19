@@ -150,4 +150,13 @@ impl MediaBackend for DummyBackend {
     async fn get_metadata(&self) -> Result<Option<String>, MediaBackendError> {
         Ok(self.manager.lock().await.get_current_metadata().await)
     }
+
+    fn state_changes(&self) -> tokio::sync::watch::Receiver<TransportState> {
+        // The simulated backend just loops its position counter back to 0
+        // at the end of the (fake) duration rather than stopping — it never
+        // has a state transition of its own to report, so the sender is
+        // dropped immediately and this receiver never fires.
+        let (_tx, rx) = tokio::sync::watch::channel(TransportState::NoMediaPresent);
+        rx
+    }
 }

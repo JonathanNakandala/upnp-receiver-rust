@@ -10,7 +10,7 @@ use crate::discovery::service::{
     MediaRendererConfig, MediaRendererService, Server, ServiceInfo, SsdpService,
 };
 use crate::ip::get_default_ip;
-use crate::server::eventing::EventManager;
+use crate::server::eventing::{av_transport_last_change, EventManager};
 use crate::services::{
     av_transport::{AVTransport, AVTransportImpl},
     connection_manager::{ConnectionManager, DummyConnectionManager},
@@ -101,6 +101,24 @@ impl MediaRenderer {
         ));
         let av_transport_events = EventManager::new();
         let rendering_control_events = EventManager::new();
+
+        // Forward transport-state changes the backend makes on its own
+        // (reaching end-of-stream, hitting a decode error) to subscribed
+        // control points immediately, rather than leaving them to find out
+        // on their next GetTransportInfo poll. Caller-driven changes
+        // (Play/Pause/Stop) already get a LastChange published right after
+        // the SOAP handler that caused them returns — this only ever fires
+        // for the ones nothing else published.
+        if let Some(backend) = &media_backend {
+            let mut state_changes = backend.state_changes();
+            let events = av_transport_events.clone();
+            tokio::spawn(async move {
+                while state_changes.changed().await.is_ok() {
+                    let state = *state_changes.borrow();
+                    events.broadcast(av_transport_last_change(state));
+                }
+            });
+        }
 
         Ok(Self {
             unique_id: Uuid::new_v4(),
