@@ -22,11 +22,11 @@ impl SearchTarget {
         match search_target {
             "ssdp:all" => Self::All,
             "upnp:rootdevice" => Self::RootDevice,
-            target if !target.contains(":") => {
-                Self::Service(format!("urn:schemas-upnp-org:service:{}", target))
-            }
             target if target.contains(":service:") => Self::Service(target.to_string()),
             target if target.contains(":device:") => Self::Device(target.to_string()),
+            target if !target.starts_with("urn:") => {
+                Self::Service(format!("urn:schemas-upnp-org:service:{}", target))
+            }
             target => {
                 debug!(target = %target, "Unknown search target type, treating as device");
                 Self::Device(target.to_string())
