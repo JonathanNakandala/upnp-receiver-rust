@@ -334,13 +334,13 @@ async fn test_next_promotes_queued_track() {
     let body = resp.text().await.unwrap();
     assert_eq!(status, 200, "Response body: {}", body);
     assert!(
-        body.contains("<CurrentUri>http://example.com/track2.mp3</CurrentUri>"),
+        body.contains("<CurrentURI>http://example.com/track2.mp3</CurrentURI>"),
         "Response body: {}",
         body
     );
     // The lookahead slot is single-use — nothing left queued after promotion.
     assert!(
-        body.contains("<NextUri></NextUri>") || body.contains("<NextUri/>"),
+        body.contains("<NextURI></NextURI>") || body.contains("<NextURI/>"),
         "Response body: {}",
         body
     );
