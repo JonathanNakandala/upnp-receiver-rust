@@ -2,7 +2,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 // Constants for SSDP message fields
-const SSDP_HOST: &str = "239.255.255.250:1900";
+const SSDP_HOST: &str = super::SSDP_MULTICAST_ADDR;
 #[cfg(test)]
 const UPNP_VERSION: &str = "UPnP/1.0";
 

@@ -26,6 +26,7 @@ nix = { version = "0.31.3", features = ["process", "signal"] }
 gstreamer = "0.25.3"
 reqwest = { version = "0.11", default-features = false }
 rand = "0.8"
+termtree = "1.0.0"
 [dev-dependencies]
 tokio = { version = "1.42.0", features = ["test-util", "test-util"] }
 reqwest = { version = "0.11", features = ["json"] }

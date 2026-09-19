@@ -4,6 +4,7 @@ use crate::discovery::{
     error::DiscoveryServiceError,
     messages::{SsdpHeader, SsdpMessage},
     service::{ServiceInfo, SsdpService},
+    SSDP_MULTICAST_ADDR,
 };
 use rand::Rng;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -12,7 +13,6 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 use tracing::{debug, error, info, trace, warn};
 
-const SSDP_MULTICAST_ADDR: &str = "239.255.255.250:1900";
 const NOTIFY_INTERVAL_SECS: u64 = 30;
 const MAX_PACKET_SIZE: usize = 1024;
 pub struct SsdpAdvertiser {

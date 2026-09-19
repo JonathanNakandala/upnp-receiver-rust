@@ -10,4 +10,8 @@ pub enum DiscoveryServiceError {
     NetworkError(#[from] std::io::Error),
     #[error("protocol error: {0}")]
     ProtocolError(String),
+    #[error("http error: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("xml error: {0}")]
+    Xml(#[from] quick_xml::de::DeError),
 }
