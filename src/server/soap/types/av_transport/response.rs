@@ -66,6 +66,14 @@ pub struct GetCurrentTransportActionsResponse {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
+pub struct GetDeviceCapabilitiesResponse {
+    pub play_media: String,
+    pub rec_media: String,
+    pub rec_quality_modes: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct GetPositionInfoResponse {
     pub track: u32,
     pub track_duration: String,
@@ -91,4 +99,5 @@ pub enum AVTransportResponse {
     SetPlayMode(SetPlayModeResponse),
     TransportSettings(GetTransportSettingsResponse),
     CurrentTransportActions(GetCurrentTransportActionsResponse),
+    DeviceCapabilities(GetDeviceCapabilitiesResponse),
 }

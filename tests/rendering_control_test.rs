@@ -73,6 +73,65 @@ async fn test_set_volume_rejects_out_of_range() {
 }
 
 #[test(tokio::test)]
+async fn test_get_volume_db_range() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_volume_db_range().await;
+    let body = assert_response(resp, 200).await;
+    assert!(body.contains("<MinValue>-60</MinValue>"), "body: {}", body);
+    assert!(body.contains("<MaxValue>0</MaxValue>"), "body: {}", body);
+}
+
+#[test(tokio::test)]
+async fn test_get_volume_db_matches_default_volume() {
+    let (_server, client) = setup().await;
+
+    // Default volume is 50%, which is -6dB.
+    let resp = client.get_volume_db().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentVolume>-6</CurrentVolume>"),
+        "body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_volume_db_updates_volume_and_volume_db() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_volume_db(0).await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_volume().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentVolume>100</CurrentVolume>"),
+        "body: {}",
+        body
+    );
+
+    let resp = client.get_volume_db().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentVolume>0</CurrentVolume>"),
+        "body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_volume_db_rejects_out_of_range() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_volume_db(1).await;
+    assert_response(resp, 500).await;
+
+    let resp = client.set_volume_db(-61).await;
+    assert_response(resp, 500).await;
+}
+
+#[test(tokio::test)]
 async fn test_get_mute_default() {
     let (_server, client) = setup().await;
 

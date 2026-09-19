@@ -151,17 +151,22 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
 
 /// Builds the `LastChange` inner XML for a RenderingControl state change
 /// (volume and/or mute) and wraps it in the GENA `propertyset` envelope.
+/// `VolumeDB` is derived from `volume` (see
+/// [`crate::services::rendering_control::volume_to_db`]) rather than passed
+/// in separately, so it can never disagree with `Volume` in the same event.
 pub fn rendering_control_last_change(volume: u16, muted: bool) -> String {
     let inner = format!(
         concat!(
             r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">"#,
             r#"<InstanceID val="0">"#,
             r#"<Volume channel="Master" val="{volume}"/>"#,
+            r#"<VolumeDB channel="Master" val="{volume_db}"/>"#,
             r#"<Mute channel="Master" val="{muted}"/>"#,
             r#"</InstanceID>"#,
             r#"</Event>"#
         ),
         volume = volume,
+        volume_db = crate::services::rendering_control::volume_to_db(volume),
         muted = if muted { "1" } else { "0" },
     );
 
@@ -275,6 +280,10 @@ mod tests {
         assert!(body.contains("urn:schemas-upnp-org:metadata-1-0/RCS/"));
         assert!(body.contains("Volume channel=&quot;Master&quot; val=&quot;42&quot;"));
         assert!(body.contains("Mute channel=&quot;Master&quot; val=&quot;1&quot;"));
+        let expected_db = crate::services::rendering_control::volume_to_db(42);
+        assert!(body.contains(&format!(
+            "VolumeDB channel=&quot;Master&quot; val=&quot;{expected_db}&quot;"
+        )));
     }
 
     #[test]

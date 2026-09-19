@@ -1,7 +1,8 @@
 use super::{
-    GetCurrentTransportActionsRequest, GetMediaInfoRequest, GetPositionInfoRequest,
-    GetTransportInfoRequest, GetTransportSettingsRequest, PauseRequest, PlayRequest, SeekRequest,
-    SetAVTransportURIRequest, SetNextAVTransportURIRequest, SetPlayModeRequest, StopRequest,
+    GetCurrentTransportActionsRequest, GetDeviceCapabilitiesRequest, GetMediaInfoRequest,
+    GetPositionInfoRequest, GetTransportInfoRequest, GetTransportSettingsRequest, PauseRequest,
+    PlayRequest, SeekRequest, SetAVTransportURIRequest, SetNextAVTransportURIRequest,
+    SetPlayModeRequest, StopRequest,
 };
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use serde::Deserialize;
@@ -21,6 +22,7 @@ pub enum AVTransportAction {
     SetPlayMode(SetPlayModeRequest),
     GetTransportSettings(GetTransportSettingsRequest),
     GetCurrentTransportActions(GetCurrentTransportActionsRequest),
+    GetDeviceCapabilities(GetDeviceCapabilitiesRequest),
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -38,6 +40,7 @@ pub enum AVTransportActionType {
     SetPlayMode,
     GetTransportSettings,
     GetCurrentTransportActions,
+    GetDeviceCapabilities,
 }
 impl TryFrom<&String> for AVTransportActionType {
     type Error = SoapError;
@@ -62,6 +65,7 @@ impl TryFrom<&String> for AVTransportActionType {
             "SetPlayMode" => Ok(Self::SetPlayMode),
             "GetTransportSettings" => Ok(Self::GetTransportSettings),
             "GetCurrentTransportActions" => Ok(Self::GetCurrentTransportActions),
+            "GetDeviceCapabilities" => Ok(Self::GetDeviceCapabilities),
             _ => Err(SoapError::Soap(SoapProtocolError::InvalidAction(format!(
                 "Unsupported AVTransport action: {}",
                 action

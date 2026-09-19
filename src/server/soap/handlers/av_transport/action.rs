@@ -4,10 +4,10 @@ use crate::server::eventing::{
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
-    AVTransportResponse, GetCurrentTransportActionsResponse, GetMediaInfoResponse,
-    GetTransportInfoResponse, GetTransportSettingsResponse, PauseResponse, PlayMode, PlayResponse,
-    SeekResponse, SetAVTransportURIResponse, SetNextAVTransportURIResponse, SetPlayModeResponse,
-    StopResponse,
+    AVTransportResponse, GetCurrentTransportActionsResponse, GetDeviceCapabilitiesResponse,
+    GetMediaInfoResponse, GetTransportInfoResponse, GetTransportSettingsResponse, PauseResponse,
+    PlayMode, PlayResponse, SeekResponse, SetAVTransportURIResponse,
+    SetNextAVTransportURIResponse, SetPlayModeResponse, StopResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -46,6 +46,7 @@ impl UPnPAction for AVTransportAction {
             Self::SetPlayMode(_) => "SetPlayMode",
             Self::GetTransportSettings(_) => "GetTransportSettings",
             Self::GetCurrentTransportActions(_) => "GetCurrentTransportActions",
+            Self::GetDeviceCapabilities(_) => "GetDeviceCapabilities",
         }
     }
 
@@ -421,6 +422,24 @@ impl UPnPAction for AVTransportAction {
                 Ok(AVTransportResponse::CurrentTransportActions(
                     GetCurrentTransportActionsResponse {
                         actions: transport_actions_for(state).to_string(),
+                    },
+                ))
+            }
+
+            Self::GetDeviceCapabilities(req) => {
+                // Static for this renderer: it only ever plays a network
+                // stream (or nothing), and doesn't record at all — so unlike
+                // GetTransportSettings/GetCurrentTransportActions, there's no
+                // per-instance state to read here.
+                info!(
+                    instance_id = req.instance_id,
+                    "Handling GetDeviceCapabilities"
+                );
+                Ok(AVTransportResponse::DeviceCapabilities(
+                    GetDeviceCapabilitiesResponse {
+                        play_media: "NETWORK,NONE".to_string(),
+                        rec_media: "NOT_IMPLEMENTED".to_string(),
+                        rec_quality_modes: "NOT_IMPLEMENTED".to_string(),
                     },
                 ))
             }

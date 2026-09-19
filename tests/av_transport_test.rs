@@ -283,3 +283,16 @@ async fn test_get_current_transport_actions_with_no_media() {
         body
     );
 }
+
+#[test(tokio::test)]
+async fn test_get_device_capabilities() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_device_capabilities().await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 200, "Response body: {}", body);
+    assert!(body.contains("<PlayMedia>NETWORK,NONE</PlayMedia>"));
+    assert!(body.contains("<RecMedia>NOT_IMPLEMENTED</RecMedia>"));
+    assert!(body.contains("<RecQualityModes>NOT_IMPLEMENTED</RecQualityModes>"));
+}

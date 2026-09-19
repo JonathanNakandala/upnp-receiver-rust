@@ -405,6 +405,21 @@ impl MediaBackend for GStreamerBackend {
             )));
         }
 
+        // The AVTransport handler always reissues Speed after Play (so it
+        // still takes effect if a control point is scrubbing speed
+        // mid-playback), even when nothing actually changed — which is the
+        // overwhelmingly common case, since most control points just always
+        // send Speed=1. A rate-change seek is real work for playbin (FLUSH
+        // + a fresh preroll), and right after `load_media` the pipeline may
+        // still be completing its *first* preroll into PAUSED; racing a
+        // redundant one against that intermittently fails with "Failed to
+        // seek". Skipping when the rate is already what was asked for
+        // avoids the seek entirely for the common no-op case, not just the
+        // race — a real rate change still always seeks.
+        if (self.state.lock().unwrap().speed - speed).abs() < f64::EPSILON {
+            return Ok(());
+        }
+
         // Re-seek at the new rate from the current position — GStreamer has
         // no separate "just change the rate" call; a seek is how rate
         // changes are done, same as a position change.
@@ -535,6 +550,39 @@ mod tests {
         }
 
         pipeline.set_state(gst::State::Null).unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test -- --ignored`"]
+    async fn play_at_default_speed_does_not_race_initial_preroll() {
+        // Regression test: AVTransport's Play handler always reissues
+        // set_play_speed(1.0) right after play(), even when the control
+        // point never asked for anything but normal speed (BubbleUPnP,
+        // among others, always sends Speed=1). Before the no-op skip in
+        // set_play_speed, this raced the pipeline's *first* preroll —
+        // triggered here by calling both back-to-back with no delay in
+        // between — and playbin's rate-change seek intermittently failed
+        // with "Failed to seek" on a fresh track.
+        let path = std::env::temp_dir().join(format!(
+            "upnp_receiver_test_speed_race_{}.mp3",
+            std::process::id()
+        ));
+        generate_test_mp3(&path);
+        let uri = format!("file://{}", path.display());
+
+        let backend = GStreamerBackend::new().unwrap();
+
+        for _ in 0..20 {
+            backend
+                .load_media(&uri, Some("test track".to_string()))
+                .await
+                .unwrap();
+            backend.play().await.unwrap();
+            backend.set_play_speed(1.0).await.unwrap();
+            backend.stop().await.unwrap();
+        }
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]

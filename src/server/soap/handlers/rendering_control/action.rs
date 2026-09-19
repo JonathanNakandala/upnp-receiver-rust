@@ -1,8 +1,9 @@
 use crate::server::eventing::{rendering_control_last_change, EventManager};
 use crate::server::soap::error::SoapError;
 use crate::server::soap::types::rendering_control::{
-    GetMuteResponse, GetVolumeResponse, RenderingControlAction, RenderingControlResponse,
-    SetMuteResponse, SetVolumeResponse,
+    GetMuteResponse, GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse,
+    RenderingControlAction, RenderingControlResponse, SetMuteResponse, SetVolumeDBResponse,
+    SetVolumeResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -31,6 +32,9 @@ impl UPnPAction for RenderingControlAction {
             Self::SetMute(_) => "SetMute",
             Self::GetVolume(_) => "GetVolume",
             Self::GetMute(_) => "GetMute",
+            Self::SetVolumeDB(_) => "SetVolumeDB",
+            Self::GetVolumeDB(_) => "GetVolumeDB",
+            Self::GetVolumeDBRange(_) => "GetVolumeDBRange",
         }
     }
 
@@ -126,6 +130,67 @@ impl UPnPAction for RenderingControlAction {
                 Ok(RenderingControlResponse::Mute(GetMuteResponse {
                     current_mute,
                 }))
+            }
+            Self::SetVolumeDB(req) => {
+                let result = renderer
+                    .rendering_control
+                    .set_volume_db(req.desired_volume)
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        desired_volume = req.desired_volume,
+                        "Handling SetVolumeDB"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        desired_volume = req.desired_volume,
+                        error = %err,
+                        "Handling SetVolumeDB"
+                    ),
+                }
+                result?;
+                publish_rendering_state(&renderer, &renderer.rendering_control_events).await;
+                Ok(RenderingControlResponse::SetVolumeDB(SetVolumeDBResponse {}))
+            }
+            Self::GetVolumeDB(req) => {
+                let result = renderer.rendering_control.get_volume_db().await;
+                match &result {
+                    Ok(current_volume) => info!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        current_volume,
+                        "Handling GetVolumeDB"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        error = %err,
+                        "Handling GetVolumeDB"
+                    ),
+                }
+                let current_volume = result?;
+                Ok(RenderingControlResponse::VolumeDB(GetVolumeDBResponse {
+                    current_volume,
+                }))
+            }
+            Self::GetVolumeDBRange(req) => {
+                let (min_value, max_value) = renderer.rendering_control.volume_db_range();
+                info!(
+                    instance_id = req.instance_id,
+                    channel = %req.channel,
+                    min_value,
+                    max_value,
+                    "Handling GetVolumeDBRange"
+                );
+                Ok(RenderingControlResponse::VolumeDBRange(
+                    GetVolumeDBRangeResponse {
+                        min_value,
+                        max_value,
+                    },
+                ))
             }
         }
     }

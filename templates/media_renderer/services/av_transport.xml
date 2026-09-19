@@ -6,6 +6,31 @@
     </specVersion>
     <actionList>
         <action>
+            <name>GetDeviceCapabilities</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>PlayMedia</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>PossiblePlaybackStorageMedia</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>RecMedia</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>PossibleRecordStorageMedia</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>RecQualityModes</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>PossibleRecordQualityModes</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
             <name>SetAVTransportURI</name>
             <argumentList>
                 <argument>
@@ -368,6 +393,36 @@
         <stateVariable sendEvents="no">
             <name>CurrentTransportActions</name>
             <dataType>string</dataType>
+        </stateVariable>
+
+        <!-- GetDeviceCapabilities's out arguments — static for this
+             renderer (network playback only, no recording), unlike the
+             other Possible*/Current* pairs above which reflect live state. -->
+        <stateVariable sendEvents="no">
+            <name>PossiblePlaybackStorageMedia</name>
+            <dataType>string</dataType>
+            <allowedValueList>
+                <allowedValue>NETWORK</allowedValue>
+                <allowedValue>NONE</allowedValue>
+            </allowedValueList>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>PossibleRecordStorageMedia</name>
+            <dataType>string</dataType>
+            <defaultValue>NOT_IMPLEMENTED</defaultValue>
+            <allowedValueList>
+                <allowedValue>NOT_IMPLEMENTED</allowedValue>
+            </allowedValueList>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>PossibleRecordQualityModes</name>
+            <dataType>string</dataType>
+            <defaultValue>NOT_IMPLEMENTED</defaultValue>
+            <allowedValueList>
+                <allowedValue>NOT_IMPLEMENTED</allowedValue>
+            </allowedValueList>
         </stateVariable>
 
         <stateVariable sendEvents="no">

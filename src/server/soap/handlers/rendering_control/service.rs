@@ -4,7 +4,8 @@ use crate::server::soap::types::soap_action::ParsedSoapAction;
 use crate::server::soap::types::UPnPService;
 
 use crate::server::soap::types::rendering_control::{
-    GetMuteRequest, GetVolumeRequest, RenderingControlAction, SetMuteRequest, SetVolumeRequest,
+    GetMuteRequest, GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest,
+    RenderingControlAction, SetMuteRequest, SetVolumeDBRequest, SetVolumeRequest,
 };
 
 pub struct RenderingControlService;
@@ -50,6 +51,21 @@ impl UPnPService for RenderingControlService {
                 let request =
                     extract_and_parse_soap_body::<GetMuteRequest>(content, action_name)?;
                 Ok(RenderingControlAction::GetMute(request))
+            }
+            "SetVolumeDB" => {
+                let request =
+                    extract_and_parse_soap_body::<SetVolumeDBRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SetVolumeDB(request))
+            }
+            "GetVolumeDB" => {
+                let request =
+                    extract_and_parse_soap_body::<GetVolumeDBRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetVolumeDB(request))
+            }
+            "GetVolumeDBRange" => {
+                let request =
+                    extract_and_parse_soap_body::<GetVolumeDBRangeRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetVolumeDBRange(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",

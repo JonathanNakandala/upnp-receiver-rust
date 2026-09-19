@@ -44,6 +44,13 @@ pub struct GetPositionInfoRequest {
     pub instance_id: u32,
 }
 
+// Struct for GetDeviceCapabilitiesRequest
+#[derive(Debug, Deserialize)]
+pub struct GetDeviceCapabilitiesRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
 // Struct for SeekRequest
 #[derive(Debug, Deserialize)]
 pub struct SeekRequest {
