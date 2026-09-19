@@ -6,6 +6,7 @@ use crate::server::soap::types::connection_manager::{
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
+use tracing::info;
 
 impl UPnPAction for ConnectionManagerAction {
     type Response = ConnectionManagerResponse;
@@ -25,6 +26,7 @@ impl UPnPAction for ConnectionManagerAction {
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
         match self {
             Self::GetProtocolInfo(_) => {
+                info!("Handling GetProtocolInfo");
                 let infos = renderer.connection_manager.get_protocol_info().await?;
                 let sink = infos
                     .iter()
@@ -41,6 +43,7 @@ impl UPnPAction for ConnectionManagerAction {
                 ))
             }
             Self::GetCurrentConnectionIDs(_) => {
+                info!("Handling GetCurrentConnectionIDs");
                 let ids = renderer
                     .connection_manager
                     .get_current_connection_ids()
@@ -56,6 +59,7 @@ impl UPnPAction for ConnectionManagerAction {
                 ))
             }
             Self::GetCurrentConnectionInfo(req) => {
+                info!(connection_id = req.connection_id, "Handling GetCurrentConnectionInfo");
                 let info = renderer
                     .connection_manager
                     .get_current_connection_info(req.connection_id)

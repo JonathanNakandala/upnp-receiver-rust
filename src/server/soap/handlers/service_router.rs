@@ -11,7 +11,7 @@ use axum::http::{HeaderMap, Response};
 use axum::routing::post;
 use axum::Router;
 use std::sync::Arc;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, trace};
 
 pub struct UPnPServiceRouter {
     renderer: Arc<MediaRenderer>,
@@ -38,7 +38,6 @@ impl UPnPServiceRouter {
             )
     }
 
-    #[instrument(skip(renderer, body))]
     async fn handle_service<S: UPnPService>(
         State(renderer): State<Arc<MediaRenderer>>,
         headers: HeaderMap,

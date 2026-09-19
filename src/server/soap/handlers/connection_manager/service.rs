@@ -8,7 +8,6 @@ use axum::body::Body;
 use axum::http::Response;
 use axum::response::IntoResponse;
 use std::sync::Arc;
-use tracing::debug;
 
 use crate::server::soap::types::connection_manager::{
     ConnectionManagerAction, GetCurrentConnectionIDsRequest, GetCurrentConnectionInfoRequest,
@@ -37,8 +36,6 @@ impl UPnPService for ConnectionManagerService {
         action: Self::Action,
         renderer: Arc<MediaRenderer>,
     ) -> Result<Response<Body>, SoapError> {
-        debug!(action = ?action.action_name(), "Handling ConnectionManager action");
-
         let response = action.handle(renderer).await?;
         create_soap_response(Self::service_type(), response).map(IntoResponse::into_response)
     }

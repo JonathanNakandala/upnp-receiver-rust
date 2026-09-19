@@ -6,6 +6,7 @@ use crate::server::soap::types::rendering_control::{
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
+use tracing::info;
 
 impl UPnPAction for RenderingControlAction {
     type Response = RenderingControlResponse;
@@ -26,6 +27,12 @@ impl UPnPAction for RenderingControlAction {
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
         match self {
             Self::SetVolume(req) => {
+                info!(
+                    instance_id = req.instance_id,
+                    channel = %req.channel,
+                    desired_volume = req.desired_volume,
+                    "Handling SetVolume"
+                );
                 renderer
                     .rendering_control
                     .set_volume(req.desired_volume)
@@ -33,16 +40,24 @@ impl UPnPAction for RenderingControlAction {
                 Ok(RenderingControlResponse::SetVolume(SetVolumeResponse {}))
             }
             Self::SetMute(req) => {
+                info!(
+                    instance_id = req.instance_id,
+                    channel = %req.channel,
+                    desired_mute = req.desired_mute,
+                    "Handling SetMute"
+                );
                 renderer.rendering_control.set_mute(req.desired_mute).await?;
                 Ok(RenderingControlResponse::SetMute(SetMuteResponse {}))
             }
-            Self::GetVolume(_) => {
+            Self::GetVolume(req) => {
+                info!(instance_id = req.instance_id, channel = %req.channel, "Handling GetVolume");
                 let current_volume = renderer.rendering_control.get_volume().await?;
                 Ok(RenderingControlResponse::Volume(GetVolumeResponse {
                     current_volume,
                 }))
             }
-            Self::GetMute(_) => {
+            Self::GetMute(req) => {
+                info!(instance_id = req.instance_id, channel = %req.channel, "Handling GetMute");
                 let current_mute = renderer.rendering_control.get_mute().await?;
                 Ok(RenderingControlResponse::Mute(GetMuteResponse {
                     current_mute,

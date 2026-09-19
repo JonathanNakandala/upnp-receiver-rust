@@ -13,7 +13,6 @@ use crate::server::soap::types::av_transport::{
 };
 use axum::http::Response;
 use axum::response::IntoResponse;
-use tracing::debug;
 
 pub struct AVTransportService;
 #[async_trait::async_trait]
@@ -36,8 +35,6 @@ impl UPnPService for AVTransportService {
         action: Self::Action,
         renderer: Arc<MediaRenderer>,
     ) -> Result<Response<Body>, SoapError> {
-        debug!(action = ?action.action_name(), "Handling AVTransport action");
-
         let response = action.handle(renderer).await?;
         create_soap_response(Self::service_type(), response).map(IntoResponse::into_response)
     }

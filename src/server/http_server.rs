@@ -131,9 +131,9 @@ impl HttpServer {
         router
             .layer(
                 TraceLayer::new_for_http()
-                    .make_span_with(trace::DefaultMakeSpan::new().level(tracing::Level::INFO))
-                    .on_request(trace::DefaultOnRequest::new().level(tracing::Level::INFO))
-                    .on_response(trace::DefaultOnResponse::new().level(tracing::Level::INFO)),
+                    .make_span_with(request_span)
+                    .on_request(trace::DefaultOnRequest::new().level(tracing::Level::DEBUG))
+                    .on_response(trace::DefaultOnResponse::new().level(tracing::Level::DEBUG)),
             )
             .with_state(Arc::clone(&self.renderer))
     }
@@ -268,6 +268,20 @@ async fn log_client_request(
         .await;
 
     axum::http::Response::from_parts(resp_parts, resp_body)
+}
+
+/// Builds the tracing span each request runs in. Carries just the client
+/// address — every event logged anywhere during the request (including deep
+/// inside an action handler) inherits this span's fields, so keeping it to
+/// the one thing that's genuinely useful everywhere (who's asking) avoids
+/// every log line getting method/uri/headers noise repeated onto it.
+fn request_span(req: &axum::http::Request<Body>) -> tracing::Span {
+    let remote_addr = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.to_string());
+
+    tracing::info_span!("request", client = remote_addr.as_deref().unwrap_or("-"))
 }
 
 // Template handlers
