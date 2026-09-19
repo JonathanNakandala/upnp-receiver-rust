@@ -51,6 +51,16 @@
             </argumentList>
         </action>
         <action>
+            <name>Pause</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
             <name>GetMediaInfo</name>
             <argumentList>
                 <argument>
@@ -130,6 +140,56 @@
                 </argument>
             </argumentList>
         </action>
+        <action>
+            <name>GetPositionInfo</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>Track</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>CurrentTrack</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>TrackDuration</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>CurrentTrackDuration</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>TrackMetaData</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>CurrentTrackMetaData</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>TrackURI</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>CurrentTrackURI</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>RelTime</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>RelativeTimePosition</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>AbsTime</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>AbsoluteTimePosition</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>RelCount</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>RelativeCounterPosition</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>AbsCount</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>AbsoluteCounterPosition</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
     </actionList>
     <serviceStateTable>
         <stateVariable sendEvents="no">
@@ -173,6 +233,81 @@
             <allowedValueList>
                 <allowedValue>1</allowedValue>
             </allowedValueList>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>NumberOfTracks</name>
+            <dataType>ui4</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>CurrentMediaDuration</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="yes">
+            <name>NextAVTransportURI</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="yes">
+            <name>NextAVTransportURIMetaData</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>PlaybackStorageMedium</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>RecordStorageMedium</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>RecordMediumWriteStatus</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>CurrentTrack</name>
+            <dataType>ui4</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>CurrentTrackDuration</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>CurrentTrackMetaData</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>CurrentTrackURI</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>RelativeTimePosition</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>AbsoluteTimePosition</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>RelativeCounterPosition</name>
+            <dataType>i4</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>AbsoluteCounterPosition</name>
+            <dataType>i4</dataType>
         </stateVariable>
     </serviceStateTable>
 </scpd>
