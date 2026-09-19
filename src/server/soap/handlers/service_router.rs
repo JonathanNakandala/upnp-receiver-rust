@@ -1,5 +1,6 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::handlers::av_transport::AVTransportService;
+use crate::server::soap::handlers::connection_manager::ConnectionManagerService;
 use crate::server::soap::handlers::rendering_control::RenderingControlService;
 use crate::server::soap::parser::parse_soap_action;
 use crate::server::soap::types::UPnPService;
@@ -30,6 +31,10 @@ impl UPnPServiceRouter {
             .route(
                 "/services/RenderingControl/control",
                 post(Self::handle_rendering_control),
+            )
+            .route(
+                "/services/ConnectionManager/control",
+                post(Self::handle_connection_manager),
             )
     }
 
@@ -71,5 +76,14 @@ impl UPnPServiceRouter {
     ) -> Result<Response<Body>, SoapError> {
         trace!(body = body, headers = ?headers, "RenderingControl Handler Activated");
         Self::handle_service::<RenderingControlService>(State(renderer), headers, body).await
+    }
+
+    async fn handle_connection_manager(
+        State(renderer): State<Arc<MediaRenderer>>,
+        headers: HeaderMap,
+        body: String,
+    ) -> Result<Response<Body>, SoapError> {
+        trace!(body = body, headers = ?headers, "ConnectionManager Handler Activated");
+        Self::handle_service::<ConnectionManagerService>(State(renderer), headers, body).await
     }
 }

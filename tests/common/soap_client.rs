@@ -307,4 +307,83 @@ impl SoapClient {
             .await
             .unwrap()
     }
+
+    /// Self-closing zero-argument form, matching how real clients (e.g.
+    /// BubbleUPnP) actually send it on the wire.
+    pub async fn get_protocol_info(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetProtocolInfo xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1"/>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/ConnectionManager/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:ConnectionManager:1#GetProtocolInfo\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_current_connection_ids(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetCurrentConnectionIDs xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1"/>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/ConnectionManager/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:ConnectionManager:1#GetCurrentConnectionIDs\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_current_connection_info(&self, connection_id: i32) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetCurrentConnectionInfo xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1">
+                        <ConnectionID>{}</ConnectionID>
+                    </u:GetCurrentConnectionInfo>
+                </s:Body>
+            </s:Envelope>"#,
+            connection_id
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/ConnectionManager/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:ConnectionManager:1#GetCurrentConnectionInfo\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
 }

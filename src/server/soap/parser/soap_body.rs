@@ -80,6 +80,17 @@ where
                     break;
                 }
             }
+            Event::Empty(e) => {
+                // A zero-argument action (e.g. `GetProtocolInfo`) is commonly
+                // sent as a self-closing tag rather than a Start/End pair.
+                let name = e.name().into_inner();
+                let name_str = std::str::from_utf8(name)?;
+
+                if in_body && name_str.ends_with(action_name) {
+                    action_content.push_str(&format!("<{0}></{0}>", action_name));
+                    break;
+                }
+            }
             Event::Eof => break,
             _ => {}
         }
@@ -96,4 +107,21 @@ where
     let result: T = quick_xml::de::from_str(&action_content)?;
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct EmptyRequest {}
+
+    #[test]
+    fn parses_self_closing_zero_argument_action() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8" standalone="yes"?><s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:GetProtocolInfo xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1"/></s:Body></s:Envelope>"#;
+
+        let result: EmptyRequest = extract_and_parse_soap_body(xml, "GetProtocolInfo").unwrap();
+        assert_eq!(result, EmptyRequest {});
+    }
 }

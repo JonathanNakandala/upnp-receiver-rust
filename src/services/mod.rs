@@ -29,6 +29,33 @@ pub mod types {
         pub additional_info: String,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ConnectionDirection {
+        Input,
+        Output,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ConnectionManagerStatus {
+        Ok,
+        ContentFormatMismatch,
+        InsufficientBandwidth,
+        UnreliableChannel,
+        Unknown,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct ConnectionInfo {
+        pub connection_id: i32,
+        pub rcs_id: i32,
+        pub av_transport_id: i32,
+        pub protocol_info: String,
+        pub peer_connection_manager: String,
+        pub peer_connection_id: i32,
+        pub direction: ConnectionDirection,
+        pub status: ConnectionManagerStatus,
+    }
+
     #[derive(Debug, Clone)]
     pub struct MediaInfo {
         pub uri: String,
