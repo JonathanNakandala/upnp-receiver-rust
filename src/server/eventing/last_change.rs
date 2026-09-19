@@ -10,7 +10,7 @@
 
 use quick_xml::escape::escape;
 
-use crate::server::soap::handlers::av_transport::utils::format_play_speed;
+use crate::server::soap::handlers::av_transport::utils::{format_duration, format_play_speed};
 use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
 use crate::services::av_transport::AVTransport;
 
@@ -28,6 +28,7 @@ pub struct AVTransportEventState {
     pub current_metadata: Option<String>,
     pub next_uri: String,
     pub next_metadata: Option<String>,
+    pub track_duration: String,
 }
 
 impl AVTransportEventState {
@@ -54,6 +55,11 @@ impl AVTransportEventState {
             current_metadata: media.as_ref().and_then(|m| m.metadata.clone()),
             next_uri: media.as_ref().map(|m| m.next_uri.clone()).unwrap_or_default(),
             next_metadata: media.as_ref().and_then(|m| m.next_metadata.clone()),
+            track_duration: media
+                .as_ref()
+                .and_then(|m| m.duration)
+                .map(format_duration)
+                .unwrap_or_else(|| "00:00:00".to_string()),
         }
     }
 }
@@ -94,6 +100,13 @@ fn transport_actions_for(state: TransportState) -> &'static str {
 /// wraps it in the GENA `propertyset` envelope, ready to send as a NOTIFY
 /// body.
 pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
+    // Single-track player: there's no playlist, so NumberOfTracks/CurrentTrack
+    // are always 0 (no media) or 1 (media loaded), and CurrentTrackURI/
+    // CurrentTrackMetaData/CurrentTrackDuration mirror the AVTransportURI
+    // trio rather than tracking a separate "now playing within the queue"
+    // position.
+    let track_count = if event.current_uri.is_empty() { 0 } else { 1 };
+
     let inner = format!(
         concat!(
             r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/AVT/">"#,
@@ -101,6 +114,12 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
             r#"<TransportState val="{state}"/>"#,
             r#"<TransportStatus val="{status}"/>"#,
             r#"<TransportPlaySpeed val="{speed}"/>"#,
+            r#"<NumberOfTracks val="{track_count}"/>"#,
+            r#"<CurrentTrack val="{track_count}"/>"#,
+            r#"<CurrentTrackDuration val="{track_duration}"/>"#,
+            r#"<CurrentMediaDuration val="{track_duration}"/>"#,
+            r#"<CurrentTrackURI val="{uri}"/>"#,
+            r#"<CurrentTrackMetaData val="{metadata}"/>"#,
             r#"<CurrentTransportActions val="{actions}"/>"#,
             r#"<AVTransportURI val="{uri}"/>"#,
             r#"<AVTransportURIMetaData val="{metadata}"/>"#,
@@ -112,6 +131,8 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
         state = transport_state_str(event.transport_state),
         status = transport_status_str(event.transport_status),
         speed = format_play_speed(event.play_speed),
+        track_count = track_count,
+        track_duration = escape(&event.track_duration),
         actions = transport_actions_for(event.transport_state),
         uri = escape(&event.current_uri),
         metadata = escape(event.current_metadata.as_deref().unwrap_or("")),
@@ -183,6 +204,7 @@ mod tests {
             current_metadata: None,
             next_uri: String::new(),
             next_metadata: None,
+            track_duration: "00:00:00".to_string(),
         }
     }
 
@@ -217,15 +239,23 @@ mod tests {
             current_metadata: Some("<DIDL-Lite>\"quoted\"</DIDL-Lite>".to_string()),
             next_uri: "http://example.com/b.mp3".to_string(),
             next_metadata: None,
+            track_duration: "00:03:30".to_string(),
         });
 
         assert!(body.contains("AVTransportURI val=&quot;http://example.com/a.mp3&quot;"));
         assert!(body.contains("NextAVTransportURI val=&quot;http://example.com/b.mp3&quot;"));
+        assert!(body.contains("CurrentTrackURI val=&quot;http://example.com/a.mp3&quot;"));
+        assert!(body.contains("CurrentTrackDuration val=&quot;00:03:30&quot;"));
+        assert!(body.contains("NumberOfTracks val=&quot;1&quot;"));
+        assert!(body.contains("CurrentTrack val=&quot;1&quot;"));
         // Metadata containing its own quotes/angle brackets must not break
         // the inner XML's attribute syntax — this is the double-escape
         // (once for the attribute, once for embedding as LastChange text).
         assert!(body.contains(
             "AVTransportURIMetaData val=&quot;&amp;lt;DIDL-Lite&amp;gt;&amp;quot;quoted&amp;quot;&amp;lt;/DIDL-Lite&amp;gt;&quot;"
+        ));
+        assert!(body.contains(
+            "CurrentTrackMetaData val=&quot;&amp;lt;DIDL-Lite&amp;gt;&amp;quot;quoted&amp;quot;&amp;lt;/DIDL-Lite&amp;gt;&quot;"
         ));
     }
 
