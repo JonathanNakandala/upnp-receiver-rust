@@ -6,8 +6,9 @@ use crate::server::soap::types::UPnPService;
 use crate::server::soap::types::av_transport::{
     AVTransportAction, GetCurrentTransportActionsRequest, GetDeviceCapabilitiesRequest,
     GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest,
-    GetTransportSettingsRequest, PauseRequest, PlayRequest, SeekRequest, SetAVTransportURIRequest,
-    SetNextAVTransportURIRequest, SetPlayModeRequest, StopRequest,
+    GetTransportSettingsRequest, NextRequest, PauseRequest, PlayRequest, PreviousRequest,
+    SeekRequest, SetAVTransportURIRequest, SetNextAVTransportURIRequest, SetPlayModeRequest,
+    StopRequest,
 };
 
 pub struct AVTransportService;
@@ -60,6 +61,15 @@ impl UPnPService for AVTransportService {
             "Seek" => {
                 let request = extract_and_parse_soap_body::<SeekRequest>(content, action_name)?;
                 Ok(AVTransportAction::Seek(request))
+            }
+            "Next" => {
+                let request = extract_and_parse_soap_body::<NextRequest>(content, action_name)?;
+                Ok(AVTransportAction::Next(request))
+            }
+            "Previous" => {
+                let request =
+                    extract_and_parse_soap_body::<PreviousRequest>(content, action_name)?;
+                Ok(AVTransportAction::Previous(request))
             }
             "GetTransportInfo" => {
                 let request =

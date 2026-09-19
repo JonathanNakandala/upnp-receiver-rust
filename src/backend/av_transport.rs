@@ -167,6 +167,36 @@ impl AVTransport for MediaBackendAVTransport {
         }
     }
 
+    async fn next(&self) -> Result<(), TransportError> {
+        let next = self
+            .backend
+            .get_next_media()
+            .await
+            .map_err(Self::convert_error)?
+            .ok_or_else(|| TransportError::UnsupportedOperation("no next track queued".into()))?;
+
+        // Not gapless — unlike the `about-to-finish` promotion the backend
+        // does on its own, a control-point-initiated `Next` interrupts
+        // playback mid-track, so there's no lookahead buffer to hand off
+        // from. load_media + play is the same pair SetAVTransportURI+Play
+        // uses.
+        self.backend
+            .load_media(&next.uri, next.metadata)
+            .await
+            .map_err(Self::convert_error)?;
+        self.backend.play().await.map_err(Self::convert_error)?;
+        self.backend
+            .clear_next_media()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn previous(&self) -> Result<(), TransportError> {
+        Err(TransportError::UnsupportedOperation(
+            "no previous track available".into(),
+        ))
+    }
+
     async fn get_position_info(&self) -> Result<Option<PositionInfo>, TransportError> {
         // Similar to get_media_info but also get position
         let uri_future = self.backend.get_current_uri();

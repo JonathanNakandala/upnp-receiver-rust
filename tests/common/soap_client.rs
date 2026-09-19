@@ -192,6 +192,108 @@ impl SoapClient {
             .unwrap()
     }
 
+    pub async fn set_next_av_transport_uri(
+        &self,
+        uri: &str,
+        metadata: Option<&str>,
+    ) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+            <s:Body>
+                <u:SetNextAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                    <InstanceID>0</InstanceID>
+                    <NextURI>{}</NextURI>
+                    <NextURIMetaData>{}</NextURIMetaData>
+                </u:SetNextAVTransportURI>
+            </s:Body>
+        </s:Envelope>"#,
+            uri,
+            metadata.unwrap_or("")
+        );
+
+        self.client
+            .post(format!("{}/services/AVTransport/control", self.base_url))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:AVTransport:1#SetNextAVTransportURI\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn next(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:Next xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                    </u:Next>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!("{}/services/AVTransport/control", self.base_url))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:AVTransport:1#Next\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn previous(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:Previous xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                    </u:Previous>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!("{}/services/AVTransport/control", self.base_url))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:AVTransport:1#Previous\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_media_info(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetMediaInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                    </u:GetMediaInfo>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!("{}/services/AVTransport/control", self.base_url))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:AVTransport:1#GetMediaInfo\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
     pub async fn set_play_mode(&self, mode: &str) -> reqwest::Response {
         let body = format!(
             r#"<?xml version="1.0" encoding="utf-8"?>

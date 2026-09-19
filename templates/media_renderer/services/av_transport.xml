@@ -126,6 +126,26 @@
             </argumentList>
         </action>
         <action>
+            <name>Next</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>Previous</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
             <name>GetMediaInfo</name>
             <argumentList>
                 <argument>

@@ -80,6 +80,20 @@ pub trait AVTransport: Send + Sync {
         uri: String,
         metadata: Option<String>,
     ) -> Result<(), TransportError>;
+    /// UPnP's `Next` — promotes whatever was queued via
+    /// `SetNextAVTransportURI` to the current track. There's no real
+    /// playlist behind this renderer (see [`set_next_transport_uri`]), so
+    /// this is only ever able to advance into that single lookahead slot;
+    /// with nothing queued there's nowhere to go.
+    ///
+    /// [`set_next_transport_uri`]: AVTransport::set_next_transport_uri
+    async fn next(&self) -> Result<(), TransportError>;
+    /// UPnP's `Previous`. Unlike `Next`, there's no lookahead *behind* the
+    /// current track — no history slot exists to go back to — so this
+    /// always reports [`TransportError::UnsupportedOperation`] rather than
+    /// faking a restart-current-track behavior real queue-backed renderers
+    /// use.
+    async fn previous(&self) -> Result<(), TransportError>;
 }
 
 pub struct AVTransportImpl {
@@ -250,5 +264,29 @@ impl AVTransport for AVTransportImpl {
             Some((uri, metadata))
         };
         Ok(())
+    }
+
+    async fn next(&self) -> Result<(), TransportError> {
+        let mut state = self.state.write().await;
+        let (uri, metadata) = state
+            .next
+            .take()
+            .ok_or_else(|| TransportError::UnsupportedOperation("no next track queued".into()))?;
+
+        state.media = Some(MediaInfo {
+            uri,
+            metadata,
+            duration: None,
+            next_uri: String::new(),
+            next_metadata: None,
+        });
+        state.position = Duration::from_secs(0);
+        Ok(())
+    }
+
+    async fn previous(&self) -> Result<(), TransportError> {
+        Err(TransportError::UnsupportedOperation(
+            "no previous track available".into(),
+        ))
     }
 }

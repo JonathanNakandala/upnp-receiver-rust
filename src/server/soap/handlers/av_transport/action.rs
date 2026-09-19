@@ -5,9 +5,9 @@ use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
     AVTransportResponse, GetCurrentTransportActionsResponse, GetDeviceCapabilitiesResponse,
-    GetMediaInfoResponse, GetTransportInfoResponse, GetTransportSettingsResponse, PauseResponse,
-    PlayMode, PlayResponse, SeekResponse, SetAVTransportURIResponse,
-    SetNextAVTransportURIResponse, SetPlayModeResponse, StopResponse,
+    GetMediaInfoResponse, GetTransportInfoResponse, GetTransportSettingsResponse, NextResponse,
+    PauseResponse, PlayMode, PlayResponse, PreviousResponse, SeekResponse,
+    SetAVTransportURIResponse, SetNextAVTransportURIResponse, SetPlayModeResponse, StopResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -40,6 +40,8 @@ impl UPnPAction for AVTransportAction {
             Self::Pause(_) => "Pause",
             Self::Stop(_) => "Stop",
             Self::Seek(_) => "Seek",
+            Self::Next(_) => "Next",
+            Self::Previous(_) => "Previous",
             Self::GetTransportInfo(_) => "GetTransportInfo",
             Self::GetMediaInfo(_) => "GetMediaInfo",
             Self::GetPositionInfo(_) => "GetPositionInfo",
@@ -202,6 +204,28 @@ impl UPnPAction for AVTransportAction {
 
                 result?;
                 Ok(AVTransportResponse::Seek(SeekResponse {}))
+            }
+            Self::Next(req) => {
+                let result = renderer.av_transport.next().await;
+                match &result {
+                    Ok(_) => info!(instance_id = req.instance_id, "Handling Next"),
+                    Err(err) => warn!(instance_id = req.instance_id, error = %err, "Handling Next"),
+                }
+                result?;
+                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                Ok(AVTransportResponse::Next(NextResponse {}))
+            }
+            Self::Previous(req) => {
+                let result = renderer.av_transport.previous().await;
+                match &result {
+                    Ok(_) => info!(instance_id = req.instance_id, "Handling Previous"),
+                    Err(err) => {
+                        warn!(instance_id = req.instance_id, error = %err, "Handling Previous")
+                    }
+                }
+                result?;
+                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                Ok(AVTransportResponse::Previous(PreviousResponse {}))
             }
             Self::GetTransportInfo(req) => {
                 let result: Result<_, SoapError> = async {
@@ -404,9 +428,15 @@ impl UPnPAction for AVTransportAction {
             }
 
             Self::GetCurrentTransportActions(req) => {
-                let result = renderer.av_transport.get_state().await;
+                let result: Result<_, SoapError> = async {
+                    let state = renderer.av_transport.get_state().await?;
+                    let media = renderer.av_transport.get_media_info().await?;
+                    Ok((state, media))
+                }
+                .await;
+
                 match &result {
-                    Ok(state) => info!(
+                    Ok((state, _)) => info!(
                         instance_id = req.instance_id,
                         current_transport_state = ?state,
                         "Handling GetCurrentTransportActions"
@@ -418,10 +448,11 @@ impl UPnPAction for AVTransportAction {
                     ),
                 }
 
-                let state = result?;
+                let (state, media) = result?;
+                let has_next = media.map(|m| !m.next_uri.is_empty()).unwrap_or(false);
                 Ok(AVTransportResponse::CurrentTransportActions(
                     GetCurrentTransportActionsResponse {
-                        actions: transport_actions_for(state).to_string(),
+                        actions: transport_actions_for(state, has_next),
                     },
                 ))
             }

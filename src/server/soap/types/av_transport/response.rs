@@ -27,6 +27,14 @@ pub struct SeekResponse {}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
+pub struct NextResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PreviousResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct GetTransportInfoResponse {
     pub current_transport_state: TransportState,
     pub current_transport_status: TransportStatus,
@@ -93,6 +101,8 @@ pub enum AVTransportResponse {
     Pause(PauseResponse),
     Stop(StopResponse),
     Seek(SeekResponse),
+    Next(NextResponse),
+    Previous(PreviousResponse),
     TransportInfo(GetTransportInfoResponse),
     MediaInfo(GetMediaInfoResponse),
     PositionInfo(GetPositionInfoResponse),

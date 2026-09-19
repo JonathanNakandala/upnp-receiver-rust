@@ -87,16 +87,30 @@ fn transport_status_str(status: TransportStatus) -> &'static str {
 }
 
 /// The `CurrentTransportActions` values a control point can rely on the
-/// renderer accepting given `state`. Also the source of truth for the
+/// renderer accepting given `state` and whether a track is queued via
+/// `SetNextAVTransportURI`. Also the source of truth for the
 /// `GetCurrentTransportActions` action's `Actions` return value — see
 /// `crate::server::soap::handlers::av_transport::action`.
-pub fn transport_actions_for(state: TransportState) -> &'static str {
+///
+/// `Next` is only ever listed when something's actually queued — there's no
+/// real playlist behind this renderer, so with nothing queued `Next` would
+/// have nowhere to go. `Previous` is never listed: there's no history slot
+/// to go back to, ever (see [`AVTransport::previous`]).
+///
+/// [`AVTransport::previous`]: crate::services::av_transport::AVTransport::previous
+pub fn transport_actions_for(state: TransportState, has_next: bool) -> String {
     use TransportState::*;
-    match state {
+    let base = match state {
         Playing => "Pause,Stop,Seek",
         PausedPlayback | PausedRecording => "Play,Stop,Seek",
         Stopped => "Play",
         NoMediaPresent | Transitioning | Recording => "",
+    };
+
+    if has_next && !base.is_empty() {
+        format!("{base},Next")
+    } else {
+        base.to_string()
     }
 }
 
@@ -139,7 +153,7 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
         play_mode = event.play_mode.as_str(),
         track_count = track_count,
         track_duration = escape(&event.track_duration),
-        actions = transport_actions_for(event.transport_state),
+        actions = transport_actions_for(event.transport_state, !event.next_uri.is_empty()),
         uri = escape(&event.current_uri),
         metadata = escape(event.current_metadata.as_deref().unwrap_or("")),
         next_uri = escape(&event.next_uri),
@@ -239,6 +253,19 @@ mod tests {
         let body = av_transport_last_change(&event_state(TransportState::Stopped));
         assert!(body.contains("TransportState val=&quot;STOPPED&quot;"));
         assert!(body.contains("CurrentTransportActions val=&quot;Play&quot;"));
+    }
+
+    #[test]
+    fn transport_actions_include_next_only_when_queued_and_media_active() {
+        assert_eq!(transport_actions_for(TransportState::Playing, false), "Pause,Stop,Seek");
+        assert_eq!(
+            transport_actions_for(TransportState::Playing, true),
+            "Pause,Stop,Seek,Next"
+        );
+        assert_eq!(transport_actions_for(TransportState::Stopped, true), "Play,Next");
+        // Nothing loaded at all — Next has nowhere to go regardless of the
+        // (irrelevant) queued flag.
+        assert_eq!(transport_actions_for(TransportState::NoMediaPresent, true), "");
     }
 
     #[test]

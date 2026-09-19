@@ -296,3 +296,91 @@ async fn test_get_device_capabilities() {
     assert!(body.contains("<RecMedia>NOT_IMPLEMENTED</RecMedia>"));
     assert!(body.contains("<RecQualityModes>NOT_IMPLEMENTED</RecQualityModes>"));
 }
+
+#[test(tokio::test)]
+async fn test_next_without_queued_track_fails() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_av_transport_uri("http://example.com/test.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    // Nothing queued via SetNextAVTransportURI, so there's nowhere for Next
+    // to go.
+    let resp = client.next().await;
+    assert_response(resp, 500).await;
+}
+
+#[test(tokio::test)]
+async fn test_next_promotes_queued_track() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_av_transport_uri("http://example.com/track1.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client
+        .set_next_av_transport_uri("http://example.com/track2.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client.next().await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_media_info().await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 200, "Response body: {}", body);
+    assert!(
+        body.contains("<CurrentUri>http://example.com/track2.mp3</CurrentUri>"),
+        "Response body: {}",
+        body
+    );
+    // The lookahead slot is single-use — nothing left queued after promotion.
+    assert!(
+        body.contains("<NextUri></NextUri>") || body.contains("<NextUri/>"),
+        "Response body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_previous_is_never_supported() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_av_transport_uri("http://example.com/test.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    // No history/queue behind the current track exists in this renderer, so
+    // Previous always reports 701 (Transition Not Available) rather than
+    // faking a "restart current track" behavior.
+    let resp = client.previous().await;
+    assert_response(resp, 500).await;
+}
+
+#[test(tokio::test)]
+async fn test_current_transport_actions_lists_next_only_when_queued() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_av_transport_uri("http://example.com/test.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_current_transport_actions().await;
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("<Actions>Play</Actions>"));
+
+    let resp = client
+        .set_next_av_transport_uri("http://example.com/track2.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_current_transport_actions().await;
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("<Actions>Play,Next</Actions>"), "Response body: {}", body);
+}
