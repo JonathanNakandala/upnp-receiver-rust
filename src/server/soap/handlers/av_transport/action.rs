@@ -1,10 +1,9 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
-    AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, SetAVTransportURIResponse,
-    TransportState, TransportStatus,
+    AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
+    PlayResponse, SetAVTransportURIResponse, StopResponse, TransportState, TransportStatus,
 };
-use crate::server::soap::types::soap_response::EmptyResponse;
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
@@ -45,21 +44,15 @@ impl UPnPAction for AVTransportAction {
             }
             Self::Play(req) => {
                 renderer.av_transport.play().await?;
-                Ok(AVTransportResponse::Empty(EmptyResponse {
-                    action_name: "Play".to_string(),
-                }))
+                Ok(AVTransportResponse::Play(PlayResponse {}))
             }
             Self::Pause(req) => {
                 renderer.av_transport.pause().await?;
-                Ok(AVTransportResponse::Empty(EmptyResponse {
-                    action_name: "Pause".to_string(),
-                }))
+                Ok(AVTransportResponse::Pause(PauseResponse {}))
             }
             Self::Stop(req) => {
                 renderer.av_transport.stop().await?;
-                Ok(AVTransportResponse::Empty(EmptyResponse {
-                    action_name: "Stop".to_string(),
-                }))
+                Ok(AVTransportResponse::Stop(StopResponse {}))
             }
             Self::GetTransportInfo(req) => {
                 let state = renderer.av_transport.get_state().await?;

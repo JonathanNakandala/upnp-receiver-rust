@@ -4,7 +4,8 @@ pub mod request;
 pub mod response;
 pub use enums::{TransportState, TransportStatus};
 pub use response::{
-    AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, SetAVTransportURIResponse,
+    AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
+    PlayResponse, SetAVTransportURIResponse, StopResponse,
 };
 
 pub use request::{

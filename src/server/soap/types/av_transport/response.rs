@@ -1,10 +1,21 @@
-use crate::server::soap::types::soap_response::EmptyResponse;
 use serde::Serialize;
 
 use super::{TransportState, TransportStatus};
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct SetAVTransportURIResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PlayResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PauseResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct StopResponse {}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -43,8 +54,10 @@ pub struct GetPositionInfoResponse {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum AVTransportResponse {
-    Empty(EmptyResponse),
     SetAVTransportURI(SetAVTransportURIResponse),
+    Play(PlayResponse),
+    Pause(PauseResponse),
+    Stop(StopResponse),
     TransportInfo(GetTransportInfoResponse),
     MediaInfo(GetMediaInfoResponse),
     PositionInfo(GetPositionInfoResponse),

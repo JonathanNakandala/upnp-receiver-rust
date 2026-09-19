@@ -1,8 +1,8 @@
 use crate::server::soap::error::SoapError;
 use crate::server::soap::types::rendering_control::{
     GetMuteResponse, GetVolumeResponse, RenderingControlAction, RenderingControlResponse,
+    SetMuteResponse, SetVolumeResponse,
 };
-use crate::server::soap::types::soap_response::EmptyResponse;
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
@@ -30,15 +30,11 @@ impl UPnPAction for RenderingControlAction {
                     .rendering_control
                     .set_volume(req.desired_volume)
                     .await?;
-                Ok(RenderingControlResponse::Empty(EmptyResponse {
-                    action_name: "SetVolume".to_string(),
-                }))
+                Ok(RenderingControlResponse::SetVolume(SetVolumeResponse {}))
             }
             Self::SetMute(req) => {
                 renderer.rendering_control.set_mute(req.desired_mute).await?;
-                Ok(RenderingControlResponse::Empty(EmptyResponse {
-                    action_name: "SetMute".to_string(),
-                }))
+                Ok(RenderingControlResponse::SetMute(SetMuteResponse {}))
             }
             Self::GetVolume(_) => {
                 let current_volume = renderer.rendering_control.get_volume().await?;

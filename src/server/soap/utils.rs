@@ -36,11 +36,13 @@ pub fn create_soap_response<T: Serialize>(
 ) -> Result<impl IntoResponse, SoapError> {
     let xml = format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
-        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" 
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
                    s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"
                    xmlns:u="{}">
             <s:Body>
-                {}"#,
+                {}
+            </s:Body>
+        </s:Envelope>"#,
         namespace,
         quick_xml::se::to_string(&response)
             .map_err(|e| SoapError::Soap(SoapProtocolError::SerializationError(e.to_string())))?

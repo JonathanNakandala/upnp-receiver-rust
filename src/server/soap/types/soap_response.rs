@@ -16,9 +16,3 @@ pub struct SoapResponseEnvelope<T: Serialize> {
     #[serde(rename = "s:Body")]
     pub body: SoapResponseBody<T>,
 }
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct EmptyResponse {
-    pub action_name: String,
-}

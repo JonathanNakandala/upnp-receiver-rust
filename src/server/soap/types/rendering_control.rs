@@ -1,4 +1,3 @@
-use crate::server::soap::types::soap_response::EmptyResponse;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -58,9 +57,18 @@ pub struct GetMuteResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetVolumeResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetMuteResponse {}
+
+#[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum RenderingControlResponse {
-    Empty(EmptyResponse),
+    SetVolume(SetVolumeResponse),
+    SetMute(SetMuteResponse),
     Volume(GetVolumeResponse),
     Mute(GetMuteResponse),
 }
