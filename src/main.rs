@@ -163,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Run all services concurrently
     tokio::select! {
         result = async {
-            if let Some(advertiser) = advertiser_opt {
+            if let Some(advertiser) = &advertiser_opt {
                 advertiser.run().await
             } else {
                 // Just wait forever if no advertiser
@@ -196,6 +196,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Shutdown
+    if let Some(advertiser) = &advertiser_opt {
+        info!("Announcing SSDP byebye...");
+        if let Err(e) = advertiser.announce_byebye().await {
+            warn!(error = %e, "Failed to announce SSDP byebye");
+        }
+    }
+
     if let Some(manager) = media_manager {
         info!("Shutting down media process...");
         if let Err(e) = manager.lock().await.shutdown().await {

@@ -103,7 +103,10 @@ impl SsdpAdvertiser {
         msg: &SsdpMessage,
         addr: &str,
     ) -> Result<(), DiscoveryServiceError> {
-        let message = msg.to_string();
+        self.send_raw(&msg.to_string(), addr).await
+    }
+
+    async fn send_raw(&self, message: &str, addr: &str) -> Result<(), DiscoveryServiceError> {
         info!(
             addr = %addr,
             "Sending SSDP message"
@@ -112,21 +115,46 @@ impl SsdpAdvertiser {
         Ok(())
     }
 
-    async fn send_notify(&self, service: &ServiceInfo) -> Result<(), DiscoveryServiceError> {
-        let header = SsdpHeader {
+    fn build_header(&self, service: &ServiceInfo) -> SsdpHeader {
+        SsdpHeader {
             location: service.location.clone(),
             server: service.server.to_string(),
             cache_control: Duration::from_secs(NOTIFY_INTERVAL_SECS * 2),
             unique_id: service.unique_id,
-        };
+        }
+    }
 
+    async fn send_notify(&self, service: &ServiceInfo) -> Result<(), DiscoveryServiceError> {
         let msg = SsdpMessage::new_notify(
-            header,
+            self.build_header(service),
             service.device_type.clone(),
             service.services.clone(),
         );
 
         self.send_message(&msg, SSDP_MULTICAST_ADDR).await
+    }
+
+    async fn send_byebye(&self, service: &ServiceInfo) -> Result<(), DiscoveryServiceError> {
+        let msg = SsdpMessage::new_notify(
+            self.build_header(service),
+            service.device_type.clone(),
+            service.services.clone(),
+        );
+
+        if let Some(byebye) = msg.to_byebye_string() {
+            self.send_raw(&byebye, SSDP_MULTICAST_ADDR).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn announce_byebye(&self) -> Result<(), DiscoveryServiceError> {
+        info!("Announcing ssdp:byebye for all services");
+        for service in &self.services {
+            let info = service.service_info()?;
+            self.send_byebye(&info).await?;
+        }
+        Ok(())
     }
 
     async fn handle_search(
