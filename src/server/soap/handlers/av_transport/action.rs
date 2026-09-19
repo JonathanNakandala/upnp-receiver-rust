@@ -145,6 +145,17 @@ impl UPnPAction for AVTransportAction {
             Self::GetPositionInfo(req) => {
                 info!(instance_id = req.instance_id, "Handling GetPositionInfo");
                 if let Some(position) = renderer.av_transport.get_position_info().await? {
+                    // AbsTime is position since the start of the overall
+                    // AVTransport stream, RelTime since the start of the
+                    // current track — distinct only when a playlist can
+                    // offset one from the other. We don't support playlists
+                    // (always exactly one track, position 0), so they're the
+                    // same real backend position, not two separate clocks.
+                    let elapsed = position
+                        .position
+                        .map(format_duration)
+                        .unwrap_or_else(|| "00:00:00".to_string());
+
                     Ok(AVTransportResponse::PositionInfo(GetPositionInfoResponse {
                         track: 1,
                         track_duration: position
@@ -153,11 +164,8 @@ impl UPnPAction for AVTransportAction {
                             .unwrap_or_else(|| "00:00:00".to_string()),
                         track_metadata: position.metadata.unwrap_or_default(),
                         track_uri: position.uri,
-                        rel_time: position
-                            .position
-                            .map(format_duration)
-                            .unwrap_or_else(|| "00:00:00".to_string()),
-                        abs_time: "00:00:00".to_string(),
+                        rel_time: elapsed.clone(),
+                        abs_time: elapsed,
                         rel_count: 0,
                         abs_count: 0,
                     }))
