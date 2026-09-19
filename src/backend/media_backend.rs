@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::time::Duration;
 
 use super::MediaBackendError;
-use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
+use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
 
 /// A track identified by URI plus its (opaque, DIDL-Lite) metadata — the
 /// shape both the queued "next" track and a `track_changes` notification
@@ -46,6 +46,15 @@ pub trait MediaBackend: Send + Sync {
     async fn set_play_speed(&self, speed: f64) -> Result<(), MediaBackendError>;
     /// The rate last set via `set_play_speed`, defaulting to 1.0.
     async fn get_play_speed(&self) -> Result<f64, MediaBackendError>;
+
+    /// UPnP's `SetPlayMode`. A backend with a gapless mechanism can honor
+    /// `REPEAT_ONE`/`REPEAT_ALL` by re-queueing the current track when
+    /// nothing else is queued (`GStreamerBackend` does, via
+    /// `about-to-finish`); one without can just remember and report it back
+    /// for API completeness.
+    async fn set_play_mode(&self, mode: PlayMode) -> Result<(), MediaBackendError>;
+    /// The mode last set via `set_play_mode`, defaulting to `NORMAL`.
+    async fn get_play_mode(&self) -> Result<PlayMode, MediaBackendError>;
 
     // Volume control methods (for RenderingControl service)
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError>;

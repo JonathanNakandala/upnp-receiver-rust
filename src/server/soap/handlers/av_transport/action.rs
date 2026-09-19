@@ -2,9 +2,9 @@ use crate::server::eventing::{av_transport_last_change, AVTransportEventState, E
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
-    AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
-    PlayResponse, SeekResponse, SetAVTransportURIResponse, SetNextAVTransportURIResponse,
-    StopResponse,
+    AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse,
+    GetTransportSettingsResponse, PauseResponse, PlayMode, PlayResponse, SeekResponse,
+    SetAVTransportURIResponse, SetNextAVTransportURIResponse, SetPlayModeResponse, StopResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -40,6 +40,8 @@ impl UPnPAction for AVTransportAction {
             Self::GetTransportInfo(_) => "GetTransportInfo",
             Self::GetMediaInfo(_) => "GetMediaInfo",
             Self::GetPositionInfo(_) => "GetPositionInfo",
+            Self::SetPlayMode(_) => "SetPlayMode",
+            Self::GetTransportSettings(_) => "GetTransportSettings",
         }
     }
 
@@ -338,6 +340,62 @@ impl UPnPAction for AVTransportAction {
                         abs_count: 0,
                     }))
                 }
+            }
+
+            Self::SetPlayMode(req) => {
+                let result: Result<(), SoapError> = async {
+                    let mode = PlayMode::parse(&req.new_play_mode).ok_or_else(|| {
+                        SoapError::Soap(SoapProtocolError::PlayModeNotSupported(format!(
+                            "Unsupported play mode: {}",
+                            req.new_play_mode
+                        )))
+                    })?;
+                    renderer.av_transport.set_play_mode(mode).await?;
+                    Ok(())
+                }
+                .await;
+
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        play_mode = %req.new_play_mode,
+                        "Handling SetPlayMode"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        play_mode = %req.new_play_mode,
+                        error = %err,
+                        "Handling SetPlayMode"
+                    ),
+                }
+
+                result?;
+                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                Ok(AVTransportResponse::SetPlayMode(SetPlayModeResponse {}))
+            }
+
+            Self::GetTransportSettings(req) => {
+                let result = renderer.av_transport.get_play_mode().await;
+                match &result {
+                    Ok(mode) => info!(
+                        instance_id = req.instance_id,
+                        play_mode = mode.as_str(),
+                        "Handling GetTransportSettings"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetTransportSettings"
+                    ),
+                }
+
+                let mode = result?;
+                Ok(AVTransportResponse::TransportSettings(
+                    GetTransportSettingsResponse {
+                        play_mode: mode.as_str().to_string(),
+                        rec_quality_mode: "NOT_IMPLEMENTED".to_string(),
+                    },
+                ))
             }
         }
     }

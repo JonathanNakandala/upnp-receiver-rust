@@ -69,6 +69,23 @@ pub struct SetAVTransportURIRequest {
     pub current_uri_metadata: Option<String>,
 }
 
+// Struct for GetTransportSettingsRequest
+#[derive(Debug, Deserialize)]
+pub struct GetTransportSettingsRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+// Struct for SetPlayModeRequest
+#[derive(Debug, Deserialize)]
+pub struct SetPlayModeRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+
+    #[serde(rename = "NewPlayMode")]
+    pub new_play_mode: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SetNextAVTransportURIRequest {
     #[serde(rename = "InstanceID")]

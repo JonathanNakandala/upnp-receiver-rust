@@ -192,6 +192,56 @@ impl SoapClient {
             .unwrap()
     }
 
+    pub async fn set_play_mode(&self, mode: &str) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetPlayMode xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                        <NewPlayMode>{}</NewPlayMode>
+                    </u:SetPlayMode>
+                </s:Body>
+            </s:Envelope>"#,
+            mode
+        );
+
+        self.client
+            .post(format!("{}/services/AVTransport/control", self.base_url))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:AVTransport:1#SetPlayMode\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_transport_settings(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetTransportSettings xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                    </u:GetTransportSettings>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!("{}/services/AVTransport/control", self.base_url))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:AVTransport:1#GetTransportSettings\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
     pub async fn set_volume(&self, volume: u16) -> reqwest::Response {
         let body = format!(
             r#"<?xml version="1.0" encoding="utf-8"?>

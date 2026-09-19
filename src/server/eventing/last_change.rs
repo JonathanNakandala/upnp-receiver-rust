@@ -11,7 +11,7 @@
 use quick_xml::escape::escape;
 
 use crate::server::soap::handlers::av_transport::utils::{format_duration, format_play_speed};
-use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
+use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
 use crate::services::av_transport::AVTransport;
 
 /// Everything an AVTransport `LastChange` NOTIFY reports. Gathered in one
@@ -29,6 +29,7 @@ pub struct AVTransportEventState {
     pub next_uri: String,
     pub next_metadata: Option<String>,
     pub track_duration: String,
+    pub play_mode: PlayMode,
 }
 
 impl AVTransportEventState {
@@ -45,6 +46,7 @@ impl AVTransportEventState {
             .await
             .unwrap_or(TransportStatus::OK);
         let play_speed = av_transport.get_play_speed().await.unwrap_or(1.0);
+        let play_mode = av_transport.get_play_mode().await.unwrap_or(PlayMode::Normal);
         let media = av_transport.get_media_info().await.ok().flatten();
 
         Self {
@@ -60,6 +62,7 @@ impl AVTransportEventState {
                 .and_then(|m| m.duration)
                 .map(format_duration)
                 .unwrap_or_else(|| "00:00:00".to_string()),
+            play_mode,
         }
     }
 }
@@ -114,6 +117,7 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
             r#"<TransportState val="{state}"/>"#,
             r#"<TransportStatus val="{status}"/>"#,
             r#"<TransportPlaySpeed val="{speed}"/>"#,
+            r#"<CurrentPlayMode val="{play_mode}"/>"#,
             r#"<NumberOfTracks val="{track_count}"/>"#,
             r#"<CurrentTrack val="{track_count}"/>"#,
             r#"<CurrentTrackDuration val="{track_duration}"/>"#,
@@ -131,6 +135,7 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
         state = transport_state_str(event.transport_state),
         status = transport_status_str(event.transport_status),
         speed = format_play_speed(event.play_speed),
+        play_mode = event.play_mode.as_str(),
         track_count = track_count,
         track_duration = escape(&event.track_duration),
         actions = transport_actions_for(event.transport_state),
@@ -205,6 +210,7 @@ mod tests {
             next_uri: String::new(),
             next_metadata: None,
             track_duration: "00:00:00".to_string(),
+            play_mode: PlayMode::Normal,
         }
     }
 
@@ -240,6 +246,7 @@ mod tests {
             next_uri: "http://example.com/b.mp3".to_string(),
             next_metadata: None,
             track_duration: "00:03:30".to_string(),
+            play_mode: PlayMode::RepeatAll,
         });
 
         assert!(body.contains("AVTransportURI val=&quot;http://example.com/a.mp3&quot;"));
@@ -248,6 +255,7 @@ mod tests {
         assert!(body.contains("CurrentTrackDuration val=&quot;00:03:30&quot;"));
         assert!(body.contains("NumberOfTracks val=&quot;1&quot;"));
         assert!(body.contains("CurrentTrack val=&quot;1&quot;"));
+        assert!(body.contains("CurrentPlayMode val=&quot;REPEAT_ALL&quot;"));
         // Metadata containing its own quotes/angle brackets must not break
         // the inner XML's attribute syntax — this is the double-escape
         // (once for the attribute, once for embedding as LastChange text).

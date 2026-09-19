@@ -1,4 +1,4 @@
-use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
+use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
 use crate::services::error::TransportError;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -13,6 +13,7 @@ pub struct AVTransportState {
     position: Duration,
     next: Option<(String, Option<String>)>,
     speed: f64,
+    play_mode: PlayMode,
 }
 pub struct PositionInfo {
     pub uri: String,
@@ -61,6 +62,14 @@ pub trait AVTransport: Send + Sync {
     async fn set_play_speed(&self, speed: f64) -> Result<(), TransportError>;
     /// The rate last set via `set_play_speed`, defaulting to 1.0.
     async fn get_play_speed(&self) -> Result<f64, TransportError>;
+    /// UPnP's `SetPlayMode` — stored and reported back verbatim. There's no
+    /// playlist/queue engine behind this renderer, so REPEAT_ALL/SHUFFLE
+    /// don't change playback behavior; this exists so control points that
+    /// read/set `CurrentPlayMode` (most do, at connect and from their UI)
+    /// get a consistent answer instead of a missing action.
+    async fn set_play_mode(&self, mode: PlayMode) -> Result<(), TransportError>;
+    /// The mode last set via `set_play_mode`, defaulting to `NORMAL`.
+    async fn get_play_mode(&self) -> Result<PlayMode, TransportError>;
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError>;
     async fn get_position_info(&self) -> Result<Option<PositionInfo>, TransportError>;
     /// Queues the track to play next — UPnP's `SetNextAVTransportURI`. An
@@ -86,6 +95,7 @@ impl AVTransportImpl {
                 position: Duration::from_secs(0),
                 next: None,
                 speed: 1.0,
+                play_mode: PlayMode::Normal,
             })),
         }
     }
@@ -189,6 +199,15 @@ impl AVTransport for AVTransportImpl {
 
     async fn get_play_speed(&self) -> Result<f64, TransportError> {
         Ok(self.state.read().await.speed)
+    }
+
+    async fn set_play_mode(&self, mode: PlayMode) -> Result<(), TransportError> {
+        self.state.write().await.play_mode = mode;
+        Ok(())
+    }
+
+    async fn get_play_mode(&self) -> Result<PlayMode, TransportError> {
+        Ok(self.state.read().await.play_mode)
     }
 
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError> {

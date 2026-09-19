@@ -1,4 +1,4 @@
-use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
+use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
 use crate::services::av_transport::{AVTransport, PositionInfo};
 use crate::services::error::TransportError;
 use crate::services::types::MediaInfo;
@@ -100,6 +100,20 @@ impl AVTransport for MediaBackendAVTransport {
     async fn get_play_speed(&self) -> Result<f64, TransportError> {
         self.backend
             .get_play_speed()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_play_mode(&self, mode: PlayMode) -> Result<(), TransportError> {
+        self.backend
+            .set_play_mode(mode)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_play_mode(&self) -> Result<PlayMode, TransportError> {
+        self.backend
+            .get_play_mode()
             .await
             .map_err(Self::convert_error)
     }

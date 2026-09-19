@@ -196,3 +196,40 @@ async fn test_set_transport_uri_while_playing() {
         .await;
     assert_response(resp, 200).await; // Should succeed and stop current playback
 }
+
+#[test(tokio::test)]
+async fn test_get_transport_settings_defaults_to_normal() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_transport_settings().await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 200, "Response body: {}", body);
+    assert!(body.contains("<PlayMode>NORMAL</PlayMode>"));
+    assert!(body.contains("<RecQualityMode>NOT_IMPLEMENTED</RecQualityMode>"));
+}
+
+#[test(tokio::test)]
+async fn test_set_play_mode_updates_transport_settings() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_play_mode("REPEAT_ONE").await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_transport_settings().await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 200, "Response body: {}", body);
+    assert!(body.contains("<PlayMode>REPEAT_ONE</PlayMode>"));
+}
+
+#[test(tokio::test)]
+async fn test_set_play_mode_rejects_unsupported_value() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_play_mode("INTRO").await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 400, "Response body: {}", body);
+    assert!(body.contains("<errorCode>712</errorCode>"));
+}

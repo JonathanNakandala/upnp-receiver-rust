@@ -20,7 +20,7 @@ use tokio::sync::watch;
 use tracing::{error, info};
 
 use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
-use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
+use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
 
 /// What we track ourselves rather than asking GStreamer, either because it
 /// doesn't know it at all (UPnP DIDL-Lite metadata) or because asking it
@@ -43,6 +43,12 @@ struct PlayerState {
     // explicit `load_media` (a fresh `SetAVTransportURI` invalidates
     // whatever the previous track had queued to follow it).
     next: Option<TrackInfo>,
+    // UPnP's `CurrentPlayMode`, set via `SetPlayMode`. Unlike `next`, this
+    // is a standing preference rather than a one-shot queue entry — it
+    // survives `load_media`/`stop` and is only ever changed by an explicit
+    // `SetPlayMode`. `about-to-finish` consults it when nothing's queued in
+    // `next` (see `connect_about_to_finish`).
+    play_mode: PlayMode,
 }
 
 impl Default for PlayerState {
@@ -54,6 +60,7 @@ impl Default for PlayerState {
             status: TransportStatus::OK,
             speed: 1.0,
             next: None,
+            play_mode: PlayMode::Normal,
         }
     }
 }
@@ -210,9 +217,13 @@ fn stop_after_unprompted_end(
 /// — `playbin` then splices it in with no audible gap. (Contrast with
 /// waiting for EOS and *then* loading the next URI, which always has one.)
 ///
-/// If nothing's queued when this fires, we do nothing — `playbin` just
-/// plays out to EOS as normal and the bus watcher's existing EOS handling
-/// takes it from there.
+/// If an explicit `SetNextAVTransportURI` is queued, that always takes
+/// priority. Otherwise, if `CurrentPlayMode` is `REPEAT_ONE`/`REPEAT_ALL`,
+/// the current track is re-queued so it loops gaplessly — this renderer has
+/// no playlist beyond the current track, so "repeat" and "repeat all" both
+/// reduce to "loop what's playing now". Anything else (`NORMAL`/`SHUFFLE`,
+/// which has no queue to shuffle within), we do nothing and `playbin` plays
+/// out to EOS as normal, same as before this existed.
 fn connect_about_to_finish(
     playbin: &gst::Element,
     state: Arc<Mutex<PlayerState>>,
@@ -222,12 +233,22 @@ fn connect_about_to_finish(
     playbin.connect("about-to-finish", false, move |_args| {
         let next = {
             let mut state = state.lock().unwrap();
-            let Some(next) = state.next.take() else {
-                return None;
-            };
-            state.uri = Some(next.uri.clone());
-            state.metadata = next.metadata.clone();
-            next
+            if let Some(next) = state.next.take() {
+                state.uri = Some(next.uri.clone());
+                state.metadata = next.metadata.clone();
+                Some(next)
+            } else if matches!(state.play_mode, PlayMode::RepeatOne | PlayMode::RepeatAll) {
+                state.uri.clone().map(|uri| TrackInfo {
+                    uri,
+                    metadata: state.metadata.clone(),
+                })
+            } else {
+                None
+            }
+        };
+
+        let Some(next) = next else {
+            return None;
         };
 
         info!(uri = %next.uri, "Gapless: promoting queued next track to current");
@@ -409,6 +430,15 @@ impl MediaBackend for GStreamerBackend {
 
     async fn get_play_speed(&self) -> Result<f64, MediaBackendError> {
         Ok(self.state.lock().unwrap().speed)
+    }
+
+    async fn set_play_mode(&self, mode: PlayMode) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().play_mode = mode;
+        Ok(())
+    }
+
+    async fn get_play_mode(&self) -> Result<PlayMode, MediaBackendError> {
+        Ok(self.state.lock().unwrap().play_mode)
     }
 
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {
@@ -662,6 +692,50 @@ mod tests {
 
         let _ = std::fs::remove_file(&path_a);
         let _ = std::fs::remove_file(&path_b);
+    }
+
+    #[tokio::test]
+    #[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test -- --ignored`"]
+    async fn repeat_one_loops_current_track_with_no_explicit_next() {
+        let path = std::env::temp_dir().join(format!(
+            "upnp_receiver_test_repeat_{}.mp3",
+            std::process::id()
+        ));
+        generate_test_mp3(&path);
+        let uri = format!("file://{}", path.display());
+
+        let backend = GStreamerBackend::new().unwrap();
+        let mut track_changes = backend.track_changes();
+
+        backend
+            .load_media(&uri, Some("looping track".to_string()))
+            .await
+            .unwrap();
+        backend.set_play_mode(PlayMode::RepeatOne).await.unwrap();
+        assert_eq!(backend.get_play_mode().await.unwrap(), PlayMode::RepeatOne);
+
+        backend.play().await.unwrap();
+
+        // No explicit SetNextAVTransportURI was ever queued, so the only
+        // thing that can fire `track_changes` here is `about-to-finish`
+        // consulting `CurrentPlayMode` and re-queueing the same track.
+        tokio::time::timeout(Duration::from_secs(5), track_changes.changed())
+            .await
+            .expect("about-to-finish should loop the track before the timeout")
+            .unwrap();
+
+        assert_eq!(
+            backend.get_current_uri().await.unwrap(),
+            Some(uri),
+            "current URI should still be the same track, looped rather than stopped"
+        );
+        assert_eq!(
+            backend.get_playback_state().await.unwrap(),
+            TransportState::Playing,
+            "looping gaplessly shouldn't visibly stop playback in between"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]

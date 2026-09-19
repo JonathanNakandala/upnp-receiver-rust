@@ -156,6 +156,41 @@
             </argumentList>
         </action>
         <action>
+            <name>SetPlayMode</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>NewPlayMode</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>CurrentPlayMode</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>GetTransportSettings</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>PlayMode</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>CurrentPlayMode</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>RecQualityMode</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>CurrentRecordQualityMode</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
             <name>GetTransportInfo</name>
             <argumentList>
                 <argument>
@@ -289,6 +324,27 @@
         <stateVariable sendEvents="no">
             <name>NumberOfTracks</name>
             <dataType>ui4</dataType>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>CurrentPlayMode</name>
+            <dataType>string</dataType>
+            <defaultValue>NORMAL</defaultValue>
+            <allowedValueList>
+                <allowedValue>NORMAL</allowedValue>
+                <allowedValue>SHUFFLE</allowedValue>
+                <allowedValue>REPEAT_ONE</allowedValue>
+                <allowedValue>REPEAT_ALL</allowedValue>
+            </allowedValueList>
+        </stateVariable>
+
+        <stateVariable sendEvents="no">
+            <name>CurrentRecordQualityMode</name>
+            <dataType>string</dataType>
+            <defaultValue>NOT_IMPLEMENTED</defaultValue>
+            <allowedValueList>
+                <allowedValue>NOT_IMPLEMENTED</allowedValue>
+            </allowedValueList>
         </stateVariable>
 
         <stateVariable sendEvents="no">

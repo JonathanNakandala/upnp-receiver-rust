@@ -144,6 +144,9 @@ pub enum SoapProtocolError {
 
     #[error("Invalid connection reference: {0}")]
     InvalidConnectionReference(String),
+
+    #[error("Play mode not supported: {0}")]
+    PlayModeNotSupported(String),
 }
 
 impl SoapProtocolError {
@@ -185,6 +188,10 @@ impl SoapProtocolError {
             SoapProtocolError::InvalidConnectionReference(_) => UPnPErrorCode {
                 code: 706,
                 description: "Invalid Connection Reference",
+            },
+            SoapProtocolError::PlayModeNotSupported(_) => UPnPErrorCode {
+                code: 712,
+                description: "Play Mode Not Supported",
             },
         }
     }

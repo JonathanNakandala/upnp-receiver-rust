@@ -2,16 +2,17 @@ pub mod action;
 pub mod enums;
 pub mod request;
 pub mod response;
-pub use enums::{TransportState, TransportStatus};
+pub use enums::{PlayMode, TransportState, TransportStatus};
 pub use response::{
-    AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
-    PlayResponse, SeekResponse, SetAVTransportURIResponse, SetNextAVTransportURIResponse,
-    StopResponse,
+    AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse,
+    GetTransportSettingsResponse, PauseResponse, PlayResponse, SeekResponse,
+    SetAVTransportURIResponse, SetNextAVTransportURIResponse, SetPlayModeResponse, StopResponse,
 };
 
 pub use request::{
-    GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest,
-    PlayRequest, SeekRequest, SetAVTransportURIRequest, SetNextAVTransportURIRequest, StopRequest,
+    GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest,
+    GetTransportSettingsRequest, PauseRequest, PlayRequest, SeekRequest, SetAVTransportURIRequest,
+    SetNextAVTransportURIRequest, SetPlayModeRequest, StopRequest,
 };
 
 pub use action::AVTransportAction;

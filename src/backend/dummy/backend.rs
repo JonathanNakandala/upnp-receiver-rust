@@ -1,7 +1,7 @@
 use super::error::DummyProcessError;
 use super::manager::DummyBackendManager;
 use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
-use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
+use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
 use async_trait::async_trait;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
@@ -16,6 +16,9 @@ pub struct DummyBackend {
     // remembered so a `set_play_speed(1.0)` (the only value accepted)
     // round-trips through `get_play_speed` for API completeness.
     speed: Mutex<f64>,
+    // Same reasoning as `next`: no end-of-stream signal of its own to hook
+    // a repeat loop into, so this is just remembered and reported back.
+    play_mode: Mutex<PlayMode>,
 }
 
 impl DummyBackend {
@@ -24,6 +27,7 @@ impl DummyBackend {
             manager,
             next: Mutex::new(None),
             speed: Mutex::new(1.0),
+            play_mode: Mutex::new(PlayMode::Normal),
         }
     }
 
@@ -149,6 +153,15 @@ impl MediaBackend for DummyBackend {
 
     async fn get_play_speed(&self) -> Result<f64, MediaBackendError> {
         Ok(*self.speed.lock().await)
+    }
+
+    async fn set_play_mode(&self, mode: PlayMode) -> Result<(), MediaBackendError> {
+        *self.play_mode.lock().await = mode;
+        Ok(())
+    }
+
+    async fn get_play_mode(&self) -> Result<PlayMode, MediaBackendError> {
+        Ok(*self.play_mode.lock().await)
     }
 
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {
