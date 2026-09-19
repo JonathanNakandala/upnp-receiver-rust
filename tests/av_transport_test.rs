@@ -233,3 +233,53 @@ async fn test_set_play_mode_rejects_unsupported_value() {
     assert_eq!(status, 400, "Response body: {}", body);
     assert!(body.contains("<errorCode>712</errorCode>"));
 }
+
+#[test(tokio::test)]
+async fn test_get_current_transport_actions_when_stopped() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_av_transport_uri("http://example.com/test.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_current_transport_actions().await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 200, "Response body: {}", body);
+    assert!(body.contains("<Actions>Play</Actions>"));
+}
+
+#[test(tokio::test)]
+async fn test_get_current_transport_actions_when_playing() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_av_transport_uri("http://example.com/test.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client.play().await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_current_transport_actions().await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 200, "Response body: {}", body);
+    assert!(body.contains("<Actions>Pause,Stop,Seek</Actions>"));
+}
+
+#[test(tokio::test)]
+async fn test_get_current_transport_actions_with_no_media() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_current_transport_actions().await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 200, "Response body: {}", body);
+    assert!(
+        body.contains("<Actions/>") || body.contains("<Actions></Actions>"),
+        "Response body: {}",
+        body
+    );
+}

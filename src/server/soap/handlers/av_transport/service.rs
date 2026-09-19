@@ -4,9 +4,10 @@ use crate::server::soap::types::soap_action::ParsedSoapAction;
 use crate::server::soap::types::UPnPService;
 
 use crate::server::soap::types::av_transport::{
-    AVTransportAction, GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest,
-    GetTransportSettingsRequest, PauseRequest, PlayRequest, SeekRequest, SetAVTransportURIRequest,
-    SetNextAVTransportURIRequest, SetPlayModeRequest, StopRequest,
+    AVTransportAction, GetCurrentTransportActionsRequest, GetMediaInfoRequest,
+    GetPositionInfoRequest, GetTransportInfoRequest, GetTransportSettingsRequest, PauseRequest,
+    PlayRequest, SeekRequest, SetAVTransportURIRequest, SetNextAVTransportURIRequest,
+    SetPlayModeRequest, StopRequest,
 };
 
 pub struct AVTransportService;
@@ -86,6 +87,13 @@ impl UPnPService for AVTransportService {
                     action_name,
                 )?;
                 Ok(AVTransportAction::GetTransportSettings(request))
+            }
+            "GetCurrentTransportActions" => {
+                let request = extract_and_parse_soap_body::<GetCurrentTransportActionsRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(AVTransportAction::GetCurrentTransportActions(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",

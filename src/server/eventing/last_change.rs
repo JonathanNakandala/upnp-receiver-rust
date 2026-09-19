@@ -87,9 +87,10 @@ fn transport_status_str(status: TransportStatus) -> &'static str {
 }
 
 /// The `CurrentTransportActions` values a control point can rely on the
-/// renderer accepting given `state` — informational only, no code here reads
-/// it back.
-fn transport_actions_for(state: TransportState) -> &'static str {
+/// renderer accepting given `state`. Also the source of truth for the
+/// `GetCurrentTransportActions` action's `Actions` return value — see
+/// `crate::server::soap::handlers::av_transport::action`.
+pub fn transport_actions_for(state: TransportState) -> &'static str {
     use TransportState::*;
     match state {
         Playing => "Pause,Stop,Seek",

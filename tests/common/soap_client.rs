@@ -242,6 +242,29 @@ impl SoapClient {
             .unwrap()
     }
 
+    pub async fn get_current_transport_actions(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetCurrentTransportActions xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>0</InstanceID>
+                    </u:GetCurrentTransportActions>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!("{}/services/AVTransport/control", self.base_url))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:AVTransport:1#GetCurrentTransportActions\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
     pub async fn set_volume(&self, volume: u16) -> reqwest::Response {
         let body = format!(
             r#"<?xml version="1.0" encoding="utf-8"?>

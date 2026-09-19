@@ -76,6 +76,13 @@ pub struct GetTransportSettingsRequest {
     pub instance_id: u32,
 }
 
+// Struct for GetCurrentTransportActionsRequest
+#[derive(Debug, Deserialize)]
+pub struct GetCurrentTransportActionsRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
 // Struct for SetPlayModeRequest
 #[derive(Debug, Deserialize)]
 pub struct SetPlayModeRequest {

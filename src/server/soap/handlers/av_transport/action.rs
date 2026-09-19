@@ -1,10 +1,13 @@
-use crate::server::eventing::{av_transport_last_change, AVTransportEventState, EventManager};
+use crate::server::eventing::{
+    av_transport_last_change, transport_actions_for, AVTransportEventState, EventManager,
+};
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
-    AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse,
-    GetTransportSettingsResponse, PauseResponse, PlayMode, PlayResponse, SeekResponse,
-    SetAVTransportURIResponse, SetNextAVTransportURIResponse, SetPlayModeResponse, StopResponse,
+    AVTransportResponse, GetCurrentTransportActionsResponse, GetMediaInfoResponse,
+    GetTransportInfoResponse, GetTransportSettingsResponse, PauseResponse, PlayMode, PlayResponse,
+    SeekResponse, SetAVTransportURIResponse, SetNextAVTransportURIResponse, SetPlayModeResponse,
+    StopResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -42,6 +45,7 @@ impl UPnPAction for AVTransportAction {
             Self::GetPositionInfo(_) => "GetPositionInfo",
             Self::SetPlayMode(_) => "SetPlayMode",
             Self::GetTransportSettings(_) => "GetTransportSettings",
+            Self::GetCurrentTransportActions(_) => "GetCurrentTransportActions",
         }
     }
 
@@ -394,6 +398,29 @@ impl UPnPAction for AVTransportAction {
                     GetTransportSettingsResponse {
                         play_mode: mode.as_str().to_string(),
                         rec_quality_mode: "NOT_IMPLEMENTED".to_string(),
+                    },
+                ))
+            }
+
+            Self::GetCurrentTransportActions(req) => {
+                let result = renderer.av_transport.get_state().await;
+                match &result {
+                    Ok(state) => info!(
+                        instance_id = req.instance_id,
+                        current_transport_state = ?state,
+                        "Handling GetCurrentTransportActions"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetCurrentTransportActions"
+                    ),
+                }
+
+                let state = result?;
+                Ok(AVTransportResponse::CurrentTransportActions(
+                    GetCurrentTransportActionsResponse {
+                        actions: transport_actions_for(state).to_string(),
                     },
                 ))
             }

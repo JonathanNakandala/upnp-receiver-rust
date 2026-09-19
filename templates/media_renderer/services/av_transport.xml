@@ -191,6 +191,21 @@
             </argumentList>
         </action>
         <action>
+            <name>GetCurrentTransportActions</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>Actions</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>CurrentTransportActions</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
             <name>GetTransportInfo</name>
             <argumentList>
                 <argument>
@@ -345,6 +360,14 @@
             <allowedValueList>
                 <allowedValue>NOT_IMPLEMENTED</allowedValue>
             </allowedValueList>
+        </stateVariable>
+
+        <!-- Comma-separated action names, e.g. "Play,Stop,Seek" — bundled
+             into LastChange like everything else here, and also what
+             GetCurrentTransportActions reports on demand. -->
+        <stateVariable sendEvents="no">
+            <name>CurrentTransportActions</name>
+            <dataType>string</dataType>
         </stateVariable>
 
         <stateVariable sendEvents="no">
