@@ -82,7 +82,6 @@ impl GStreamerBackend {
             .map_err(|e| {
                 MediaBackendError::GStreamer(format!("Failed to create playbin: {}", e))
             })?;
-        restrict_to_audio_only(&playbin);
 
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let (state_tx, _) = watch::channel(TransportState::NoMediaPresent);
@@ -233,29 +232,6 @@ fn connect_about_to_finish(
 
         None
     });
-}
-
-/// `playbin` auto-plugs a video (and subtitle) sink for anything that has
-/// one, same as it does audio — this is an audio-only renderer, so a
-/// video-containing source would otherwise make it try to open a video sink
-/// that can fail on a headless machine (no display, no working video sink),
-/// killing playback that would have worked fine audio-only. Clearing the
-/// `video`/`text` bits of playbin's `flags` property (a `GstPlayFlags`
-/// GFlags type gstreamer-rs doesn't know about ahead of time, hence going
-/// through `glib::FlagsClass` rather than a typed property) keeps it to
-/// audio regardless of what the source contains; other tracks are just
-/// never decoded.
-fn restrict_to_audio_only(playbin: &gst::Element) {
-    let flags = playbin.property_value("flags");
-    let Some(flags_class) = gst::glib::FlagsClass::with_type(flags.type_()) else {
-        return;
-    };
-    let Some(builder) = flags_class.builder_with_value(flags) else {
-        return;
-    };
-    if let Some(updated) = builder.unset_by_nick("video").unset_by_nick("text").build() {
-        playbin.set_property("flags", &updated);
-    }
 }
 
 /// `gst::init()` must run once per process before any element is created,
@@ -662,36 +638,5 @@ mod tests {
 
         backend.set_mute(false).await.unwrap();
         assert!(!backend.get_mute().await.unwrap());
-    }
-
-    /// Confirms `restrict_to_audio_only` actually clears the bits it means
-    /// to — the flags builder chain fails silently (early `return`s) rather
-    /// than panicking if any step doesn't line up with playbin's actual
-    /// `GstPlayFlags` type, so this guards against a no-op regression there.
-    #[test]
-    fn restrict_to_audio_only_clears_video_and_text_flags() {
-        ensure_initialized().unwrap();
-        let playbin = gst::ElementFactory::make("playbin").build().unwrap();
-        let before = format!("{:?}", playbin.property_value("flags"));
-        assert!(
-            before.contains("Render the video stream"),
-            "expected default flags to include video, got {before}"
-        );
-
-        restrict_to_audio_only(&playbin);
-
-        let after = format!("{:?}", playbin.property_value("flags"));
-        assert!(
-            !after.contains("Render the video stream"),
-            "video flag should be cleared, got {after}"
-        );
-        assert!(
-            !after.contains("Render subtitles"),
-            "text/subtitle flag should be cleared, got {after}"
-        );
-        assert!(
-            after.contains("Render the audio stream"),
-            "audio flag should still be set, got {after}"
-        );
     }
 }
