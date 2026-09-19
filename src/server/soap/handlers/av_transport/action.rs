@@ -100,16 +100,18 @@ impl UPnPAction for AVTransportAction {
             Self::Play(req) => {
                 let result = async {
                     let speed = parse_play_speed(&req.speed).ok_or_else(|| {
-                        SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                        SoapError::Soap(SoapProtocolError::PlaySpeedNotSupported(format!(
                             "Invalid play speed: {}",
                             req.speed
                         )))
                     })?;
                     if !SUPPORTED_PLAY_SPEEDS.contains(&speed) {
-                        return Err(SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
-                            "Unsupported play speed: {} (supported: 1/4, 1/2, 1, 2, 4)",
-                            req.speed
-                        ))));
+                        return Err(SoapError::Soap(SoapProtocolError::PlaySpeedNotSupported(
+                            format!(
+                                "Unsupported play speed: {} (supported: 1/4, 1/2, 1, 2, 4)",
+                                req.speed
+                            ),
+                        )));
                     }
 
                     // play() alone is a no-op if we're already Playing (e.g. a
@@ -158,14 +160,13 @@ impl UPnPAction for AVTransportAction {
             Self::Seek(req) => {
                 let result = async {
                     if req.unit != "REL_TIME" && req.unit != "ABS_TIME" {
-                        return Err(SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
-                            "Unsupported seek unit: {}",
-                            req.unit
-                        ))));
+                        return Err(SoapError::Soap(SoapProtocolError::SeekModeNotSupported(
+                            format!("Unsupported seek unit: {}", req.unit),
+                        )));
                     }
 
                     let target = parse_duration(&req.target).ok_or_else(|| {
-                        SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                        SoapError::Soap(SoapProtocolError::IllegalSeekTarget(format!(
                             "Invalid seek target: {}",
                             req.target
                         )))

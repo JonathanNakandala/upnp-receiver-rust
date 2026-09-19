@@ -24,6 +24,7 @@ impl MediaBackendAVTransport {
             MediaBackendError::Connection(_) => {
                 TransportError::Other("Backend connection error".to_string())
             }
+            MediaBackendError::Unsupported(msg) => TransportError::UnsupportedOperation(msg),
             _ => TransportError::Other(err.to_string()),
         }
     }

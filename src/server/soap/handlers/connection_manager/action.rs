@@ -72,10 +72,9 @@ impl UPnPAction for ConnectionManagerAction {
                         .get_current_connection_info(req.connection_id)
                         .await?
                         .ok_or_else(|| {
-                            SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
-                                "Unknown ConnectionID: {}",
-                                req.connection_id
-                            )))
+                            SoapError::Soap(SoapProtocolError::InvalidConnectionReference(
+                                format!("Unknown ConnectionID: {}", req.connection_id),
+                            ))
                         })
                 }
                 .await;
