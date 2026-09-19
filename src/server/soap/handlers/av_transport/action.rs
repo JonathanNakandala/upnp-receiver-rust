@@ -4,7 +4,7 @@ use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
     AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
     PlayResponse, SeekResponse, SetAVTransportURIResponse, SetNextAVTransportURIResponse,
-    StopResponse, TransportStatus,
+    StopResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -113,10 +113,11 @@ impl UPnPAction for AVTransportAction {
             Self::GetTransportInfo(req) => {
                 info!(instance_id = req.instance_id, "Handling GetTransportInfo");
                 let state = renderer.av_transport.get_state().await?;
+                let status = renderer.av_transport.get_status().await?;
                 Ok(AVTransportResponse::TransportInfo(
                     GetTransportInfoResponse {
                         current_transport_state: state,
-                        current_transport_status: TransportStatus::OK,
+                        current_transport_status: status,
                         current_speed: "1".to_string(),
                     },
                 ))

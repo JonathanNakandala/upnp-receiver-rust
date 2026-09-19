@@ -10,7 +10,7 @@
 
 use quick_xml::escape::escape;
 
-use crate::server::soap::types::av_transport::TransportState;
+use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
 use crate::services::av_transport::AVTransport;
 
 /// Everything an AVTransport `LastChange` NOTIFY reports. Gathered in one
@@ -21,6 +21,7 @@ use crate::services::av_transport::AVTransport;
 /// can follow `AVTransportURI`/`NextAVTransportURI` in real time.
 pub struct AVTransportEventState {
     pub transport_state: TransportState,
+    pub transport_status: TransportStatus,
     pub current_uri: String,
     pub current_metadata: Option<String>,
     pub next_uri: String,
@@ -36,10 +37,15 @@ impl AVTransportEventState {
             .get_state()
             .await
             .unwrap_or(TransportState::NoMediaPresent);
+        let transport_status = av_transport
+            .get_status()
+            .await
+            .unwrap_or(TransportStatus::OK);
         let media = av_transport.get_media_info().await.ok().flatten();
 
         Self {
             transport_state,
+            transport_status,
             current_uri: media.as_ref().map(|m| m.uri.clone()).unwrap_or_default(),
             current_metadata: media.as_ref().and_then(|m| m.metadata.clone()),
             next_uri: media.as_ref().map(|m| m.next_uri.clone()).unwrap_or_default(),
@@ -57,6 +63,13 @@ fn transport_state_str(state: TransportState) -> &'static str {
         TransportState::PausedRecording => "PAUSED_RECORDING",
         TransportState::Recording => "RECORDING",
         TransportState::NoMediaPresent => "NO_MEDIA_PRESENT",
+    }
+}
+
+fn transport_status_str(status: TransportStatus) -> &'static str {
+    match status {
+        TransportStatus::OK => "OK",
+        TransportStatus::ErrorOccurred => "ERROR_OCCURRED",
     }
 }
 
@@ -82,6 +95,7 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
             r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/AVT/">"#,
             r#"<InstanceID val="0">"#,
             r#"<TransportState val="{state}"/>"#,
+            r#"<TransportStatus val="{status}"/>"#,
             r#"<CurrentTransportActions val="{actions}"/>"#,
             r#"<AVTransportURI val="{uri}"/>"#,
             r#"<AVTransportURIMetaData val="{metadata}"/>"#,
@@ -91,6 +105,7 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
             r#"</Event>"#
         ),
         state = transport_state_str(event.transport_state),
+        status = transport_status_str(event.transport_status),
         actions = transport_actions_for(event.transport_state),
         uri = escape(&event.current_uri),
         metadata = escape(event.current_metadata.as_deref().unwrap_or("")),
@@ -139,6 +154,7 @@ mod tests {
     fn event_state(transport_state: TransportState) -> AVTransportEventState {
         AVTransportEventState {
             transport_state,
+            transport_status: TransportStatus::OK,
             current_uri: String::new(),
             current_metadata: None,
             next_uri: String::new(),
@@ -171,6 +187,7 @@ mod tests {
     fn av_transport_event_reports_uris() {
         let body = av_transport_last_change(&AVTransportEventState {
             transport_state: TransportState::Playing,
+            transport_status: TransportStatus::OK,
             current_uri: "http://example.com/a.mp3".to_string(),
             current_metadata: Some("<DIDL-Lite>\"quoted\"</DIDL-Lite>".to_string()),
             next_uri: "http://example.com/b.mp3".to_string(),

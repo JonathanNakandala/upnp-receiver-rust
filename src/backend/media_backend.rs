@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::time::Duration;
 
 use super::MediaBackendError;
-use crate::server::soap::types::av_transport::TransportState;
+use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
 
 /// A track identified by URI plus its (opaque, DIDL-Lite) metadata — the
 /// shape both the queued "next" track and a `track_changes` notification
@@ -28,6 +28,13 @@ pub trait MediaBackend: Send + Sync {
     async fn seek(&self, position: Duration) -> Result<(), MediaBackendError>;
     async fn get_duration(&self) -> Result<Option<Duration>, MediaBackendError>;
     async fn get_playback_state(&self) -> Result<TransportState, MediaBackendError>;
+    /// Whether the *last* unprompted transition (end-of-stream vs. a
+    /// pipeline error) left the backend in an error state — UPnP's
+    /// `TransportStatus`. Distinct from `get_playback_state`: a backend can
+    /// be `Stopped` *and* `ErrorOccurred` at once, until the next
+    /// `load_media` starts a fresh attempt. Implementations with no error
+    /// concept of their own can always return `Ok(TransportStatus::OK)`.
+    async fn get_status(&self) -> Result<TransportStatus, MediaBackendError>;
 
     // Volume control methods (for RenderingControl service)
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError>;

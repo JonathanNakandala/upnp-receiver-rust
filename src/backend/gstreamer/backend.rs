@@ -20,7 +20,7 @@ use tokio::sync::watch;
 use tracing::{error, info};
 
 use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
-use crate::server::soap::types::av_transport::TransportState;
+use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
 
 /// What we track ourselves rather than asking GStreamer, either because it
 /// doesn't know it at all (UPnP DIDL-Lite metadata) or because asking it
@@ -30,6 +30,11 @@ struct PlayerState {
     uri: Option<String>,
     metadata: Option<String>,
     transport_state: TransportState,
+    // Whether the *last* unprompted transition (bus watcher) was a clean
+    // end-of-stream or a pipeline error — UPnP's `TransportStatus`. Reset to
+    // `OK` by `load_media`, since a fresh `SetAVTransportURI` is a new
+    // attempt regardless of how the previous one ended.
+    status: TransportStatus,
     // The single UPnP `SetNextAVTransportURI` lookahead slot. Consumed by
     // the `about-to-finish` handler for a gapless transition; cleared by an
     // explicit `load_media` (a fresh `SetAVTransportURI` invalidates
@@ -43,6 +48,7 @@ impl Default for PlayerState {
             uri: None,
             metadata: None,
             transport_state: TransportState::NoMediaPresent,
+            status: TransportStatus::OK,
             next: None,
         }
     }
@@ -76,6 +82,7 @@ impl GStreamerBackend {
             .map_err(|e| {
                 MediaBackendError::GStreamer(format!("Failed to create playbin: {}", e))
             })?;
+        restrict_to_audio_only(&playbin);
 
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let (state_tx, _) = watch::channel(TransportState::NoMediaPresent);
@@ -139,7 +146,12 @@ fn spawn_bus_watcher(
             match msg.view() {
                 gst::MessageView::Eos(_) => {
                     info!("GStreamer reported end-of-stream, stopping");
-                    stop_after_unprompted_end(&playbin, &state, &state_tx);
+                    stop_after_unprompted_end(
+                        &playbin,
+                        &state,
+                        &state_tx,
+                        TransportStatus::OK,
+                    );
                 }
                 gst::MessageView::Error(err) => {
                     error!(
@@ -147,7 +159,12 @@ fn spawn_bus_watcher(
                         debug = ?err.debug(),
                         "GStreamer pipeline error, stopping playback"
                     );
-                    stop_after_unprompted_end(&playbin, &state, &state_tx);
+                    stop_after_unprompted_end(
+                        &playbin,
+                        &state,
+                        &state_tx,
+                        TransportStatus::ErrorOccurred,
+                    );
                 }
                 _ => {}
             }
@@ -156,13 +173,16 @@ fn spawn_bus_watcher(
 }
 
 /// Shared cleanup for both bus-watcher cases: drop the pipeline back to
-/// Ready (same as a caller-driven `stop()`), update the state we report to
-/// `GetTransportInfo`, and push it out to anyone subscribed via
-/// [`MediaBackend::state_changes`].
+/// Ready (same as a caller-driven `stop()`), update the state/status we
+/// report to `GetTransportInfo`, and push the state out to anyone
+/// subscribed via [`MediaBackend::state_changes`]. `status` distinguishes
+/// the two callers: a clean end-of-stream is still `TransportStatus::OK`
+/// (playback simply finished), a pipeline error is `ErrorOccurred`.
 fn stop_after_unprompted_end(
     playbin: &gst::Element,
     state: &Arc<Mutex<PlayerState>>,
     state_tx: &watch::Sender<TransportState>,
+    status: TransportStatus,
 ) {
     let _ = playbin.set_state(gst::State::Ready);
 
@@ -173,6 +193,7 @@ fn stop_after_unprompted_end(
         } else {
             TransportState::NoMediaPresent
         };
+        state.status = status;
         state.transport_state
     };
 
@@ -214,6 +235,29 @@ fn connect_about_to_finish(
     });
 }
 
+/// `playbin` auto-plugs a video (and subtitle) sink for anything that has
+/// one, same as it does audio — this is an audio-only renderer, so a
+/// video-containing source would otherwise make it try to open a video sink
+/// that can fail on a headless machine (no display, no working video sink),
+/// killing playback that would have worked fine audio-only. Clearing the
+/// `video`/`text` bits of playbin's `flags` property (a `GstPlayFlags`
+/// GFlags type gstreamer-rs doesn't know about ahead of time, hence going
+/// through `glib::FlagsClass` rather than a typed property) keeps it to
+/// audio regardless of what the source contains; other tracks are just
+/// never decoded.
+fn restrict_to_audio_only(playbin: &gst::Element) {
+    let flags = playbin.property_value("flags");
+    let Some(flags_class) = gst::glib::FlagsClass::with_type(flags.type_()) else {
+        return;
+    };
+    let Some(builder) = flags_class.builder_with_value(flags) else {
+        return;
+    };
+    if let Some(updated) = builder.unset_by_nick("video").unset_by_nick("text").build() {
+        playbin.set_property("flags", &updated);
+    }
+}
+
 /// `gst::init()` must run once per process before any element is created,
 /// and isn't itself safe to call concurrently from multiple backends.
 pub(super) fn ensure_initialized() -> Result<(), MediaBackendError> {
@@ -247,6 +291,9 @@ impl MediaBackend for GStreamerBackend {
             state.uri = Some(uri.to_string());
             state.metadata = metadata;
             state.transport_state = TransportState::Stopped;
+            // A fresh SetAVTransportURI is a new attempt regardless of how
+            // the previous track ended — don't carry a stale error forward.
+            state.status = TransportStatus::OK;
             // An explicit SetAVTransportURI starts a new "current track"
             // context — whatever was previously queued to follow the old
             // track no longer applies.
@@ -334,6 +381,10 @@ impl MediaBackend for GStreamerBackend {
         // play, pause and stop), so querying it here would report stale
         // values for a little while after every transition.
         Ok(self.state.lock().unwrap().transport_state)
+    }
+
+    async fn get_status(&self) -> Result<TransportStatus, MediaBackendError> {
+        Ok(self.state.lock().unwrap().status)
     }
 
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {
@@ -611,5 +662,36 @@ mod tests {
 
         backend.set_mute(false).await.unwrap();
         assert!(!backend.get_mute().await.unwrap());
+    }
+
+    /// Confirms `restrict_to_audio_only` actually clears the bits it means
+    /// to — the flags builder chain fails silently (early `return`s) rather
+    /// than panicking if any step doesn't line up with playbin's actual
+    /// `GstPlayFlags` type, so this guards against a no-op regression there.
+    #[test]
+    fn restrict_to_audio_only_clears_video_and_text_flags() {
+        ensure_initialized().unwrap();
+        let playbin = gst::ElementFactory::make("playbin").build().unwrap();
+        let before = format!("{:?}", playbin.property_value("flags"));
+        assert!(
+            before.contains("Render the video stream"),
+            "expected default flags to include video, got {before}"
+        );
+
+        restrict_to_audio_only(&playbin);
+
+        let after = format!("{:?}", playbin.property_value("flags"));
+        assert!(
+            !after.contains("Render the video stream"),
+            "video flag should be cleared, got {after}"
+        );
+        assert!(
+            !after.contains("Render subtitles"),
+            "text/subtitle flag should be cleared, got {after}"
+        );
+        assert!(
+            after.contains("Render the audio stream"),
+            "audio flag should still be set, got {after}"
+        );
     }
 }

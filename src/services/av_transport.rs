@@ -1,4 +1,4 @@
-use crate::server::soap::types::av_transport::TransportState;
+use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
 use crate::services::error::TransportError;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -47,6 +47,12 @@ pub trait AVTransport: Send + Sync {
     async fn seek(&self, position: Duration) -> Result<(), TransportError>;
     async fn get_position(&self) -> Result<Duration, TransportError>;
     async fn get_state(&self) -> Result<TransportState, TransportError>;
+    /// UPnP's `TransportStatus` — whether the last unprompted transition was
+    /// clean or a real playback error. See [`MediaBackend::get_status`] for
+    /// why this is separate from `get_state`.
+    ///
+    /// [`MediaBackend::get_status`]: crate::backend::MediaBackend::get_status
+    async fn get_status(&self) -> Result<TransportStatus, TransportError>;
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError>;
     async fn get_position_info(&self) -> Result<Option<PositionInfo>, TransportError>;
     /// Queues the track to play next — UPnP's `SetNextAVTransportURI`. An
@@ -158,6 +164,11 @@ impl AVTransport for AVTransportImpl {
     async fn get_state(&self) -> Result<TransportState, TransportError> {
         let state = self.state.read().await;
         Ok(state.playback_state)
+    }
+
+    async fn get_status(&self) -> Result<TransportStatus, TransportError> {
+        // This fallback impl has no real playback to fail.
+        Ok(TransportStatus::OK)
     }
 
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError> {

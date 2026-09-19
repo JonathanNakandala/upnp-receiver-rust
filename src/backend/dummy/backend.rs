@@ -1,7 +1,7 @@
 use super::error::DummyProcessError;
 use super::manager::DummyBackendManager;
 use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
-use crate::server::soap::types::av_transport::TransportState;
+use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
 use async_trait::async_trait;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
@@ -123,6 +123,11 @@ impl MediaBackend for DummyBackend {
             .await
             .map(Self::convert_playback_state)
             .map_err(|err| Self::convert_error(err))
+    }
+
+    async fn get_status(&self) -> Result<TransportStatus, MediaBackendError> {
+        // The simulated backend never actually fails a playback attempt.
+        Ok(TransportStatus::OK)
     }
 
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {

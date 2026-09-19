@@ -1,4 +1,4 @@
-use crate::server::soap::types::av_transport::TransportState;
+use crate::server::soap::types::av_transport::{TransportState, TransportStatus};
 use crate::services::av_transport::{AVTransport, PositionInfo};
 use crate::services::error::TransportError;
 use crate::services::types::MediaInfo;
@@ -83,6 +83,10 @@ impl AVTransport for MediaBackendAVTransport {
             .get_playback_state()
             .await
             .map_err(Self::convert_error)
+    }
+
+    async fn get_status(&self) -> Result<TransportStatus, TransportError> {
+        self.backend.get_status().await.map_err(Self::convert_error)
     }
 
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError> {
