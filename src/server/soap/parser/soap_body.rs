@@ -55,7 +55,7 @@ where
                                 }
                             }
                             Event::Text(t) => {
-                                action_content.push_str(&t.unescape()?);
+                                action_content.push_str(std::str::from_utf8(t.as_ref())?);
                             }
                             Event::Empty(empty_e) => {
                                 let tag = std::str::from_utf8(empty_e.name().into_inner())?;

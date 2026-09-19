@@ -1,3 +1,4 @@
+use crate::server::client_logger::{ClientLogEntry, ClientLogger};
 use crate::server::soap::handlers::UPnPServiceRouter;
 use crate::server::templates::{
     MediaRendererAvTransportTemplate, MediaRendererConnectionManagerTemplate,
@@ -7,8 +8,10 @@ use crate::services::MediaRenderer;
 use crate::services::ServiceError;
 use askama::Template;
 use axum::{
-    extract::State,
-    http::{header, StatusCode},
+    body::{to_bytes, Body},
+    extract::{connect_info::ConnectInfo, State},
+    http::{header, Method, StatusCode},
+    middleware::{self, Next},
     response::IntoResponse,
     routing::get,
     Router,
@@ -18,6 +21,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tower_http::trace::{self, TraceLayer};
 use tracing::{debug, error, info, instrument, trace};
+
+/// Requests/responses larger than this are truncated before being written to
+/// the client log — SOAP control bodies are always small, this just guards
+/// against something unexpected (e.g. a malformed or huge POST) filling disk.
+const MAX_LOGGED_BODY_BYTES: usize = 64 * 1024;
 #[derive(Debug)]
 pub struct XmlResponse(String);
 
@@ -35,6 +43,7 @@ impl IntoResponse for XmlResponse {
 
 pub struct HttpServer {
     renderer: Arc<MediaRenderer>,
+    client_logger: Option<Arc<ClientLogger>>,
 }
 
 #[derive(Debug)]
@@ -71,7 +80,16 @@ impl HttpServer {
             name = %renderer.friendly_name(),
             "Creating new HTTP server instance"
         );
-        Self { renderer }
+        Self {
+            renderer,
+            client_logger: None,
+        }
+    }
+
+    /// Enables per-client SOAP request/response logging (see `--log-clients`).
+    pub fn with_client_logger(mut self, logger: Option<Arc<ClientLogger>>) -> Self {
+        self.client_logger = logger;
+        self
     }
 
     pub fn ip_addr(&self) -> IpAddr {
@@ -83,7 +101,7 @@ impl HttpServer {
     }
 
     pub fn router(&self) -> Router {
-        Router::new()
+        let mut router = Router::new()
             // Template routes
             .route("/description.xml", get(handle_device_description))
             .route(
@@ -99,7 +117,18 @@ impl HttpServer {
                 get(handle_connection_manager_description),
             )
             // SOAP control routes
-            .merge(UPnPServiceRouter::new(Arc::clone(&self.renderer)).router())
+            .merge(UPnPServiceRouter::new(Arc::clone(&self.renderer)).router());
+
+        if let Some(logger) = &self.client_logger {
+            // Wraps the whole router (routed and unmatched paths alike), so a
+            // POST to a service we haven't implemented yet still gets logged.
+            router = router.layer(middleware::from_fn_with_state(
+                Arc::clone(logger),
+                log_client_request,
+            ));
+        }
+
+        router
             .layer(
                 TraceLayer::new_for_http()
                     .make_span_with(trace::DefaultMakeSpan::new().level(tracing::Level::INFO))
@@ -143,7 +172,13 @@ impl HttpServer {
         };
 
         info!("HTTP server started successfully");
-        match axum::serve(listener, self.router()).await {
+        let router = self.router();
+        match axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        {
             Ok(_) => Ok(()),
             Err(e) => {
                 error!(error = %e, "HTTP server encountered an error");
@@ -152,6 +187,91 @@ impl HttpServer {
         }
     }
 }
+/// Metadata pulled off a request before its body is consumed, so it can be
+/// reattached to the log entry once the response comes back.
+struct RequestMeta {
+    remote_addr: String,
+    user_agent: Option<String>,
+    method: String,
+    path: String,
+    soap_action: Option<String>,
+}
+
+/// Reads a body to completion for logging, then rebuilds an equivalent
+/// request/response so the rest of the stack sees the same bytes it would
+/// have without logging enabled. On a read failure, forwards an empty body
+/// rather than dropping the request/response entirely.
+async fn buffer_body(body: Body) -> (String, Body) {
+    match to_bytes(body, MAX_LOGGED_BODY_BYTES).await {
+        Ok(bytes) => (
+            String::from_utf8_lossy(&bytes).to_string(),
+            Body::from(bytes),
+        ),
+        Err(e) => {
+            error!(error = %e, "Failed to buffer body for client logging");
+            (format!("<failed to read body: {}>", e), Body::empty())
+        }
+    }
+}
+
+/// Captures POSTs to any path (matched or not) for `--log-clients`: buffers the
+/// request/response bodies, forwards them through unchanged, and hands the
+/// captured pair to the `ClientLogger`.
+async fn log_client_request(
+    State(logger): State<Arc<ClientLogger>>,
+    req: axum::http::Request<Body>,
+    next: Next,
+) -> axum::response::Response {
+    if req.method() != Method::POST {
+        return next.run(req).await;
+    }
+
+    let meta = RequestMeta {
+        remote_addr: req
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ci| ci.0.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        method: req.method().to_string(),
+        path: req.uri().path().to_string(),
+        user_agent: req
+            .headers()
+            .get(header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string),
+        soap_action: req
+            .headers()
+            .get("SOAPAction")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string),
+    };
+
+    let (parts, body) = req.into_parts();
+    let (request_body, body) = buffer_body(body).await;
+    let req = axum::http::Request::from_parts(parts, body);
+
+    let response = next.run(req).await;
+
+    let (resp_parts, resp_body) = response.into_parts();
+    let response_status = resp_parts.status.as_u16();
+    let (response_body, resp_body) = buffer_body(resp_body).await;
+
+    logger
+        .log(&ClientLogEntry {
+            remote_addr: meta.remote_addr,
+            user_agent: meta.user_agent,
+            method: meta.method,
+            path: meta.path,
+            soap_action: meta.soap_action,
+            request_body,
+            response_status,
+            response_body,
+        })
+        .await;
+
+    axum::http::Response::from_parts(resp_parts, resp_body)
+}
+
 // Template handlers
 #[instrument(skip(renderer))]
 async fn handle_device_description(

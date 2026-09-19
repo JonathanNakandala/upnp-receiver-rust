@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.42.0", features = ["net", "macros", "rt", "rt-multi-thread", "time", "sync", "signal", "io-util"] }
+tokio = { version = "1.42.0", features = ["net", "macros", "rt", "rt-multi-thread", "time", "sync", "signal", "io-util", "fs"] }
 thiserror = "2.0.4"
 uuid = { version = "1.7", features = ["v4"] }
 derive_builder = "0.20"

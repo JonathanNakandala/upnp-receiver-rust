@@ -55,6 +55,19 @@ impl AVTransport for MediaBackendAVTransport {
     }
 
     async fn seek(&self, position: Duration) -> Result<(), TransportError> {
+        // The backend process itself doesn't reject a seek with nothing loaded
+        // (it just moves a position counter that governs nothing), so check
+        // here to give the caller the same NoMedia error the fallback
+        // AVTransportImpl gives, instead of a false "OK".
+        let uri = self
+            .backend
+            .get_current_uri()
+            .await
+            .map_err(Self::convert_error)?;
+        if uri.is_none() {
+            return Err(TransportError::NoMedia);
+        }
+
         self.backend.seek(position).await.map_err(Self::convert_error)
     }
 

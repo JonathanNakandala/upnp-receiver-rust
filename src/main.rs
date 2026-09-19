@@ -1,7 +1,8 @@
 use backend::{process::run_backend_process, MediaProcessManager};
 use discovery::{service::MediaRendererConfig, SsdpAdvertiser};
-use server::HttpServer;
+use server::{ClientLogger, HttpServer};
 use services::MediaRenderer;
+use std::path::PathBuf;
 use std::{error::Error, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
@@ -11,6 +12,17 @@ mod discovery;
 mod ip;
 mod server;
 mod services;
+
+/// `--log-clients` writes every SOAP request/response a control point sends,
+/// grouped per client (by User-Agent, falling back to IP), under this
+/// directory — useful for working out what real-world clients actually send
+/// and which of it isn't implemented yet. Override the location with the
+/// `CLIENT_LOG_DIR` env var.
+fn client_log_dir() -> PathBuf {
+    std::env::var("CLIENT_LOG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("logs/clients"))
+}
 fn init_logging(json: bool) -> Result<(), Box<dyn Error>> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
@@ -155,7 +167,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let http_server = HttpServer::new(Arc::new(renderer));
+    let client_logger = if args.iter().any(|a| a == "--log-clients") {
+        let dir = client_log_dir();
+        info!(dir = %dir.display(), "Client request logging enabled");
+        Some(Arc::new(ClientLogger::new(dir)))
+    } else {
+        None
+    };
+
+    let http_server = HttpServer::new(Arc::new(renderer)).with_client_logger(client_logger);
     let bind_addr = format!("{}:{}", http_server.ip_addr(), http_server.port());
 
     info!("All services initialized, starting main loop...");

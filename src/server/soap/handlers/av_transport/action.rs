@@ -2,8 +2,7 @@ use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
     AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
-    PlayResponse, SeekResponse, SetAVTransportURIResponse, StopResponse, TransportState,
-    TransportStatus,
+    PlayResponse, SeekResponse, SetAVTransportURIResponse, StopResponse, TransportStatus,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -78,7 +77,7 @@ impl UPnPAction for AVTransportAction {
                 let state = renderer.av_transport.get_state().await?;
                 Ok(AVTransportResponse::TransportInfo(
                     GetTransportInfoResponse {
-                        current_transport_state: TransportState::Playing,
+                        current_transport_state: state,
                         current_transport_status: TransportStatus::OK,
                         current_speed: "1".to_string(),
                     },

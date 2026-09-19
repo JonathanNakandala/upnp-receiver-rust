@@ -21,3 +21,6 @@ Cargo.lock
 #.idea/
 
 .log
+
+# Client request logs (--log-clients), captured for protocol debugging
+/logs/
