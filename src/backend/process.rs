@@ -1,23 +1,55 @@
 use crate::backend::types::{MediaCommand, MediaResponse};
+use crate::logging::{LogStyle, TextFormatter};
 use crate::server::soap::types::av_transport::TransportState;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tracing::{error, info, warn};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 pub async fn run_backend_process(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    // Set up basic logging for the backend process
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .compact()
-        .init();
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let subscriber = tracing_subscriber::registry().with(env_filter);
 
-    info!("Starting media backend process on port {}", port);
+    match std::env::var("LOG_FORMAT").as_deref() {
+        Ok("json") => {
+            subscriber
+                .with(
+                    fmt::layer()
+                        .with_target(true)
+                        .with_file(true)
+                        .with_line_number(true)
+                        .with_timer(fmt::time::UtcTime::rfc_3339())
+                        .json()
+                        .flatten_event(true),
+                )
+                .init();
+        }
+        Ok("logfmt") => {
+            subscriber
+                .with(
+                    fmt::layer()
+                        .with_ansi(false)
+                        .event_format(TextFormatter::new(LogStyle::Logfmt)),
+                )
+                .init();
+        }
+        _ => {
+            subscriber
+                .with(
+                    fmt::layer()
+                        .with_ansi(false)
+                        .event_format(TextFormatter::new(LogStyle::Terminal)),
+                )
+                .init();
+        }
+    }
 
     // Create TCP listener
     let addr = format!("127.0.0.1:{}", port);
     let listener = TcpListener::bind(&addr).await?;
+    info!(port, "Media backend process listening");
 
     // Accept connections
     loop {

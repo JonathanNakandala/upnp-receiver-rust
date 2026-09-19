@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod discovery;
 pub mod ip;
+pub mod logging;
 pub mod server;
 pub mod services;
 pub use discovery::MediaRendererConfig;

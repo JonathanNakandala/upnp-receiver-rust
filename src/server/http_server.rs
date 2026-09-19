@@ -140,8 +140,6 @@ impl HttpServer {
 
     #[instrument(skip(self))]
     pub async fn run(self, bind_addr: String) -> Result<(), ServiceError> {
-        info!("Starting HTTP server on {}", bind_addr);
-
         debug!("Parsing socket address");
         let addr = match SocketAddr::from_str(&bind_addr) {
             Ok(addr) => addr,
@@ -158,7 +156,7 @@ impl HttpServer {
             }
         };
 
-        info!(address = %addr, "Binding HTTP server");
+        info!(address = %addr, "Starting HTTP server");
         let listener = match tokio::net::TcpListener::bind(addr).await {
             Ok(l) => l,
             Err(e) => {

@@ -107,7 +107,7 @@ impl SsdpAdvertiser {
     }
 
     async fn send_raw(&self, message: &str, addr: &str) -> Result<(), DiscoveryServiceError> {
-        info!(
+        debug!(
             addr = %addr,
             "Sending SSDP message"
         );

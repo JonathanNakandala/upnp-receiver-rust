@@ -1,5 +1,6 @@
 use backend::{process::run_backend_process, MediaProcessManager};
 use discovery::{service::MediaRendererConfig, SsdpAdvertiser};
+use logging::{LogStyle, TextFormatter};
 use server::{ClientLogger, HttpServer};
 use services::MediaRenderer;
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 mod backend;
 mod discovery;
 mod ip;
+mod logging;
 mod server;
 mod services;
 
@@ -23,25 +25,48 @@ fn client_log_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("logs/clients"))
 }
-fn init_logging(json: bool) -> Result<(), Box<dyn Error>> {
+/// Chosen via `LOG_FORMAT`:
+/// - unset (default): colored terminal output — `INFO http Starting server status=200`.
+/// - `logfmt`: colored, fully labeled `key=value` lines (incl. `file:line`) —
+///   for piping to a file or a logfmt-aware aggregator.
+/// - `json`: structured JSON, one object per line, fields flattened to the
+///   top level (not nested under a `fields` key) — for log aggregators that
+///   parse JSON directly.
+pub fn parse_log_format() -> String {
+    std::env::var("LOG_FORMAT").unwrap_or_default()
+}
+
+fn init_logging(format: &str) -> Result<(), Box<dyn Error>> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-
-    let formatter = fmt::layer()
-        .with_thread_ids(true)
-        .with_target(false)
-        .with_file(true)
-        .with_line_number(true)
-        .compact()
-        .with_timer(fmt::time::UtcTime::rfc_3339())
-        .with_level(true)
-        .without_time();
-
     let subscriber = tracing_subscriber::registry().with(env_filter);
 
-    if json {
-        subscriber.with(formatter.json()).try_init()?;
-    } else {
-        subscriber.with(formatter).try_init()?;
+    match format {
+        "json" => {
+            let formatter = fmt::layer()
+                .with_target(true)
+                .with_file(true)
+                .with_line_number(true)
+                .with_timer(fmt::time::UtcTime::rfc_3339())
+                .json()
+                .flatten_event(true);
+            subscriber.with(formatter).try_init()?;
+        }
+        "logfmt" => {
+            // with_ansi(false): our TextFormatter does all coloring itself;
+            // without this, tracing_subscriber's own default field formatter
+            // (used to pre-format span fields, e.g. tower_http's
+            // method/uri) bakes in its own ANSI codes that leak through.
+            let formatter = fmt::layer()
+                .with_ansi(false)
+                .event_format(TextFormatter::new(LogStyle::Logfmt));
+            subscriber.with(formatter).try_init()?;
+        }
+        _ => {
+            let formatter = fmt::layer()
+                .with_ansi(false)
+                .event_format(TextFormatter::new(LogStyle::Terminal));
+            subscriber.with(formatter).try_init()?;
+        }
     }
 
     Ok(())
@@ -139,11 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Regular application code
-    let use_json = std::env::var("LOG_FORMAT")
-        .map(|v| v == "json")
-        .unwrap_or(false);
-
-    init_logging(use_json)?;
+    init_logging(&parse_log_format())?;
     info!("Starting UPnP Media Renderer...");
 
     // Initialize components

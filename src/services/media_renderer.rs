@@ -65,10 +65,7 @@ impl MediaRenderer {
             Some(ip) => ip,
             None => {
                 let detected_ip = get_default_ip()?;
-                info!(
-                    "No IP address specified, using detected IP: {}",
-                    detected_ip
-                );
+                info!(ip = %detected_ip, "No IP address specified, using detected IP");
                 detected_ip
             }
         };

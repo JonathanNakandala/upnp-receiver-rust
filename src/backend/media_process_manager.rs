@@ -325,8 +325,7 @@ impl MediaProcessManager {
         let port = self.find_available_port()?;
         let address = format!("127.0.0.1:{}", port);
 
-        // Start new process
-        info!("Starting media process on port {}", port);
+        info!(port, "Spawning media backend process");
         let child = Command::new(&self.executable_path)
             .arg("--backend")
             .arg(format!("{}", port))
