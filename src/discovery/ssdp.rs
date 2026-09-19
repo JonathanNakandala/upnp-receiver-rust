@@ -1,10 +1,13 @@
+use crate::discovery::request::MSearchRequest;
 use crate::discovery::search::{SearchHandler, SearchTarget};
 use crate::discovery::{
     error::DiscoveryServiceError,
     messages::{SsdpHeader, SsdpMessage},
     service::{ServiceInfo, SsdpService},
 };
+use rand::Rng;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tracing::{debug, error, info, trace, warn};
@@ -12,9 +15,8 @@ use tracing::{debug, error, info, trace, warn};
 const SSDP_MULTICAST_ADDR: &str = "239.255.255.250:1900";
 const NOTIFY_INTERVAL_SECS: u64 = 30;
 const MAX_PACKET_SIZE: usize = 1024;
-use std::collections::HashMap;
 pub struct SsdpAdvertiser {
-    socket: UdpSocket,
+    socket: Arc<UdpSocket>,
     services: Vec<Box<dyn SsdpService>>,
     search_handler: SearchHandler,
 }
@@ -29,7 +31,7 @@ impl SsdpAdvertiser {
         socket.join_multicast_v4(Ipv4Addr::new(239, 255, 255, 250), Ipv4Addr::UNSPECIFIED)?;
 
         Ok(Self {
-            socket,
+            socket: Arc::new(socket),
             services: Vec::new(),
             search_handler: SearchHandler::new(NOTIFY_INTERVAL_SECS),
         })
@@ -38,65 +40,39 @@ impl SsdpAdvertiser {
     pub fn add_service<S: SsdpService + 'static>(&mut self, service: S) {
         self.services.push(Box::new(service));
     }
-    async fn handle_message(
-        &self,
-        msg: &[u8],
-        addr: SocketAddr,
-    ) -> Result<(), DiscoveryServiceError> {
-        if let Ok(msg_str) = std::str::from_utf8(msg) {
-            trace!(
-                message = %msg_str,
-                addr = %addr,
-                "Received SSDP message"
-            );
-
-            // Parse M-SEARCH requests
-            if msg_str.starts_with("M-SEARCH") {
-                debug!("Processing M-SEARCH request");
-
-                // Extract headers into a map for easier processing
-                let headers: HashMap<String, String> = msg_str
-                    .lines()
-                    .filter_map(|line| {
-                        let parts: Vec<&str> = line.splitn(2, ':').collect();
-                        if parts.len() == 2 {
-                            Some((parts[0].trim().to_uppercase(), parts[1].trim().to_string()))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                // Validate M-SEARCH requirements
-                if let Some(man) = headers.get("MAN") {
-                    if man.trim_matches('"') != "ssdp:discover" {
-                        warn!("Invalid MAN header in M-SEARCH");
-                        return Ok(());
-                    }
-                } else {
-                    warn!("Missing MAN header in M-SEARCH");
-                    return Ok(());
-                }
-
-                if let Some(st) = headers.get("ST") {
-                    debug!(target = %st, "Found search target");
-                    self.handle_search(st, addr).await?;
-                } else {
-                    warn!("No ST (search target) header found in M-SEARCH");
-                }
-            } else {
-                debug!(
-                    message_type = %msg_str.lines().next().unwrap_or(""),
-                    "Received non-M-SEARCH message"
-                );
+    fn handle_message(&self, msg: &[u8], addr: SocketAddr) -> Result<(), DiscoveryServiceError> {
+        let msg_str = match std::str::from_utf8(msg) {
+            Ok(s) => s,
+            Err(_) => {
+                warn!(addr = %addr, "Received invalid UTF-8 in SSDP message");
+                return Ok(());
             }
-        } else {
-            warn!(
-                addr = %addr,
-                "Received invalid UTF-8 in SSDP message"
+        };
+        trace!(message = %msg_str, addr = %addr, "Received SSDP message");
+
+        if !msg_str.starts_with("M-SEARCH") {
+            debug!(
+                message_type = %msg_str.lines().next().unwrap_or(""),
+                "Received non-M-SEARCH message"
             );
+            return Ok(());
         }
-        Ok(())
+
+        let request = match MSearchRequest::parse(msg_str) {
+            Ok(request) => request,
+            Err(err) => {
+                warn!(addr = %addr, error = %err, "Rejecting malformed M-SEARCH request");
+                return Ok(());
+            }
+        };
+
+        debug!(
+            target = %request.search_target,
+            mx = request.mx.as_secs(),
+            addr = %addr,
+            "Processing search request"
+        );
+        self.handle_search(&request.search_target, request.mx, addr)
     }
     async fn send_message(
         &self,
@@ -157,24 +133,40 @@ impl SsdpAdvertiser {
         Ok(())
     }
 
-    async fn handle_search(
+    /// Builds the responses and schedules them for delivery after a random
+    /// delay in `[0, mx]` — required by SSDP so that every device on the LAN
+    /// answering the same multicast M-SEARCH doesn't reply at the same
+    /// instant. Spawned as a separate task (rather than `.await`ed inline)
+    /// so a slow-to-respond search doesn't stall `run`'s receive loop for
+    /// up to `mx` seconds.
+    fn handle_search(
         &self,
         search_target: &str,
+        mx: Duration,
         addr: SocketAddr,
     ) -> Result<(), DiscoveryServiceError> {
         let target = SearchTarget::from_str(search_target);
-
-        debug!(
-            target = ?target,
-            addr = %addr,
-            "Processing search request"
-        );
-
         let responses = self.search_handler.handle_target(target, &self.services)?;
 
-        for response in responses {
-            self.send_message(&response, &addr.to_string()).await?;
+        if responses.is_empty() {
+            return Ok(());
         }
+
+        let socket = Arc::clone(&self.socket);
+        let delay = random_delay_within(mx);
+        let dest = addr.to_string();
+
+        tokio::spawn(async move {
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            for response in responses {
+                let payload = response.to_string();
+                if let Err(err) = socket.send_to(payload.as_bytes(), &dest).await {
+                    warn!(addr = %dest, error = %err, "Failed to send delayed SSDP search response");
+                }
+            }
+        });
 
         Ok(())
     }
@@ -195,7 +187,7 @@ impl SsdpAdvertiser {
                 result = self.socket.recv_from(&mut buf) => {
                     match result {
                         Ok((len, addr)) => {
-                            if let Err(e) = self.handle_message(&buf[..len], addr).await {
+                            if let Err(e) = self.handle_message(&buf[..len], addr) {
                                 error!("Error handling message: {}", e);
                             }
                         }
@@ -205,4 +197,14 @@ impl SsdpAdvertiser {
             }
         }
     }
+}
+
+/// Picks a random point in `[0, mx]` to delay a search response by, per the
+/// SSDP spec's anti-flood requirement (UPnP Device Architecture, MX header).
+fn random_delay_within(mx: Duration) -> Duration {
+    if mx.is_zero() {
+        return Duration::ZERO;
+    }
+    let max_millis = mx.as_millis().min(u128::from(u64::MAX)) as u64;
+    Duration::from_millis(rand::thread_rng().gen_range(0..=max_millis))
 }

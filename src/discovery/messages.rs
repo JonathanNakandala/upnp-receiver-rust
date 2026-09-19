@@ -26,6 +26,10 @@ pub enum SsdpMessage {
         search_target: String,
         ext: bool,
     },
+    /// Not sent by `SsdpAdvertiser` — this device only ever responds to
+    /// M-SEARCH (see `discovery::request::MSearchRequest` for the inbound
+    /// side) and announces NOTIFY. Reserved for a planned discovery-client
+    /// CLI that will send this to find other UPnP devices on the network.
     MSearch {
         search_target: String,
         mx: Duration,
