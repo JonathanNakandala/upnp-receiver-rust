@@ -1,12 +1,11 @@
 pub mod av_transport;
+pub mod dummy;
 pub mod error;
+pub mod gstreamer;
 pub mod media_backend;
-pub mod media_process_backend;
-pub mod media_process_manager;
-pub mod process;
-pub mod types;
+
 pub use av_transport::MediaBackendAVTransport;
-pub use error::{MediaBackendError, MediaProcessError};
+pub use dummy::DummyBackend;
+pub use error::MediaBackendError;
+pub use gstreamer::GStreamerBackend;
 pub use media_backend::MediaBackend;
-pub use media_process_backend::MediaProcessBackend;
-pub use media_process_manager::MediaProcessManager;

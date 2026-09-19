@@ -9,13 +9,13 @@ use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tracing::{error, info, warn};
 
-use super::MediaProcessError;
+use super::error::DummyProcessError;
+use super::protocol::{MediaCommand, MediaResponse};
 use crate::server::soap::types::av_transport::TransportState;
 
-use super::types::{MediaCommand, MediaResponse};
-pub type Result<T> = std::result::Result<T, MediaProcessError>;
+pub type Result<T> = std::result::Result<T, DummyProcessError>;
 
-pub struct MediaProcessManager {
+pub struct DummyBackendManager {
     child_process: Option<Child>,
     connection: Option<TcpStream>,
     address: String,
@@ -59,7 +59,7 @@ async fn send_command(stream: &mut TcpStream, command: MediaCommand) -> Result<M
     Ok(response)
 }
 
-impl MediaProcessManager {
+impl DummyBackendManager {
     pub fn new() -> Self {
         Self {
             child_process: None,
@@ -230,7 +230,7 @@ impl MediaProcessManager {
     async fn restart_process(&mut self) -> Result<()> {
         // Check if we've hit the max restart attempts
         if self.restart_attempts >= self.max_restart_attempts {
-            return Err(MediaProcessError::MaxRestartAttempts(
+            return Err(DummyProcessError::MaxRestartAttempts(
                 self.max_restart_attempts,
             ));
         }
@@ -344,7 +344,7 @@ impl MediaProcessManager {
                     tokio::time::sleep(Duration::from_millis(200)).await;
                 }
                 _ => {
-                    return Err(MediaProcessError::Connection(
+                    return Err(DummyProcessError::Connection(
                         "Failed to connect to media process after 5 attempts".into(),
                     ));
                 }
@@ -409,7 +409,7 @@ impl MediaProcessManager {
 
             Ok(())
         } else {
-            Err(MediaProcessError::NoConnection)
+            Err(DummyProcessError::NoConnection)
         }
     }
 
@@ -427,7 +427,7 @@ impl MediaProcessManager {
 
             Ok(())
         } else {
-            Err(MediaProcessError::NoConnection)
+            Err(DummyProcessError::NoConnection)
         }
     }
 
@@ -439,7 +439,7 @@ impl MediaProcessManager {
 
             Ok(())
         } else {
-            Err(MediaProcessError::NoConnection)
+            Err(DummyProcessError::NoConnection)
         }
     }
 
@@ -451,7 +451,7 @@ impl MediaProcessManager {
 
             Ok(())
         } else {
-            Err(MediaProcessError::NoConnection)
+            Err(DummyProcessError::NoConnection)
         }
     }
 
@@ -466,7 +466,7 @@ impl MediaProcessManager {
             .await?;
             Ok(())
         } else {
-            Err(MediaProcessError::NoConnection)
+            Err(DummyProcessError::NoConnection)
         }
     }
 
@@ -474,16 +474,16 @@ impl MediaProcessManager {
         if let Some(conn) = &mut self.connection {
             match send_command(conn, MediaCommand::GetPosition).await? {
                 MediaResponse::Position { milliseconds } => Ok(Duration::from_millis(milliseconds)),
-                MediaResponse::Error { message } => Err(MediaProcessError::CommandFailed(format!(
+                MediaResponse::Error { message } => Err(DummyProcessError::CommandFailed(format!(
                     "Error getting position: {}",
                     message
                 ))),
-                _ => Err(MediaProcessError::UnexpectedResponse(
+                _ => Err(DummyProcessError::UnexpectedResponse(
                     "when getting position".into(),
                 )),
             }
         } else {
-            Err(MediaProcessError::NoConnection)
+            Err(DummyProcessError::NoConnection)
         }
     }
 
@@ -493,16 +493,16 @@ impl MediaProcessManager {
                 MediaResponse::Duration { milliseconds } => {
                     Ok(milliseconds.map(Duration::from_millis))
                 }
-                MediaResponse::Error { message } => Err(MediaProcessError::CommandFailed(format!(
+                MediaResponse::Error { message } => Err(DummyProcessError::CommandFailed(format!(
                     "Error getting position: {}",
                     message
                 ))),
-                _ => Err(MediaProcessError::UnexpectedResponse(
+                _ => Err(DummyProcessError::UnexpectedResponse(
                     "when getting duration".into(),
                 )),
             }
         } else {
-            Err(MediaProcessError::NoConnection)
+            Err(DummyProcessError::NoConnection)
         }
     }
 
@@ -513,16 +513,16 @@ impl MediaProcessManager {
                     self.playback_state = state;
                     Ok(state)
                 }
-                MediaResponse::Error { message } => Err(MediaProcessError::CommandFailed(format!(
+                MediaResponse::Error { message } => Err(DummyProcessError::CommandFailed(format!(
                     "Error getting playback state: {}",
                     message
                 ))),
-                _ => Err(MediaProcessError::UnexpectedResponse(
+                _ => Err(DummyProcessError::UnexpectedResponse(
                     "when getting playback state".into(),
                 )),
             }
         } else {
-            Err(MediaProcessError::NoConnection)
+            Err(DummyProcessError::NoConnection)
         }
     }
 
@@ -547,7 +547,7 @@ impl MediaProcessManager {
     }
 }
 
-impl Drop for MediaProcessManager {
+impl Drop for DummyBackendManager {
     fn drop(&mut self) {
         // Best effort cleanup when the manager is dropped
         if let Some(mut child) = self.child_process.take() {

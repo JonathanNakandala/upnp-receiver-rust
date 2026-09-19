@@ -1,30 +1,31 @@
-use super::{media_process_manager::MediaProcessManager, MediaBackend, MediaBackendError};
-use crate::backend::error::MediaProcessError;
+use super::error::DummyProcessError;
+use super::manager::DummyBackendManager;
+use crate::backend::{MediaBackend, MediaBackendError};
 use crate::server::soap::types::av_transport::TransportState;
 use async_trait::async_trait;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
-pub struct MediaProcessBackend {
-    manager: Arc<Mutex<MediaProcessManager>>,
+pub struct DummyBackend {
+    manager: Arc<Mutex<DummyBackendManager>>,
 }
 
-impl MediaProcessBackend {
-    pub fn new(manager: Arc<Mutex<MediaProcessManager>>) -> Self {
+impl DummyBackend {
+    pub fn new(manager: Arc<Mutex<DummyBackendManager>>) -> Self {
         Self { manager }
     }
 
     // Helper to convert error types
-    fn convert_error(err: MediaProcessError) -> MediaBackendError {
+    fn convert_error(err: DummyProcessError) -> MediaBackendError {
         match err {
-            MediaProcessError::NoConnection => {
+            DummyProcessError::NoConnection => {
                 MediaBackendError::Connection("No connection to media process".to_string())
             }
-            MediaProcessError::MaxRestartAttempts(attempts) => MediaBackendError::ProcessError(
+            DummyProcessError::MaxRestartAttempts(attempts) => MediaBackendError::ProcessError(
                 format!("Max restart attempts ({}) reached", attempts),
             ),
-            MediaProcessError::Connection(msg) => MediaBackendError::Connection(msg),
-            MediaProcessError::CommandFailed(msg) => MediaBackendError::Other(msg),
-            MediaProcessError::UnexpectedResponse(msg) => {
+            DummyProcessError::Connection(msg) => MediaBackendError::Connection(msg),
+            DummyProcessError::CommandFailed(msg) => MediaBackendError::Other(msg),
+            DummyProcessError::UnexpectedResponse(msg) => {
                 MediaBackendError::Other(format!("Unexpected response: {}", msg))
             }
             _ => MediaBackendError::Other(format!("Media process error: {:?}", err)),
@@ -38,7 +39,7 @@ impl MediaProcessBackend {
 }
 
 #[async_trait]
-impl MediaBackend for MediaProcessBackend {
+impl MediaBackend for DummyBackend {
     async fn load_media(
         &self,
         uri: &str,

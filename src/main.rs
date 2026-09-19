@@ -1,4 +1,5 @@
-use backend::{process::run_backend_process, MediaProcessManager};
+use backend::dummy::{run_dummy_process, DummyBackendManager};
+use backend::{DummyBackend, GStreamerBackend, MediaBackend};
 use discovery::{service::MediaRendererConfig, SsdpAdvertiser};
 use logging::{LogStyle, TextFormatter};
 use server::{ClientLogger, HttpServer};
@@ -14,6 +15,108 @@ mod ip;
 mod logging;
 mod server;
 mod services;
+
+/// Which [`MediaBackend`] to use, chosen via `--media-backend <value>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackendChoice {
+    /// Try GStreamer; fall back to the dummy backend (with a warning) if
+    /// it's unavailable. The default when `--media-backend` isn't passed.
+    Auto,
+    /// Require GStreamer; quit if it's unavailable.
+    GStreamer,
+    /// Use the simulated subprocess backend unconditionally.
+    Dummy,
+}
+
+fn parse_backend_choice(args: &[String]) -> BackendChoice {
+    let value = args
+        .iter()
+        .position(|a| a == "--media-backend")
+        .and_then(|i| args.get(i + 1));
+
+    match value.map(String::as_str) {
+        None => BackendChoice::Auto,
+        Some("gstreamer") => BackendChoice::GStreamer,
+        Some("dummy") => BackendChoice::Dummy,
+        Some(other) => {
+            eprintln!(
+                "Invalid --media-backend value '{}': expected 'gstreamer' or 'dummy'",
+                other
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+/// The media backend selected at startup, plus the dummy backend's process
+/// manager if that's what got picked — kept separately since only the dummy
+/// backend needs a health-monitor task and an async shutdown step.
+struct SelectedBackend {
+    media_backend: Option<Arc<dyn MediaBackend>>,
+    dummy_manager: Option<Arc<Mutex<DummyBackendManager>>>,
+}
+
+async fn start_dummy_backend() -> SelectedBackend {
+    let manager = Arc::new(Mutex::new(
+        DummyBackendManager::new()
+            .with_heartbeat_timeout(Duration::from_secs(5))
+            .with_max_restart_attempts(10),
+    ));
+
+    let start_result = {
+        let mut lock = manager.lock().await;
+        lock.start().await
+    };
+
+    match start_result {
+        Ok(_) => {
+            info!("Dummy media backend started successfully");
+            SelectedBackend {
+                media_backend: Some(Arc::new(DummyBackend::new(manager.clone()))),
+                dummy_manager: Some(manager),
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to start dummy media backend - audio features will be unavailable");
+            SelectedBackend {
+                media_backend: None,
+                dummy_manager: None,
+            }
+        }
+    }
+}
+
+async fn select_backend(choice: BackendChoice) -> SelectedBackend {
+    match choice {
+        BackendChoice::GStreamer => match GStreamerBackend::new() {
+            Ok(backend) => {
+                info!("Using GStreamer media backend");
+                SelectedBackend {
+                    media_backend: Some(Arc::new(backend)),
+                    dummy_manager: None,
+                }
+            }
+            Err(e) => {
+                eprintln!("--media-backend gstreamer requested but GStreamer is unavailable: {e}");
+                std::process::exit(1);
+            }
+        },
+        BackendChoice::Dummy => start_dummy_backend().await,
+        BackendChoice::Auto => match GStreamerBackend::new() {
+            Ok(backend) => {
+                info!("Using GStreamer media backend");
+                SelectedBackend {
+                    media_backend: Some(Arc::new(backend)),
+                    dummy_manager: None,
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "GStreamer unavailable, falling back to dummy media backend");
+                start_dummy_backend().await
+            }
+        },
+    }
+}
 
 /// `--log-clients` writes every SOAP request/response a control point sends,
 /// grouped per client (by User-Agent, falling back to IP), under this
@@ -72,44 +175,16 @@ fn init_logging(format: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-// Initialize media manager - returns None if it fails
-async fn init_media_manager() -> Option<Arc<Mutex<MediaProcessManager>>> {
-    let manager = Arc::new(Mutex::new(
-        MediaProcessManager::new()
-            .with_heartbeat_timeout(Duration::from_secs(5))
-            .with_max_restart_attempts(10),
-    ));
-
-    // Try to start the media process, but don't fail the application if it doesn't work
-    let start_result = {
-        // Create a new scope for the lock to ensure it's dropped before we potentially move the manager
-        let mut lock = manager.lock().await;
-        lock.start().await
-    };
-
-    match start_result {
-        Ok(_) => {
-            info!("Media process started successfully");
-            Some(manager)
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to start media process - audio features will be unavailable");
-            None
-        }
-    }
-}
-
-// Create the renderer with optional media manager
+// Create the renderer with the selected media backend, if any
 fn create_renderer(
-    media_manager: Option<Arc<Mutex<MediaProcessManager>>>,
+    media_backend: Option<Arc<dyn MediaBackend>>,
 ) -> Result<MediaRenderer, Box<dyn Error>> {
     let config = MediaRendererConfig::builder()
         .port(8080)
         .friendly_name("Jono's Rust Media Renderer".to_string())
         .build();
 
-    // Just pass the option through directly
-    MediaRenderer::new_with_media_backend(config, media_manager).map_err(|e| {
+    MediaRenderer::new_with_media_backend(config, media_backend).map_err(|e| {
         error!(error = %e, "Failed to create media renderer");
         e.into()
     })
@@ -132,10 +207,11 @@ async fn init_advertiser(
     }
 }
 
-// Run the media process monitor task only if we have a media manager
-async fn run_media_monitor(media_manager: Option<Arc<Mutex<MediaProcessManager>>>) {
-    if let Some(manager) = media_manager {
-        MediaProcessManager::run_monitor_task(manager).await;
+// Run the dummy backend's health-monitor task only if that's the backend in
+// use; GStreamer runs in-process and has nothing to monitor.
+async fn run_media_monitor(dummy_manager: Option<Arc<Mutex<DummyBackendManager>>>) {
+    if let Some(manager) = dummy_manager {
+        DummyBackendManager::run_monitor_task(manager).await;
     } else {
         // Just wait forever - this task should never complete
         futures::future::pending::<()>().await;
@@ -153,10 +229,10 @@ async fn handle_shutdown_signals() {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
 
-    // Check if running as a backend process
+    // Check if running as the dummy backend's child process
     if args.len() >= 3 && args[1] == "--backend" {
         if let Ok(port) = args[2].parse::<u16>() {
-            return run_backend_process(port).await;
+            return run_dummy_process(port).await;
         } else {
             eprintln!("Invalid port number for backend process");
             std::process::exit(1);
@@ -168,8 +244,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting UPnP Media Renderer...");
 
     // Initialize components
-    let media_manager = init_media_manager().await;
-    let renderer = create_renderer(media_manager.clone())?;
+    let backend_choice = parse_backend_choice(&args);
+    let selected = select_backend(backend_choice).await;
+    let renderer = create_renderer(selected.media_backend.clone())?;
 
     info!(
         ip = %renderer.ip_addr(),
@@ -228,7 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
         }
-        _ = run_media_monitor(media_manager.clone()) => {
+        _ = run_media_monitor(selected.dummy_manager.clone()) => {
             error!("Media process monitor task exited unexpectedly");
         }
         _ = handle_shutdown_signals() => {
@@ -244,10 +321,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    if let Some(manager) = media_manager {
-        info!("Shutting down media process...");
+    if let Some(manager) = selected.dummy_manager {
+        info!("Shutting down dummy media backend...");
         if let Err(e) = manager.lock().await.shutdown().await {
-            error!(error = %e, "Error shutting down media process");
+            error!(error = %e, "Error shutting down dummy media backend");
         }
     }
 

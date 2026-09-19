@@ -1,4 +1,4 @@
-use crate::backend::types::{MediaCommand, MediaResponse};
+use super::protocol::{MediaCommand, MediaResponse};
 use crate::logging::{LogStyle, TextFormatter};
 use crate::server::soap::types::av_transport::TransportState;
 use std::time::Duration;
@@ -8,7 +8,10 @@ use tokio::net::TcpStream;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-pub async fn run_backend_process(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+/// Entry point for the dummy backend's child process — spawned by
+/// [`super::DummyBackendManager`] via `<exe> --backend <port>` and simulates
+/// playback with a plain position counter (no real audio decoding).
+pub async fn run_dummy_process(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let subscriber = tracing_subscriber::registry().with(env_filter);
 
