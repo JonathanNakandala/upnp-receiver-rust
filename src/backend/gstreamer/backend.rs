@@ -71,7 +71,7 @@ impl Drop for GStreamerBackend {
 
 /// `gst::init()` must run once per process before any element is created,
 /// and isn't itself safe to call concurrently from multiple backends.
-fn ensure_initialized() -> Result<(), MediaBackendError> {
+pub(super) fn ensure_initialized() -> Result<(), MediaBackendError> {
     static INIT: OnceLock<Result<(), String>> = OnceLock::new();
     INIT.get_or_init(|| gst::init().map_err(|e| e.to_string()))
         .clone()

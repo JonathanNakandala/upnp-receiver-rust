@@ -49,20 +49,27 @@ pub struct MediaRenderer {
 impl MediaRenderer {
     pub fn new(config: MediaRendererConfig) -> Result<Self, Box<dyn Error>> {
         // Create renderer without media capabilities
-        Self::create_renderer(config, None)
+        Self::create_renderer(config, None, vec!["audio/mpeg".to_string()])
     }
 
+    /// `supported_mime_types` becomes the `protocolInfo` sink entries
+    /// `ConnectionManager::GetProtocolInfo` reports — one `http-get:*:<mime>:*`
+    /// per entry — so callers should pass whatever the chosen `media_backend`
+    /// can actually decode (e.g.
+    /// [`gstreamer::supported_mime_types`](crate::backend::gstreamer::supported_mime_types)).
     pub fn new_with_media_backend(
         config: MediaRendererConfig,
         media_backend: Option<Arc<dyn MediaBackend>>,
+        supported_mime_types: Vec<String>,
     ) -> Result<Self, Box<dyn Error>> {
-        Self::create_renderer(config, media_backend)
+        Self::create_renderer(config, media_backend, supported_mime_types)
     }
 
     // Private helper to create the renderer with or without media backend
     fn create_renderer(
         config: MediaRendererConfig,
         media_backend: Option<Arc<dyn MediaBackend>>,
+        supported_mime_types: Vec<String>,
     ) -> Result<Self, Box<dyn Error>> {
         let ip_addr = match config.ip_addr {
             Some(ip) => ip,
@@ -88,7 +95,9 @@ impl MediaRenderer {
             )
         };
 
-        let connection_manager = Arc::new(DummyConnectionManager::new());
+        let connection_manager = Arc::new(DummyConnectionManager::with_supported_mime_types(
+            supported_mime_types,
+        ));
         let av_transport_events = EventManager::new();
         let rendering_control_events = EventManager::new();
 

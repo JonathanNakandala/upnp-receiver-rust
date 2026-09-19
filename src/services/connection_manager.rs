@@ -27,12 +27,32 @@ pub trait ConnectionManager: Send + Sync {
 
 pub struct DummyConnectionManager {
     state: Arc<RwLock<ConnectionState>>,
+    protocol_info: Vec<ProtocolInfo>,
 }
 
 impl DummyConnectionManager {
     pub fn new() -> Self {
+        Self::with_supported_mime_types(vec!["audio/mpeg".to_string()])
+    }
+
+    /// Builds the `protocolInfo` list `GetProtocolInfo` reports from a list
+    /// of supported mime types, one `http-get:*:<mime>:*` sink entry each —
+    /// e.g. from [`gstreamer::supported_mime_types`](crate::backend::gstreamer::supported_mime_types)
+    /// so the renderer only advertises formats it can actually decode.
+    pub fn with_supported_mime_types(mime_types: Vec<String>) -> Self {
+        let protocol_info = mime_types
+            .into_iter()
+            .map(|mime_type| ProtocolInfo {
+                protocol: "http-get".to_string(),
+                network: "*".to_string(),
+                mime_type,
+                additional_info: "*".to_string(),
+            })
+            .collect();
+
         Self {
             state: Arc::new(RwLock::new(ConnectionState::Connected)),
+            protocol_info,
         }
     }
 }
@@ -44,12 +64,7 @@ impl ConnectionManager for DummyConnectionManager {
     }
 
     async fn get_protocol_info(&self) -> Result<Vec<ProtocolInfo>, ServiceError> {
-        Ok(vec![ProtocolInfo {
-            protocol: "http-get".to_string(),
-            network: "*".to_string(),
-            mime_type: "audio/mpeg".to_string(),
-            additional_info: "*".to_string(),
-        }])
+        Ok(self.protocol_info.clone())
     }
 
     async fn get_current_connection_ids(&self) -> Result<Vec<i32>, ServiceError> {

@@ -1,5 +1,5 @@
 use backend::dummy::{run_dummy_process, DummyBackendManager};
-use backend::{DummyBackend, GStreamerBackend, MediaBackend};
+use backend::{gstreamer, DummyBackend, GStreamerBackend, MediaBackend};
 use discovery::{service::MediaRendererConfig, SsdpAdvertiser};
 use logging::{LogStyle, TextFormatter};
 use server::{ClientLogger, HttpServer};
@@ -54,6 +54,36 @@ fn parse_backend_choice(args: &[String]) -> BackendChoice {
 struct SelectedBackend {
     media_backend: Option<Arc<dyn MediaBackend>>,
     dummy_manager: Option<Arc<Mutex<DummyBackendManager>>>,
+    /// What `ConnectionManager::GetProtocolInfo` should advertise as
+    /// playable, given the backend actually in use.
+    supported_mime_types: Vec<String>,
+}
+
+/// GStreamer's registry enumeration (see [`gstreamer::supported_mime_types`])
+/// is best-effort and can come back empty on an unusual install; falling
+/// back to at least MP3 keeps `GetProtocolInfo` non-empty, since a bare
+/// empty list looks like "this renderer plays nothing" to a control point.
+fn gstreamer_supported_mime_types() -> Vec<String> {
+    let mime_types = gstreamer::supported_mime_types();
+    if mime_types.is_empty() {
+        vec!["audio/mpeg".to_string()]
+    } else {
+        mime_types
+    }
+}
+
+fn use_gstreamer_backend(backend: GStreamerBackend) -> SelectedBackend {
+    info!("Using GStreamer media backend");
+    let supported_mime_types = gstreamer_supported_mime_types();
+    info!(
+        mime_types = %supported_mime_types.join(", "),
+        "Detected GStreamer-supported formats"
+    );
+    SelectedBackend {
+        media_backend: Some(Arc::new(backend)),
+        dummy_manager: None,
+        supported_mime_types,
+    }
 }
 
 async fn start_dummy_backend() -> SelectedBackend {
@@ -74,6 +104,7 @@ async fn start_dummy_backend() -> SelectedBackend {
             SelectedBackend {
                 media_backend: Some(Arc::new(DummyBackend::new(manager.clone()))),
                 dummy_manager: Some(manager),
+                supported_mime_types: vec!["audio/mpeg".to_string()],
             }
         }
         Err(e) => {
@@ -81,6 +112,7 @@ async fn start_dummy_backend() -> SelectedBackend {
             SelectedBackend {
                 media_backend: None,
                 dummy_manager: None,
+                supported_mime_types: Vec::new(),
             }
         }
     }
@@ -89,13 +121,7 @@ async fn start_dummy_backend() -> SelectedBackend {
 async fn select_backend(choice: BackendChoice) -> SelectedBackend {
     match choice {
         BackendChoice::GStreamer => match GStreamerBackend::new() {
-            Ok(backend) => {
-                info!("Using GStreamer media backend");
-                SelectedBackend {
-                    media_backend: Some(Arc::new(backend)),
-                    dummy_manager: None,
-                }
-            }
+            Ok(backend) => use_gstreamer_backend(backend),
             Err(e) => {
                 eprintln!("--media-backend gstreamer requested but GStreamer is unavailable: {e}");
                 std::process::exit(1);
@@ -103,13 +129,7 @@ async fn select_backend(choice: BackendChoice) -> SelectedBackend {
         },
         BackendChoice::Dummy => start_dummy_backend().await,
         BackendChoice::Auto => match GStreamerBackend::new() {
-            Ok(backend) => {
-                info!("Using GStreamer media backend");
-                SelectedBackend {
-                    media_backend: Some(Arc::new(backend)),
-                    dummy_manager: None,
-                }
-            }
+            Ok(backend) => use_gstreamer_backend(backend),
             Err(e) => {
                 warn!(error = %e, "GStreamer unavailable, falling back to dummy media backend");
                 start_dummy_backend().await
@@ -178,16 +198,19 @@ fn init_logging(format: &str) -> Result<(), Box<dyn Error>> {
 // Create the renderer with the selected media backend, if any
 fn create_renderer(
     media_backend: Option<Arc<dyn MediaBackend>>,
+    supported_mime_types: Vec<String>,
 ) -> Result<MediaRenderer, Box<dyn Error>> {
     let config = MediaRendererConfig::builder()
         .port(8080)
         .friendly_name("Jono's Rust Media Renderer".to_string())
         .build();
 
-    MediaRenderer::new_with_media_backend(config, media_backend).map_err(|e| {
-        error!(error = %e, "Failed to create media renderer");
-        e.into()
-    })
+    MediaRenderer::new_with_media_backend(config, media_backend, supported_mime_types).map_err(
+        |e| {
+            error!(error = %e, "Failed to create media renderer");
+            e.into()
+        },
+    )
 }
 // Initialize the SSDP advertiser
 async fn init_advertiser(
@@ -246,7 +269,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize components
     let backend_choice = parse_backend_choice(&args);
     let selected = select_backend(backend_choice).await;
-    let renderer = create_renderer(selected.media_backend.clone())?;
+    let renderer = create_renderer(
+        selected.media_backend.clone(),
+        selected.supported_mime_types.clone(),
+    )?;
 
     info!(
         ip = %renderer.ip_addr(),

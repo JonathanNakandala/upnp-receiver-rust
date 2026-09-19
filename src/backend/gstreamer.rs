@@ -5,5 +5,7 @@
 //! back to [`dummy`](super::dummy).
 
 pub mod backend;
+pub mod codecs;
 
 pub use backend::GStreamerBackend;
+pub use codecs::supported_mime_types;
