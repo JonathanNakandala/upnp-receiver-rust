@@ -87,6 +87,13 @@
         </action>
     </actionList>
     <serviceStateTable>
+        <!-- Evented as a bundled LastChange NOTIFY (GENA), not individually —
+             see the sendEvents="no" on the actual state variables below. -->
+        <stateVariable sendEvents="yes">
+            <name>LastChange</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
         <stateVariable sendEvents="no">
             <name>Volume</name>
             <dataType>ui2</dataType>

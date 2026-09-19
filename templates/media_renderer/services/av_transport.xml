@@ -212,6 +212,13 @@
         </action>
     </actionList>
     <serviceStateTable>
+        <!-- Evented as a bundled LastChange NOTIFY (GENA), not individually —
+             see the sendEvents="no" on the actual state variables below. -->
+        <stateVariable sendEvents="yes">
+            <name>LastChange</name>
+            <dataType>string</dataType>
+        </stateVariable>
+
         <stateVariable sendEvents="no">
             <name>TransportState</name>
             <dataType>string</dataType>
@@ -228,12 +235,12 @@
             <dataType>ui4</dataType>
         </stateVariable>
 
-        <stateVariable sendEvents="yes">
+        <stateVariable sendEvents="no">
             <name>AVTransportURI</name>
             <dataType>string</dataType>
         </stateVariable>
 
-        <stateVariable sendEvents="yes">
+        <stateVariable sendEvents="no">
             <name>AVTransportURIMetaData</name>
             <dataType>string</dataType>
         </stateVariable>

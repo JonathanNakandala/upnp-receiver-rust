@@ -1,8 +1,10 @@
+use crate::server::eventing::{av_transport_last_change, EventManager};
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
     AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
-    PlayResponse, SeekResponse, SetAVTransportURIResponse, StopResponse, TransportStatus,
+    PlayResponse, SeekResponse, SetAVTransportURIResponse, StopResponse, TransportState,
+    TransportStatus,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -12,6 +14,19 @@ use tracing::info;
 use crate::server::soap::types::av_transport::AVTransportAction;
 
 use super::utils::{format_duration, parse_duration};
+
+/// Publishes a `LastChange` NOTIFY reflecting the transport state right
+/// after a state-changing action succeeds, so subscribed control points
+/// find out immediately instead of waiting for their next GetTransportInfo
+/// poll.
+async fn publish_transport_state(renderer: &MediaRenderer, events: &Arc<EventManager>) {
+    let state = renderer
+        .av_transport
+        .get_state()
+        .await
+        .unwrap_or(TransportState::NoMediaPresent);
+    events.broadcast(av_transport_last_change(state));
+}
 
 impl UPnPAction for AVTransportAction {
     type Response = AVTransportResponse;
@@ -41,6 +56,7 @@ impl UPnPAction for AVTransportAction {
                     .av_transport
                     .set_transport_uri(req.current_uri.clone(), req.current_uri_metadata.clone())
                     .await?;
+                publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::SetAVTransportURI(
                     SetAVTransportURIResponse {},
                 ))
@@ -48,16 +64,19 @@ impl UPnPAction for AVTransportAction {
             Self::Play(req) => {
                 info!(instance_id = req.instance_id, speed = %req.speed, "Handling Play");
                 renderer.av_transport.play().await?;
+                publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::Play(PlayResponse {}))
             }
             Self::Pause(req) => {
                 info!(instance_id = req.instance_id, "Handling Pause");
                 renderer.av_transport.pause().await?;
+                publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::Pause(PauseResponse {}))
             }
             Self::Stop(req) => {
                 info!(instance_id = req.instance_id, "Handling Stop");
                 renderer.av_transport.stop().await?;
+                publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::Stop(StopResponse {}))
             }
             Self::Seek(req) => {

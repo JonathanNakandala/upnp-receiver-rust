@@ -1,4 +1,5 @@
 mod client_logger;
+pub mod eventing;
 mod http_server;
 pub mod soap;
 mod templates;

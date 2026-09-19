@@ -1,4 +1,5 @@
 use crate::server::client_logger::{ClientLogEntry, ClientLogger};
+use crate::server::eventing::{handle_av_transport_events, handle_rendering_control_events};
 use crate::server::soap::handlers::UPnPServiceRouter;
 use crate::server::templates::{
     MediaRendererAvTransportTemplate, MediaRendererConnectionManagerTemplate,
@@ -13,7 +14,7 @@ use axum::{
     http::{header, Method, StatusCode},
     middleware::{self, Next},
     response::IntoResponse,
-    routing::get,
+    routing::{any, get},
     Router,
 };
 use std::net::{IpAddr, SocketAddr};
@@ -115,6 +116,17 @@ impl HttpServer {
             .route(
                 "/services/ConnectionManager/description.xml",
                 get(handle_connection_manager_description),
+            )
+            // GENA eventing routes (SUBSCRIBE/UNSUBSCRIBE aren't GET/POST,
+            // so these are matched with `any` and dispatch on the method
+            // themselves)
+            .route(
+                "/services/AVTransport/events",
+                any(handle_av_transport_events),
+            )
+            .route(
+                "/services/RenderingControl/events",
+                any(handle_rendering_control_events),
             )
             // SOAP control routes
             .merge(UPnPServiceRouter::new(Arc::clone(&self.renderer)).router());

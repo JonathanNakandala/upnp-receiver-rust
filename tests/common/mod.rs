@@ -1,6 +1,8 @@
 extern crate upnp_receiver;
+pub mod mock_subscriber;
 pub mod soap_client;
 
+pub use mock_subscriber::MockSubscriber;
 pub use soap_client::SoapClient;
 use std::net::SocketAddr;
 use std::sync::Arc;

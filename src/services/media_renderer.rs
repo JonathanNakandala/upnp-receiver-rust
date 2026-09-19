@@ -10,6 +10,7 @@ use crate::discovery::service::{
     MediaRendererConfig, MediaRendererService, Server, ServiceInfo, SsdpService,
 };
 use crate::ip::get_default_ip;
+use crate::server::eventing::EventManager;
 use crate::services::{
     av_transport::{AVTransport, AVTransportImpl},
     connection_manager::{ConnectionManager, DummyConnectionManager},
@@ -36,6 +37,10 @@ pub struct MediaRenderer {
     pub av_transport: Arc<dyn AVTransport>,
     pub rendering_control: Arc<dyn RenderingControl>,
     pub connection_manager: Arc<dyn ConnectionManager>,
+
+    // GENA subscribers, one manager per evented service.
+    pub av_transport_events: Arc<EventManager>,
+    pub rendering_control_events: Arc<EventManager>,
 
     // Media backend (optional) — whichever `MediaBackend` implementation
     // main.rs selected (GStreamer, dummy, or none).
@@ -84,6 +89,8 @@ impl MediaRenderer {
         };
 
         let connection_manager = Arc::new(DummyConnectionManager::new());
+        let av_transport_events = EventManager::new();
+        let rendering_control_events = EventManager::new();
 
         Ok(Self {
             unique_id: Uuid::new_v4(),
@@ -103,6 +110,8 @@ impl MediaRenderer {
             av_transport,
             rendering_control,
             connection_manager,
+            av_transport_events,
+            rendering_control_events,
             media_backend,
         })
     }
@@ -173,6 +182,8 @@ impl Clone for MediaRenderer {
             av_transport: self.av_transport.clone(),
             rendering_control: self.rendering_control.clone(),
             connection_manager: self.connection_manager.clone(),
+            av_transport_events: self.av_transport_events.clone(),
+            rendering_control_events: self.rendering_control_events.clone(),
             media_backend: self.media_backend.clone(),
         }
     }
