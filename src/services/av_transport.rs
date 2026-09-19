@@ -97,6 +97,15 @@ impl AVTransport for AVTransportImpl {
     }
 
     async fn play(&self) -> Result<(), TransportError> {
+        // Play is idempotent per the AVTransport spec: control points routinely
+        // reissue Play (e.g. after a seek), and that isn't an invalid transition
+        // the way Pause-while-Stopped is.
+        {
+            let state = self.state.read().await;
+            if state.playback_state == TransportState::Playing {
+                return Ok(());
+            }
+        }
         self.transition_state(TransportState::Playing).await
     }
 

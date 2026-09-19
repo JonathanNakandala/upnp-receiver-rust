@@ -1,5 +1,6 @@
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::handlers::av_transport::AVTransportService;
+use crate::server::soap::handlers::rendering_control::RenderingControlService;
 use crate::server::soap::parser::parse_soap_action;
 use crate::server::soap::types::UPnPService;
 use crate::services::MediaRenderer;
@@ -21,10 +22,15 @@ impl UPnPServiceRouter {
     }
     pub fn router(self) -> Router<Arc<MediaRenderer>> {
         trace!("Creating router");
-        Router::new().route(
-            "/services/AVTransport/control",
-            post(Self::handle_av_transport),
-        )
+        Router::new()
+            .route(
+                "/services/AVTransport/control",
+                post(Self::handle_av_transport),
+            )
+            .route(
+                "/services/RenderingControl/control",
+                post(Self::handle_rendering_control),
+            )
     }
 
     #[instrument(skip(renderer, body))]
@@ -56,5 +62,14 @@ impl UPnPServiceRouter {
     ) -> Result<Response<Body>, SoapError> {
         trace!(body = body, headers = ?headers, "AV Transport Handler Activated");
         Self::handle_service::<AVTransportService>(State(renderer), headers, body).await
+    }
+
+    async fn handle_rendering_control(
+        State(renderer): State<Arc<MediaRenderer>>,
+        headers: HeaderMap,
+        body: String,
+    ) -> Result<Response<Body>, SoapError> {
+        trace!(body = body, headers = ?headers, "RenderingControl Handler Activated");
+        Self::handle_service::<RenderingControlService>(State(renderer), headers, body).await
     }
 }

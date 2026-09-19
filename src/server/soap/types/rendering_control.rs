@@ -1,3 +1,4 @@
+use crate::server::soap::types::soap_response::EmptyResponse;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -12,6 +13,7 @@ pub enum RenderingControlAction {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct SetVolumeRequest {
+    #[serde(rename = "InstanceID")]
     pub instance_id: u32,
     pub channel: String,
     pub desired_volume: u16,
@@ -20,6 +22,7 @@ pub struct SetVolumeRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct SetMuteRequest {
+    #[serde(rename = "InstanceID")]
     pub instance_id: u32,
     pub channel: String,
     pub desired_mute: bool,
@@ -28,6 +31,7 @@ pub struct SetMuteRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct GetVolumeRequest {
+    #[serde(rename = "InstanceID")]
     pub instance_id: u32,
     pub channel: String,
 }
@@ -35,6 +39,7 @@ pub struct GetVolumeRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct GetMuteRequest {
+    #[serde(rename = "InstanceID")]
     pub instance_id: u32,
     pub channel: String,
 }
@@ -50,4 +55,12 @@ pub struct GetVolumeResponse {
 #[serde(rename_all = "PascalCase")]
 pub struct GetMuteResponse {
     pub current_mute: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum RenderingControlResponse {
+    Empty(EmptyResponse),
+    Volume(GetVolumeResponse),
+    Mute(GetMuteResponse),
 }
