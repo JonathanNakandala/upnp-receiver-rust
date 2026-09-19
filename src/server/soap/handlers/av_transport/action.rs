@@ -2,7 +2,8 @@ use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::av_transport::response::GetPositionInfoResponse;
 use crate::server::soap::types::av_transport::{
     AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
-    PlayResponse, SetAVTransportURIResponse, StopResponse, TransportState, TransportStatus,
+    PlayResponse, SeekResponse, SetAVTransportURIResponse, StopResponse, TransportState,
+    TransportStatus,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -10,7 +11,7 @@ use std::sync::Arc;
 
 use crate::server::soap::types::av_transport::AVTransportAction;
 
-use super::utils::format_duration;
+use super::utils::{format_duration, parse_duration};
 
 impl UPnPAction for AVTransportAction {
     type Response = AVTransportResponse;
@@ -21,6 +22,7 @@ impl UPnPAction for AVTransportAction {
             Self::Play(_) => "Play",
             Self::Pause(_) => "Pause",
             Self::Stop(_) => "Stop",
+            Self::Seek(_) => "Seek",
             Self::GetTransportInfo(_) => "GetTransportInfo",
             Self::GetMediaInfo(_) => "GetMediaInfo",
             Self::GetPositionInfo(_) => "GetPositionInfo",
@@ -53,6 +55,24 @@ impl UPnPAction for AVTransportAction {
             Self::Stop(req) => {
                 renderer.av_transport.stop().await?;
                 Ok(AVTransportResponse::Stop(StopResponse {}))
+            }
+            Self::Seek(req) => {
+                if req.unit != "REL_TIME" && req.unit != "ABS_TIME" {
+                    return Err(SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                        "Unsupported seek unit: {}",
+                        req.unit
+                    ))));
+                }
+
+                let target = parse_duration(&req.target).ok_or_else(|| {
+                    SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                        "Invalid seek target: {}",
+                        req.target
+                    )))
+                })?;
+
+                renderer.av_transport.seek(target).await?;
+                Ok(AVTransportResponse::Seek(SeekResponse {}))
             }
             Self::GetTransportInfo(req) => {
                 let state = renderer.av_transport.get_state().await?;

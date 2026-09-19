@@ -43,6 +43,7 @@ pub trait AVTransport: Send + Sync {
     async fn play(&self) -> Result<(), TransportError>;
     async fn pause(&self) -> Result<(), TransportError>;
     async fn stop(&self) -> Result<(), TransportError>;
+    async fn seek(&self, position: Duration) -> Result<(), TransportError>;
     async fn get_position(&self) -> Result<Duration, TransportError>;
     async fn get_state(&self) -> Result<TransportState, TransportError>;
     async fn get_media_info(&self) -> Result<Option<MediaInfo>, TransportError>;
@@ -115,6 +116,23 @@ impl AVTransport for AVTransportImpl {
 
     async fn stop(&self) -> Result<(), TransportError> {
         self.transition_state(TransportState::Stopped).await
+    }
+
+    async fn seek(&self, position: Duration) -> Result<(), TransportError> {
+        let mut state = self.state.write().await;
+        let duration = state.media.as_ref().ok_or(TransportError::NoMedia)?.duration;
+
+        if let Some(duration) = duration {
+            if position > duration {
+                return Err(TransportError::SeekError {
+                    requested: position,
+                    duration: Some(duration),
+                });
+            }
+        }
+
+        state.position = position;
+        Ok(())
     }
 
     async fn get_position(&self) -> Result<Duration, TransportError> {

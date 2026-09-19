@@ -19,6 +19,10 @@ pub struct StopResponse {}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
+pub struct SeekResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct GetTransportInfoResponse {
     pub current_transport_state: TransportState,
     pub current_transport_status: TransportStatus,
@@ -58,6 +62,7 @@ pub enum AVTransportResponse {
     Play(PlayResponse),
     Pause(PauseResponse),
     Stop(StopResponse),
+    Seek(SeekResponse),
     TransportInfo(GetTransportInfoResponse),
     MediaInfo(GetMediaInfoResponse),
     PositionInfo(GetPositionInfoResponse),

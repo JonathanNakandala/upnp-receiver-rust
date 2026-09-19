@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::server::soap::types::av_transport::{
     AVTransportAction, GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest,
-    PauseRequest, PlayRequest, SetAVTransportURIRequest, StopRequest,
+    PauseRequest, PlayRequest, SeekRequest, SetAVTransportURIRequest, StopRequest,
 };
 use axum::http::Response;
 use axum::response::IntoResponse;
@@ -64,6 +64,10 @@ impl UPnPService for AVTransportService {
             "Stop" => {
                 let request = extract_and_parse_soap_body::<StopRequest>(content, action_name)?;
                 Ok(AVTransportAction::Stop(request))
+            }
+            "Seek" => {
+                let request = extract_and_parse_soap_body::<SeekRequest>(content, action_name)?;
+                Ok(AVTransportAction::Seek(request))
             }
             "GetTransportInfo" => {
                 let request =

@@ -54,6 +54,10 @@ impl AVTransport for MediaBackendAVTransport {
         self.backend.stop().await.map_err(Self::convert_error)
     }
 
+    async fn seek(&self, position: Duration) -> Result<(), TransportError> {
+        self.backend.seek(position).await.map_err(Self::convert_error)
+    }
+
     async fn get_position(&self) -> Result<Duration, TransportError> {
         self.backend
             .get_position()

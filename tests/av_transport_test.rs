@@ -131,6 +131,53 @@ async fn test_double_play() {
 }
 
 #[test(tokio::test)]
+async fn test_seek_without_media() {
+    let (_server, client) = setup().await;
+
+    let resp = client.seek("00:01:00").await;
+    assert_response(resp, 500).await; // No media loaded to seek within
+}
+
+#[test(tokio::test)]
+async fn test_seek_rejects_invalid_target() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_av_transport_uri("http://example.com/test.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client.seek("not-a-time").await;
+    assert_response(resp, 400).await;
+}
+
+#[test(tokio::test)]
+async fn test_seek_updates_position() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_av_transport_uri("http://example.com/test.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client.play().await;
+    assert_response(resp, 200).await;
+
+    let resp = client.seek("00:01:30").await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_position_info().await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 200, "Response body: {}", body);
+    assert!(
+        body.contains("<RelTime>00:01:30</RelTime>"),
+        "Seek did not update reported position: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
 async fn test_set_transport_uri_while_playing() {
     let (_server, client) = setup().await;
 

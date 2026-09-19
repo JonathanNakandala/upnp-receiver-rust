@@ -5,12 +5,12 @@ pub mod response;
 pub use enums::{TransportState, TransportStatus};
 pub use response::{
     AVTransportResponse, GetMediaInfoResponse, GetTransportInfoResponse, PauseResponse,
-    PlayResponse, SetAVTransportURIResponse, StopResponse,
+    PlayResponse, SeekResponse, SetAVTransportURIResponse, StopResponse,
 };
 
 pub use request::{
     GetMediaInfoRequest, GetPositionInfoRequest, GetTransportInfoRequest, PauseRequest,
-    PlayRequest, SetAVTransportURIRequest, StopRequest,
+    PlayRequest, SeekRequest, SetAVTransportURIRequest, StopRequest,
 };
 
 pub use action::AVTransportAction;

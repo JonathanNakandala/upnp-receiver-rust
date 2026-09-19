@@ -44,6 +44,19 @@ pub struct GetPositionInfoRequest {
     pub instance_id: u32,
 }
 
+// Struct for SeekRequest
+#[derive(Debug, Deserialize)]
+pub struct SeekRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+
+    #[serde(rename = "Unit")]
+    pub unit: String,
+
+    #[serde(rename = "Target")]
+    pub target: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SetAVTransportURIRequest {
     #[serde(rename = "InstanceID")]
