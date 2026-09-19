@@ -6,7 +6,7 @@ use crate::server::soap::types::connection_manager::{
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 impl UPnPAction for ConnectionManagerAction {
     type Response = ConnectionManagerResponse;
@@ -26,14 +26,18 @@ impl UPnPAction for ConnectionManagerAction {
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
         match self {
             Self::GetProtocolInfo(_) => {
-                info!("Handling GetProtocolInfo");
-                let infos = renderer.connection_manager.get_protocol_info().await?;
-                let sink = infos
-                    .iter()
-                    .map(|info| info.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",");
+                let result = renderer
+                    .connection_manager
+                    .get_protocol_info()
+                    .await
+                    .map(|infos| infos.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(","));
 
+                match &result {
+                    Ok(sink) => info!(sink = %sink, "Handling GetProtocolInfo"),
+                    Err(err) => warn!(error = %err, "Handling GetProtocolInfo"),
+                }
+
+                let sink = result?;
                 Ok(ConnectionManagerResponse::ProtocolInfo(
                     GetProtocolInfoResponse {
                         // We're a MediaRenderer: we only ever sink content, never source it.
@@ -43,34 +47,54 @@ impl UPnPAction for ConnectionManagerAction {
                 ))
             }
             Self::GetCurrentConnectionIDs(_) => {
-                info!("Handling GetCurrentConnectionIDs");
-                let ids = renderer
+                let result = renderer
                     .connection_manager
                     .get_current_connection_ids()
-                    .await?;
-                let connection_ids = ids
-                    .iter()
-                    .map(|id| id.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",");
+                    .await
+                    .map(|ids| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(","));
 
+                match &result {
+                    Ok(connection_ids) => {
+                        info!(connection_ids = %connection_ids, "Handling GetCurrentConnectionIDs")
+                    }
+                    Err(err) => warn!(error = %err, "Handling GetCurrentConnectionIDs"),
+                }
+
+                let connection_ids = result?;
                 Ok(ConnectionManagerResponse::ConnectionIDs(
                     GetCurrentConnectionIDsResponse { connection_ids },
                 ))
             }
             Self::GetCurrentConnectionInfo(req) => {
-                info!(connection_id = req.connection_id, "Handling GetCurrentConnectionInfo");
-                let info = renderer
-                    .connection_manager
-                    .get_current_connection_info(req.connection_id)
-                    .await?
-                    .ok_or_else(|| {
-                        SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
-                            "Unknown ConnectionID: {}",
-                            req.connection_id
-                        )))
-                    })?;
+                let result = async {
+                    renderer
+                        .connection_manager
+                        .get_current_connection_info(req.connection_id)
+                        .await?
+                        .ok_or_else(|| {
+                            SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                                "Unknown ConnectionID: {}",
+                                req.connection_id
+                            )))
+                        })
+                }
+                .await;
 
+                match &result {
+                    Ok(info) => info!(
+                        connection_id = req.connection_id,
+                        rcs_id = info.rcs_id,
+                        av_transport_id = info.av_transport_id,
+                        "Handling GetCurrentConnectionInfo"
+                    ),
+                    Err(err) => warn!(
+                        connection_id = req.connection_id,
+                        error = %err,
+                        "Handling GetCurrentConnectionInfo"
+                    ),
+                }
+
+                let info = result?;
                 Ok(ConnectionManagerResponse::ConnectionInfo(
                     GetCurrentConnectionInfoResponse {
                         rcs_id: info.rcs_id,

@@ -59,7 +59,7 @@ pub struct GetPositionInfoResponse {
     pub rel_count: i32,
     pub abs_count: i32,
 }
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum AVTransportResponse {
     SetAVTransportURI(SetAVTransportURIResponse),

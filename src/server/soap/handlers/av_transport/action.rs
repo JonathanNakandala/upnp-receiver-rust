@@ -9,7 +9,7 @@ use crate::server::soap::types::av_transport::{
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::server::soap::types::av_transport::AVTransportAction;
 
@@ -50,91 +50,176 @@ impl UPnPAction for AVTransportAction {
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
         match self {
             Self::SetAVTransportURI(req) => {
-                info!(instance_id = req.instance_id, uri = %req.current_uri, "Handling SetAVTransportURI");
-                renderer
+                let result = renderer
                     .av_transport
                     .set_transport_uri(req.current_uri.clone(), req.current_uri_metadata.clone())
-                    .await?;
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        uri = %req.current_uri,
+                        "Handling SetAVTransportURI"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        uri = %req.current_uri,
+                        error = %err,
+                        "Handling SetAVTransportURI"
+                    ),
+                }
+                result?;
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::SetAVTransportURI(
                     SetAVTransportURIResponse {},
                 ))
             }
             Self::SetNextAVTransportURI(req) => {
-                info!(
-                    instance_id = req.instance_id,
-                    uri = %req.next_uri,
-                    "Handling SetNextAVTransportURI"
-                );
-                renderer
+                let result = renderer
                     .av_transport
                     .set_next_transport_uri(req.next_uri.clone(), req.next_uri_metadata.clone())
-                    .await?;
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        uri = %req.next_uri,
+                        "Handling SetNextAVTransportURI"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        uri = %req.next_uri,
+                        error = %err,
+                        "Handling SetNextAVTransportURI"
+                    ),
+                }
+                result?;
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::SetNextAVTransportURI(
                     SetNextAVTransportURIResponse {},
                 ))
             }
             Self::Play(req) => {
-                info!(instance_id = req.instance_id, speed = %req.speed, "Handling Play");
+                let result = async {
+                    let speed = parse_play_speed(&req.speed).ok_or_else(|| {
+                        SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                            "Invalid play speed: {}",
+                            req.speed
+                        )))
+                    })?;
+                    if !SUPPORTED_PLAY_SPEEDS.contains(&speed) {
+                        return Err(SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                            "Unsupported play speed: {} (supported: 1/4, 1/2, 1, 2, 4)",
+                            req.speed
+                        ))));
+                    }
 
-                let speed = parse_play_speed(&req.speed).ok_or_else(|| {
-                    SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
-                        "Invalid play speed: {}",
-                        req.speed
-                    )))
-                })?;
-                if !SUPPORTED_PLAY_SPEEDS.contains(&speed) {
-                    return Err(SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
-                        "Unsupported play speed: {} (supported: 1/4, 1/2, 1, 2, 4)",
-                        req.speed
-                    ))));
+                    // play() alone is a no-op if we're already Playing (e.g. a
+                    // control point scrubbing speed mid-playback), so the speed
+                    // change still needs to happen unconditionally after it.
+                    renderer.av_transport.play().await?;
+                    renderer.av_transport.set_play_speed(speed).await?;
+                    Ok(())
+                }
+                .await;
+
+                match &result {
+                    Ok(_) => info!(instance_id = req.instance_id, speed = %req.speed, "Handling Play"),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        speed = %req.speed,
+                        error = %err,
+                        "Handling Play"
+                    ),
                 }
 
-                // play() alone is a no-op if we're already Playing (e.g. a
-                // control point scrubbing speed mid-playback), so the speed
-                // change still needs to happen unconditionally after it.
-                renderer.av_transport.play().await?;
-                renderer.av_transport.set_play_speed(speed).await?;
+                result?;
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::Play(PlayResponse {}))
             }
             Self::Pause(req) => {
-                info!(instance_id = req.instance_id, "Handling Pause");
-                renderer.av_transport.pause().await?;
+                let result = renderer.av_transport.pause().await;
+                match &result {
+                    Ok(_) => info!(instance_id = req.instance_id, "Handling Pause"),
+                    Err(err) => warn!(instance_id = req.instance_id, error = %err, "Handling Pause"),
+                }
+                result?;
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::Pause(PauseResponse {}))
             }
             Self::Stop(req) => {
-                info!(instance_id = req.instance_id, "Handling Stop");
-                renderer.av_transport.stop().await?;
+                let result = renderer.av_transport.stop().await;
+                match &result {
+                    Ok(_) => info!(instance_id = req.instance_id, "Handling Stop"),
+                    Err(err) => warn!(instance_id = req.instance_id, error = %err, "Handling Stop"),
+                }
+                result?;
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 Ok(AVTransportResponse::Stop(StopResponse {}))
             }
             Self::Seek(req) => {
-                info!(instance_id = req.instance_id, unit = %req.unit, target = %req.target, "Handling Seek");
-                if req.unit != "REL_TIME" && req.unit != "ABS_TIME" {
-                    return Err(SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
-                        "Unsupported seek unit: {}",
-                        req.unit
-                    ))));
+                let result = async {
+                    if req.unit != "REL_TIME" && req.unit != "ABS_TIME" {
+                        return Err(SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                            "Unsupported seek unit: {}",
+                            req.unit
+                        ))));
+                    }
+
+                    let target = parse_duration(&req.target).ok_or_else(|| {
+                        SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
+                            "Invalid seek target: {}",
+                            req.target
+                        )))
+                    })?;
+
+                    renderer.av_transport.seek(target).await?;
+                    Ok(())
+                }
+                .await;
+
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        unit = %req.unit,
+                        target = %req.target,
+                        "Handling Seek"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        unit = %req.unit,
+                        target = %req.target,
+                        error = %err,
+                        "Handling Seek"
+                    ),
                 }
 
-                let target = parse_duration(&req.target).ok_or_else(|| {
-                    SoapError::Soap(SoapProtocolError::InvalidRequest(format!(
-                        "Invalid seek target: {}",
-                        req.target
-                    )))
-                })?;
-
-                renderer.av_transport.seek(target).await?;
+                result?;
                 Ok(AVTransportResponse::Seek(SeekResponse {}))
             }
             Self::GetTransportInfo(req) => {
-                info!(instance_id = req.instance_id, "Handling GetTransportInfo");
-                let state = renderer.av_transport.get_state().await?;
-                let status = renderer.av_transport.get_status().await?;
-                let speed = renderer.av_transport.get_play_speed().await?;
+                let result: Result<_, SoapError> = async {
+                    let state = renderer.av_transport.get_state().await?;
+                    let status = renderer.av_transport.get_status().await?;
+                    let speed = renderer.av_transport.get_play_speed().await?;
+                    Ok((state, status, speed))
+                }
+                .await;
+
+                match &result {
+                    Ok((state, status, speed)) => info!(
+                        instance_id = req.instance_id,
+                        current_transport_state = ?state,
+                        current_transport_status = ?status,
+                        current_speed = %format_play_speed(*speed),
+                        "Handling GetTransportInfo"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetTransportInfo"
+                    ),
+                }
+
+                let (state, status, speed) = result?;
                 Ok(AVTransportResponse::TransportInfo(
                     GetTransportInfoResponse {
                         current_transport_state: state,
@@ -145,8 +230,26 @@ impl UPnPAction for AVTransportAction {
             }
 
             Self::GetMediaInfo(req) => {
-                info!(instance_id = req.instance_id, "Handling GetMediaInfo");
-                if let Some(media) = renderer.av_transport.get_media_info().await? {
+                let result = renderer.av_transport.get_media_info().await;
+                match &result {
+                    Ok(Some(media)) => info!(
+                        instance_id = req.instance_id,
+                        current_uri = %media.uri,
+                        "Handling GetMediaInfo"
+                    ),
+                    Ok(None) => info!(
+                        instance_id = req.instance_id,
+                        current_uri = "",
+                        "Handling GetMediaInfo"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetMediaInfo"
+                    ),
+                }
+
+                if let Some(media) = result? {
                     Ok(AVTransportResponse::MediaInfo(GetMediaInfoResponse {
                         nr_tracks: 1,
                         media_duration: media
@@ -177,8 +280,27 @@ impl UPnPAction for AVTransportAction {
             }
 
             Self::GetPositionInfo(req) => {
-                info!(instance_id = req.instance_id, "Handling GetPositionInfo");
-                if let Some(position) = renderer.av_transport.get_position_info().await? {
+                let result = renderer.av_transport.get_position_info().await;
+                match &result {
+                    Ok(Some(position)) => info!(
+                        instance_id = req.instance_id,
+                        track_uri = %position.uri,
+                        position = ?position.position,
+                        "Handling GetPositionInfo"
+                    ),
+                    Ok(None) => info!(
+                        instance_id = req.instance_id,
+                        track_uri = "",
+                        "Handling GetPositionInfo"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetPositionInfo"
+                    ),
+                }
+
+                if let Some(position) = result? {
                     // AbsTime is position since the start of the overall
                     // AVTransport stream, RelTime since the start of the
                     // current track — distinct only when a playlist can

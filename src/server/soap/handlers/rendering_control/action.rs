@@ -7,7 +7,7 @@ use crate::server::soap::types::rendering_control::{
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Publishes a `LastChange` NOTIFY reflecting current volume/mute right
 /// after a state-changing action succeeds, so subscribed control points
@@ -41,40 +41,88 @@ impl UPnPAction for RenderingControlAction {
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
         match self {
             Self::SetVolume(req) => {
-                info!(
-                    instance_id = req.instance_id,
-                    channel = %req.channel,
-                    desired_volume = req.desired_volume,
-                    "Handling SetVolume"
-                );
-                renderer
+                let result = renderer
                     .rendering_control
                     .set_volume(req.desired_volume)
-                    .await?;
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        desired_volume = req.desired_volume,
+                        "Handling SetVolume"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        desired_volume = req.desired_volume,
+                        error = %err,
+                        "Handling SetVolume"
+                    ),
+                }
+                result?;
                 publish_rendering_state(&renderer, &renderer.rendering_control_events).await;
                 Ok(RenderingControlResponse::SetVolume(SetVolumeResponse {}))
             }
             Self::SetMute(req) => {
-                info!(
-                    instance_id = req.instance_id,
-                    channel = %req.channel,
-                    desired_mute = req.desired_mute,
-                    "Handling SetMute"
-                );
-                renderer.rendering_control.set_mute(req.desired_mute).await?;
+                let result = renderer.rendering_control.set_mute(req.desired_mute).await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        desired_mute = req.desired_mute,
+                        "Handling SetMute"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        desired_mute = req.desired_mute,
+                        error = %err,
+                        "Handling SetMute"
+                    ),
+                }
+                result?;
                 publish_rendering_state(&renderer, &renderer.rendering_control_events).await;
                 Ok(RenderingControlResponse::SetMute(SetMuteResponse {}))
             }
             Self::GetVolume(req) => {
-                info!(instance_id = req.instance_id, channel = %req.channel, "Handling GetVolume");
-                let current_volume = renderer.rendering_control.get_volume().await?;
+                let result = renderer.rendering_control.get_volume().await;
+                match &result {
+                    Ok(current_volume) => info!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        current_volume,
+                        "Handling GetVolume"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        error = %err,
+                        "Handling GetVolume"
+                    ),
+                }
+                let current_volume = result?;
                 Ok(RenderingControlResponse::Volume(GetVolumeResponse {
                     current_volume,
                 }))
             }
             Self::GetMute(req) => {
-                info!(instance_id = req.instance_id, channel = %req.channel, "Handling GetMute");
-                let current_mute = renderer.rendering_control.get_mute().await?;
+                let result = renderer.rendering_control.get_mute().await;
+                match &result {
+                    Ok(current_mute) => info!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        current_mute,
+                        "Handling GetMute"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        error = %err,
+                        "Handling GetMute"
+                    ),
+                }
+                let current_mute = result?;
                 Ok(RenderingControlResponse::Mute(GetMuteResponse {
                     current_mute,
                 }))
