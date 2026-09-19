@@ -19,18 +19,29 @@ use std::time::Duration;
 use crate::backend::{MediaBackend, MediaBackendError};
 use crate::server::soap::types::av_transport::TransportState;
 
-/// What we know about the currently loaded media that GStreamer itself
-/// doesn't track for us (it only knows the `uri` property it was given, and
-/// nothing about UPnP DIDL-Lite metadata at all).
-#[derive(Default)]
-struct LoadedMedia {
+/// What we track ourselves rather than asking GStreamer, either because it
+/// doesn't know it at all (UPnP DIDL-Lite metadata) or because asking it
+/// would mean reading a value that lags what we just told it to do (the
+/// transport state — see [`GStreamerBackend::playbin`]).
+struct PlayerState {
     uri: Option<String>,
     metadata: Option<String>,
+    transport_state: TransportState,
+}
+
+impl Default for PlayerState {
+    fn default() -> Self {
+        Self {
+            uri: None,
+            metadata: None,
+            transport_state: TransportState::NoMediaPresent,
+        }
+    }
 }
 
 pub struct GStreamerBackend {
     playbin: gst::Element,
-    loaded: Mutex<LoadedMedia>,
+    state: Mutex<PlayerState>,
 }
 
 impl GStreamerBackend {
@@ -46,7 +57,7 @@ impl GStreamerBackend {
 
         Ok(Self {
             playbin,
-            loaded: Mutex::new(LoadedMedia::default()),
+            state: Mutex::new(PlayerState::default()),
         })
     }
 }
@@ -86,36 +97,32 @@ impl MediaBackend for GStreamerBackend {
 
         self.playbin.set_property("uri", uri);
 
-        *self.loaded.lock().unwrap() = LoadedMedia {
-            uri: Some(uri.to_string()),
-            metadata,
-        };
+        {
+            let mut state = self.state.lock().unwrap();
+            state.uri = Some(uri.to_string());
+            state.metadata = metadata;
+            state.transport_state = TransportState::Stopped;
+        }
 
-        // Pre-roll into Paused so playback can start immediately once Play
-        // is called, without waiting on caps negotiation/buffering then.
-        // set_state returns as soon as the change is *requested*, not once
-        // it's actually complete (reading headers, negotiating caps, etc.
-        // all happen async in GStreamer's own threads) — block (off the
-        // async executor) until it actually finishes, so callers don't race
-        // it.
+        // Kick off preroll into Paused so playback can start immediately
+        // once Play is called — fire-and-forget. `set_state` only requests
+        // the transition; the actual work (caps negotiation, etc.) happens
+        // asynchronously on GStreamer's own threads afterwards and can take
+        // a little while. We deliberately don't block this call on it: the
+        // `transport_state` we just set above (not a query back to
+        // GStreamer) is what get_playback_state()/GetTransportInfo reports,
+        // so callers see a prompt, consistent answer regardless of how far
+        // GStreamer has actually gotten.
         //
-        // Note duration specifically is not guaranteed to be known at this
-        // point even once PAUSED is reached: for formats without an
-        // explicit duration header (plain MP3 without a Xing/VBRI frame,
-        // for instance), GStreamer only resolves it once bytes are actually
-        // flowing, i.e. some time after Play. get_duration() reflects that
-        // honestly by returning None until GStreamer itself knows.
+        // Note duration specifically is not guaranteed to be known even
+        // once PAUSED is reached: for formats without an explicit duration
+        // header (plain MP3 without a Xing/VBRI frame, for instance),
+        // GStreamer only resolves it once bytes are actually flowing, i.e.
+        // some time after Play. get_duration() reflects that honestly by
+        // returning None until GStreamer itself knows.
         self.playbin
             .set_state(gst::State::Paused)
             .map_err(state_change_error)?;
-
-        let playbin = self.playbin.clone();
-        tokio::task::spawn_blocking(move || {
-            let (result, _, _) = playbin.state(gst::ClockTime::from_seconds(5));
-            result.map_err(state_change_error)
-        })
-        .await
-        .map_err(|e| MediaBackendError::GStreamer(format!("Preroll wait panicked: {}", e)))??;
 
         Ok(())
     }
@@ -124,6 +131,7 @@ impl MediaBackend for GStreamerBackend {
         self.playbin
             .set_state(gst::State::Playing)
             .map_err(state_change_error)?;
+        self.state.lock().unwrap().transport_state = TransportState::Playing;
         Ok(())
     }
 
@@ -131,6 +139,7 @@ impl MediaBackend for GStreamerBackend {
         self.playbin
             .set_state(gst::State::Paused)
             .map_err(state_change_error)?;
+        self.state.lock().unwrap().transport_state = TransportState::PausedPlayback;
         Ok(())
     }
 
@@ -138,6 +147,12 @@ impl MediaBackend for GStreamerBackend {
         self.playbin
             .set_state(gst::State::Ready)
             .map_err(state_change_error)?;
+        let mut state = self.state.lock().unwrap();
+        state.transport_state = if state.uri.is_some() {
+            TransportState::Stopped
+        } else {
+            TransportState::NoMediaPresent
+        };
         Ok(())
     }
 
@@ -164,17 +179,12 @@ impl MediaBackend for GStreamerBackend {
     }
 
     async fn get_playback_state(&self) -> Result<TransportState, MediaBackendError> {
-        // Zero timeout: report the last state GStreamer told us about rather
-        // than blocking this call on an in-flight async state change.
-        let (_, current, _) = self.playbin.state(gst::ClockTime::ZERO);
-        let has_media = self.loaded.lock().unwrap().uri.is_some();
-
-        Ok(match (current, has_media) {
-            (gst::State::Playing, _) => TransportState::Playing,
-            (gst::State::Paused, _) => TransportState::PausedPlayback,
-            (_, true) => TransportState::Stopped,
-            (_, false) => TransportState::NoMediaPresent,
-        })
+        // The state we set the moment each command was accepted, not a
+        // query back to GStreamer — its own internal state lags behind
+        // whatever we last told it to do (see the comments in load_media,
+        // play, pause and stop), so querying it here would report stale
+        // values for a little while after every transition.
+        Ok(self.state.lock().unwrap().transport_state)
     }
 
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {
@@ -198,11 +208,11 @@ impl MediaBackend for GStreamerBackend {
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {
-        Ok(self.loaded.lock().unwrap().uri.clone())
+        Ok(self.state.lock().unwrap().uri.clone())
     }
 
     async fn get_metadata(&self) -> Result<Option<String>, MediaBackendError> {
-        Ok(self.loaded.lock().unwrap().metadata.clone())
+        Ok(self.state.lock().unwrap().metadata.clone())
     }
 }
 
