@@ -7,6 +7,7 @@ pub use soap_client::SoapClient;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::oneshot;
+use upnp_receiver::server::ClientLogger;
 use upnp_receiver::services::MediaRenderer;
 use upnp_receiver::{HttpServer, MediaRendererConfig};
 pub struct TestServer {
@@ -16,6 +17,17 @@ pub struct TestServer {
 
 impl TestServer {
     pub async fn new() -> Self {
+        Self::start(None).await
+    }
+
+    /// Like [`Self::new`], but with `--log-clients`-style logging enabled —
+    /// for tests that need to verify what actually gets written to a
+    /// client's log file (e.g. outbound GENA NOTIFYs).
+    pub async fn new_with_client_logger(logger: Arc<ClientLogger>) -> Self {
+        Self::start(Some(logger)).await
+    }
+
+    async fn start(client_logger: Option<Arc<ClientLogger>>) -> Self {
         tracing::debug!("Creating new test server");
 
         let renderer = MediaRenderer::new(
@@ -28,7 +40,8 @@ impl TestServer {
 
         tracing::debug!("Created media renderer");
 
-        let http_server = HttpServer::new(Arc::new(renderer));
+        let http_server =
+            HttpServer::new(Arc::new(renderer)).with_client_logger(client_logger);
         let bind_addr = SocketAddr::from(([127, 0, 0, 1], 0));
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
@@ -38,16 +51,24 @@ impl TestServer {
 
         tracing::info!(address = %addr, "Server bound to address");
 
-        // Let the HttpServer create its own Router with proper routes
+        // Let the HttpServer create its own Router with proper routes.
+        // `into_make_service_with_connect_info` is needed to match production
+        // (src/server/http_server.rs) — handlers that extract `ConnectInfo`
+        // (e.g. the GENA SUBSCRIBE endpoint) fail without it.
         tokio::spawn(async move {
             tracing::info!("Starting server");
-            axum::serve(listener, http_server.router())
-                .with_graceful_shutdown(async {
-                    shutdown_rx.await.ok();
-                    tracing::info!("Server shutting down");
-                })
-                .await
-                .unwrap();
+            axum::serve(
+                listener,
+                http_server
+                    .router()
+                    .into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async {
+                shutdown_rx.await.ok();
+                tracing::info!("Server shutting down");
+            })
+            .await
+            .unwrap();
         });
 
         Self {

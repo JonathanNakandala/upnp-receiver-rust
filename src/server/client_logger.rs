@@ -15,6 +15,10 @@ pub struct ClientLogEntry {
     pub method: String,
     pub path: String,
     pub soap_action: Option<String>,
+    /// GENA subscription headers (CALLBACK, NT, SID, TIMEOUT, ...) present on
+    /// a SUBSCRIBE/UNSUBSCRIBE request — empty for ordinary SOAP calls, which
+    /// carry everything interesting in the body instead.
+    pub gena_headers: Vec<(String, String)>,
     pub request_body: String,
     pub response_status: u16,
     pub response_body: String,
@@ -75,12 +79,19 @@ async fn append(path: &Path, content: &str) -> std::io::Result<()> {
 }
 
 fn format_block(entry: &ClientLogEntry) -> String {
+    let gena_headers = entry
+        .gena_headers
+        .iter()
+        .map(|(name, value)| format!("{}: {}\n", name, value))
+        .collect::<String>();
+
     format!(
         "=== {} ===\n\
          Remote: {}\n\
          User-Agent: {}\n\
          Request: {} {}\n\
          SOAPAction: {}\n\
+         {}\
          \n\
          {}\n\
          \n\
@@ -93,6 +104,7 @@ fn format_block(entry: &ClientLogEntry) -> String {
         entry.method,
         entry.path,
         entry.soap_action.as_deref().unwrap_or("(none)"),
+        gena_headers,
         entry.request_body.trim(),
         entry.response_status,
         entry.response_body.trim(),
@@ -145,6 +157,7 @@ mod tests {
             method: "POST".to_string(),
             path: "/services/AVTransport/control".to_string(),
             soap_action: None,
+            gena_headers: Vec::new(),
             request_body: String::new(),
             response_status: 200,
             response_body: String::new(),

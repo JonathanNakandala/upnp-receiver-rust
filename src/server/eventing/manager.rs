@@ -11,6 +11,8 @@ use thiserror::Error;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::server::client_logger::{ClientLogEntry, ClientLogger};
+
 const DEFAULT_TIMEOUT_SECS: u64 = 1800;
 const MIN_TIMEOUT_SECS: u64 = 30;
 const MAX_TIMEOUT_SECS: u64 = 1800;
@@ -19,6 +21,10 @@ struct Subscriber {
     callback_urls: Vec<String>,
     next_seq: u32,
     expires_at: Instant,
+    // Kept only so outbound NOTIFYs can be filed under the same per-client
+    // log directory as the SUBSCRIBE that created them.
+    remote_addr: String,
+    user_agent: Option<String>,
 }
 
 /// What a caller needs right after accepting a new subscription: the SID and
@@ -41,6 +47,7 @@ pub enum SubscribeError {
 pub struct EventManager {
     subscribers: Mutex<HashMap<String, Subscriber>>,
     http: reqwest::Client,
+    client_logger: Mutex<Option<Arc<ClientLogger>>>,
 }
 
 impl EventManager {
@@ -48,7 +55,17 @@ impl EventManager {
         Arc::new(Self {
             subscribers: Mutex::new(HashMap::new()),
             http: reqwest::Client::new(),
+            client_logger: Mutex::new(None),
         })
+    }
+
+    /// Enables logging every outbound NOTIFY under `--log-clients`, filed
+    /// under the same client directory as the SUBSCRIBE that created each
+    /// subscription. Set once, after the renderer (and so this manager)
+    /// already exists but before the logger's presence is known — see
+    /// `HttpServer::with_client_logger`.
+    pub fn set_client_logger(&self, logger: Arc<ClientLogger>) {
+        *self.client_logger.lock().unwrap() = Some(logger);
     }
 
     /// A first-time SUBSCRIBE (has a CALLBACK header, no SID).
@@ -56,6 +73,8 @@ impl EventManager {
         &self,
         callback_header: Option<&str>,
         timeout_header: Option<&str>,
+        remote_addr: String,
+        user_agent: Option<String>,
     ) -> Result<NewSubscription, SubscribeError> {
         let callback_urls = parse_callback_urls(callback_header.unwrap_or(""));
         if callback_urls.is_empty() {
@@ -73,6 +92,8 @@ impl EventManager {
                 // this returns — the next broadcast from here starts at 1.
                 next_seq: 1,
                 expires_at: Instant::now() + timeout,
+                remote_addr,
+                user_agent,
             },
         );
 
@@ -117,7 +138,7 @@ impl EventManager {
         let this = Arc::clone(self);
         let sid = sub.sid.clone();
         let urls = sub.callback_urls.clone();
-        tokio::spawn(async move { this.deliver(&urls, &sid, 0, &body).await });
+        tokio::spawn(async move { this.deliver(&sid, &urls, 0, &body).await });
     }
 
     /// Sends `body` to every current subscriber, each with its own next SEQ,
@@ -139,24 +160,56 @@ impl EventManager {
         for (sid, urls, seq) in targets {
             let this = Arc::clone(self);
             let body = body.clone();
-            tokio::spawn(async move { this.deliver(&urls, &sid, seq, &body).await });
+            tokio::spawn(async move { this.deliver(&sid, &urls, seq, &body).await });
         }
     }
 
-    /// Tries each callback URL in turn until one accepts the NOTIFY.
-    async fn deliver(&self, callback_urls: &[String], sid: &str, seq: u32, body: &str) {
+    /// Tries each callback URL in turn until one accepts the NOTIFY, logging
+    /// every attempt (success or failure) under `--log-clients` if enabled.
+    async fn deliver(&self, sid: &str, callback_urls: &[String], seq: u32, body: &str) {
+        let (remote_addr, user_agent) = self.subscriber_identity(sid);
+
         for url in callback_urls {
-            match self.send_one(url, sid, seq, body).await {
-                Ok(()) => return,
-                Err(e) => warn!(url, sid, seq, error = %e, "NOTIFY delivery failed"),
+            let (status, response_body) = self.send_one(url, sid, seq, body).await;
+            self.log_notify(
+                &remote_addr,
+                user_agent.as_deref(),
+                url,
+                sid,
+                seq,
+                body,
+                status,
+                &response_body,
+            )
+            .await;
+
+            match status {
+                Some(s) if (200..300).contains(&s) => return,
+                _ => warn!(url, sid, seq, status = ?status, "NOTIFY delivery failed"),
             }
         }
         warn!(sid, seq, "NOTIFY delivery failed for every callback URL");
     }
 
-    async fn send_one(&self, url: &str, sid: &str, seq: u32, body: &str) -> Result<(), String> {
-        let method = reqwest::Method::from_bytes(b"NOTIFY").map_err(|e| e.to_string())?;
-        let response = self
+    fn subscriber_identity(&self, sid: &str) -> (String, Option<String>) {
+        self.subscribers
+            .lock()
+            .unwrap()
+            .get(sid)
+            .map(|s| (s.remote_addr.clone(), s.user_agent.clone()))
+            .unwrap_or_else(|| ("unknown".to_string(), None))
+    }
+
+    /// Returns `(status, response body)` — `status` is `None` when the
+    /// request itself couldn't even be sent (connection refused, etc.),
+    /// in which case `response body` carries the error message instead.
+    async fn send_one(&self, url: &str, sid: &str, seq: u32, body: &str) -> (Option<u16>, String) {
+        let method = match reqwest::Method::from_bytes(b"NOTIFY") {
+            Ok(m) => m,
+            Err(e) => return (None, e.to_string()),
+        };
+
+        match self
             .http
             .request(method, url)
             .header("CONTENT-TYPE", "text/xml; charset=\"utf-8\"")
@@ -167,13 +220,46 @@ impl EventManager {
             .body(body.to_string())
             .send()
             .await
-            .map_err(|e| e.to_string())?;
-
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            Err(format!("subscriber responded with {}", response.status()))
+        {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let text = response.text().await.unwrap_or_default();
+                (Some(status), text)
+            }
+            Err(e) => (None, e.to_string()),
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn log_notify(
+        &self,
+        remote_addr: &str,
+        user_agent: Option<&str>,
+        url: &str,
+        sid: &str,
+        seq: u32,
+        body: &str,
+        status: Option<u16>,
+        response_body: &str,
+    ) {
+        let logger = self.client_logger.lock().unwrap().clone();
+        let Some(logger) = logger else {
+            return;
+        };
+
+        logger
+            .log(&ClientLogEntry {
+                remote_addr: remote_addr.to_string(),
+                user_agent: user_agent.map(str::to_string),
+                method: "NOTIFY".to_string(),
+                path: url.to_string(),
+                soap_action: None,
+                gena_headers: vec![("SID".to_string(), sid.to_string()), ("SEQ".to_string(), seq.to_string())],
+                request_body: body.to_string(),
+                response_status: status.unwrap_or(0),
+                response_body: response_body.to_string(),
+            })
+            .await;
     }
 }
 
@@ -220,15 +306,23 @@ mod tests {
         EventManager::new()
     }
 
+    fn subscribe(
+        mgr: &EventManager,
+        callback: Option<&str>,
+        timeout: Option<&str>,
+    ) -> Result<NewSubscription, SubscribeError> {
+        mgr.subscribe(callback, timeout, "127.0.0.1:1234".to_string(), None)
+    }
+
     #[test]
     fn subscribe_requires_a_callback_url() {
         let mgr = manager();
         assert!(matches!(
-            mgr.subscribe(None, None),
+            subscribe(&mgr, None, None),
             Err(SubscribeError::MissingCallback)
         ));
         assert!(matches!(
-            mgr.subscribe(Some("not a url"), None),
+            subscribe(&mgr, Some("not a url"), None),
             Err(SubscribeError::MissingCallback)
         ));
     }
@@ -236,9 +330,7 @@ mod tests {
     #[test]
     fn subscribe_parses_callback_urls_and_grants_a_sid() {
         let mgr = manager();
-        let sub = mgr
-            .subscribe(Some("<http://192.168.0.5:1234/cb>"), None)
-            .unwrap();
+        let sub = subscribe(&mgr, Some("<http://192.168.0.5:1234/cb>"), None).unwrap();
 
         assert!(sub.sid.starts_with("uuid:"));
         assert_eq!(sub.callback_urls, vec!["http://192.168.0.5:1234/cb"]);
@@ -249,43 +341,29 @@ mod tests {
     #[test]
     fn subscribe_parses_multiple_callback_urls() {
         let mgr = manager();
-        let sub = mgr
-            .subscribe(
-                Some("<http://host:1/a><http://host:2/b>"),
-                None,
-            )
-            .unwrap();
+        let sub = subscribe(&mgr, Some("<http://host:1/a><http://host:2/b>"), None).unwrap();
 
-        assert_eq!(
-            sub.callback_urls,
-            vec!["http://host:1/a", "http://host:2/b"]
-        );
+        assert_eq!(sub.callback_urls, vec!["http://host:1/a", "http://host:2/b"]);
     }
 
     #[test]
     fn timeout_header_is_honored_within_bounds() {
         let mgr = manager();
-        let sub = mgr
-            .subscribe(Some("<http://host/cb>"), Some("Second-60"))
-            .unwrap();
+        let sub = subscribe(&mgr, Some("<http://host/cb>"), Some("Second-60")).unwrap();
         assert_eq!(sub.timeout, Duration::from_secs(60));
     }
 
     #[test]
     fn timeout_header_is_clamped_to_the_max() {
         let mgr = manager();
-        let sub = mgr
-            .subscribe(Some("<http://host/cb>"), Some("Second-999999"))
-            .unwrap();
+        let sub = subscribe(&mgr, Some("<http://host/cb>"), Some("Second-999999")).unwrap();
         assert_eq!(sub.timeout, Duration::from_secs(MAX_TIMEOUT_SECS));
     }
 
     #[test]
     fn infinite_timeout_falls_back_to_default() {
         let mgr = manager();
-        let sub = mgr
-            .subscribe(Some("<http://host/cb>"), Some("Second-infinite"))
-            .unwrap();
+        let sub = subscribe(&mgr, Some("<http://host/cb>"), Some("Second-infinite")).unwrap();
         assert_eq!(sub.timeout, Duration::from_secs(DEFAULT_TIMEOUT_SECS));
     }
 
@@ -301,7 +379,7 @@ mod tests {
     #[test]
     fn renew_extends_an_existing_subscription() {
         let mgr = manager();
-        let sub = mgr.subscribe(Some("<http://host/cb>"), None).unwrap();
+        let sub = subscribe(&mgr, Some("<http://host/cb>"), None).unwrap();
         let timeout = mgr.renew(&sub.sid, Some("Second-120")).unwrap();
         assert_eq!(timeout, Duration::from_secs(120));
         assert_eq!(mgr.subscriber_count(), 1);
@@ -310,7 +388,7 @@ mod tests {
     #[test]
     fn unsubscribe_removes_the_subscription() {
         let mgr = manager();
-        let sub = mgr.subscribe(Some("<http://host/cb>"), None).unwrap();
+        let sub = subscribe(&mgr, Some("<http://host/cb>"), None).unwrap();
         assert_eq!(mgr.subscriber_count(), 1);
 
         mgr.unsubscribe(&sub.sid).unwrap();

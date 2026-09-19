@@ -3,11 +3,12 @@
 //! `any()` and dispatched here by inspecting the raw method instead of
 //! routing on it.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::State;
-use axum::http::{HeaderMap, Method, Response, StatusCode};
+use axum::extract::{ConnectInfo, State};
+use axum::http::{header, HeaderMap, Method, Response, StatusCode};
 use axum::response::IntoResponse;
 use tracing::info;
 
@@ -18,6 +19,7 @@ use crate::services::MediaRenderer;
 
 pub async fn handle_av_transport_events(
     State(renderer): State<Arc<MediaRenderer>>,
+    ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
     method: Method,
     headers: HeaderMap,
 ) -> Response<Body> {
@@ -34,11 +36,12 @@ pub async fn handle_av_transport_events(
         }
     };
 
-    dispatch(&manager, &method, &headers, initial_body).await
+    dispatch(&manager, &method, &headers, remote_addr, initial_body).await
 }
 
 pub async fn handle_rendering_control_events(
     State(renderer): State<Arc<MediaRenderer>>,
+    ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
     method: Method,
     headers: HeaderMap,
 ) -> Response<Body> {
@@ -56,7 +59,7 @@ pub async fn handle_rendering_control_events(
         }
     };
 
-    dispatch(&manager, &method, &headers, initial_body).await
+    dispatch(&manager, &method, &headers, remote_addr, initial_body).await
 }
 
 /// Shared SUBSCRIBE/UNSUBSCRIBE logic, generic over which service's
@@ -65,6 +68,7 @@ async fn dispatch(
     manager: &Arc<EventManager>,
     method: &Method,
     headers: &HeaderMap,
+    remote_addr: SocketAddr,
     initial_body: impl std::future::Future<Output = String>,
 ) -> Response<Body> {
     let sid = headers
@@ -73,7 +77,9 @@ async fn dispatch(
         .map(str::to_string);
 
     match (method.as_str(), sid) {
-        ("SUBSCRIBE", None) => subscribe_new(manager, headers, initial_body.await).await,
+        ("SUBSCRIBE", None) => {
+            subscribe_new(manager, headers, remote_addr, initial_body.await).await
+        }
         ("SUBSCRIBE", Some(sid)) => renew(manager, headers, &sid),
         ("UNSUBSCRIBE", Some(sid)) => unsubscribe(manager, &sid),
         ("UNSUBSCRIBE", None) => {
@@ -86,12 +92,17 @@ async fn dispatch(
 async fn subscribe_new(
     manager: &Arc<EventManager>,
     headers: &HeaderMap,
+    remote_addr: SocketAddr,
     initial_body: String,
 ) -> Response<Body> {
     let callback = headers.get("CALLBACK").and_then(|v| v.to_str().ok());
     let timeout_header = headers.get("TIMEOUT").and_then(|v| v.to_str().ok());
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
 
-    match manager.subscribe(callback, timeout_header) {
+    match manager.subscribe(callback, timeout_header, remote_addr.to_string(), user_agent) {
         Ok(sub) => {
             info!(sid = %sub.sid, callbacks = ?sub.callback_urls, "New GENA subscription");
             manager.notify_initial(&sub, initial_body);

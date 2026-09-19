@@ -87,8 +87,18 @@ impl HttpServer {
         }
     }
 
-    /// Enables per-client SOAP request/response logging (see `--log-clients`).
+    /// Enables per-client SOAP request/response logging (see `--log-clients`),
+    /// including outbound GENA NOTIFY deliveries, filed under the same
+    /// per-client directory as the SUBSCRIBE that created each subscription.
     pub fn with_client_logger(mut self, logger: Option<Arc<ClientLogger>>) -> Self {
+        if let Some(logger) = &logger {
+            self.renderer
+                .av_transport_events
+                .set_client_logger(Arc::clone(logger));
+            self.renderer
+                .rendering_control_events
+                .set_client_logger(Arc::clone(logger));
+        }
         self.client_logger = logger;
         self
     }
@@ -197,6 +207,11 @@ impl HttpServer {
         }
     }
 }
+/// Headers worth pulling out for GENA (SUBSCRIBE/UNSUBSCRIBE) requests —
+/// everything interesting on those lives in headers, not the (usually empty)
+/// body.
+const GENA_HEADERS: &[&str] = &["CALLBACK", "NT", "SID", "TIMEOUT"];
+
 /// Metadata pulled off a request before its body is consumed, so it can be
 /// reattached to the log entry once the response comes back.
 struct RequestMeta {
@@ -205,6 +220,7 @@ struct RequestMeta {
     method: String,
     path: String,
     soap_action: Option<String>,
+    gena_headers: Vec<(String, String)>,
 }
 
 /// Reads a body to completion for logging, then rebuilds an equivalent
@@ -224,15 +240,17 @@ async fn buffer_body(body: Body) -> (String, Body) {
     }
 }
 
-/// Captures POSTs to any path (matched or not) for `--log-clients`: buffers the
-/// request/response bodies, forwards them through unchanged, and hands the
-/// captured pair to the `ClientLogger`.
+/// Captures POSTs (SOAP calls) and GENA SUBSCRIBE/UNSUBSCRIBE requests to any
+/// path (matched or not) for `--log-clients`: buffers the request/response
+/// bodies, forwards them through unchanged, and hands the captured pair to
+/// the `ClientLogger`.
 async fn log_client_request(
     State(logger): State<Arc<ClientLogger>>,
     req: axum::http::Request<Body>,
     next: Next,
 ) -> axum::response::Response {
-    if req.method() != Method::POST {
+    let method = req.method().as_str();
+    if method != Method::POST.as_str() && method != "SUBSCRIBE" && method != "UNSUBSCRIBE" {
         return next.run(req).await;
     }
 
@@ -254,6 +272,15 @@ async fn log_client_request(
             .get("SOAPAction")
             .and_then(|v| v.to_str().ok())
             .map(str::to_string),
+        gena_headers: GENA_HEADERS
+            .iter()
+            .filter_map(|name| {
+                req.headers()
+                    .get(*name)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|v| (name.to_string(), v.to_string()))
+            })
+            .collect(),
     };
 
     let (parts, body) = req.into_parts();
@@ -273,6 +300,7 @@ async fn log_client_request(
             method: meta.method,
             path: meta.path,
             soap_action: meta.soap_action,
+            gena_headers: meta.gena_headers,
             request_body,
             response_status,
             response_body,

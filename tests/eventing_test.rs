@@ -2,7 +2,9 @@ mod common;
 use common::{MockSubscriber, SoapClient, TestServer};
 
 use reqwest::Method;
+use std::sync::Arc;
 use std::time::Duration;
+use upnp_receiver::server::ClientLogger;
 
 async fn setup() -> (TestServer, SoapClient) {
     let server = TestServer::new().await;
@@ -211,4 +213,67 @@ async fn subscribe_without_a_callback_is_rejected() {
         .unwrap();
 
     assert_eq!(response.status(), 412);
+}
+
+#[tokio::test]
+async fn outbound_notifies_are_logged_when_client_logging_is_enabled() {
+    let log_dir = std::env::temp_dir().join(format!(
+        "upnp_receiver_test_gena_log_{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&log_dir);
+    let logger = Arc::new(ClientLogger::new(log_dir.clone()));
+
+    let server = TestServer::new_with_client_logger(logger).await;
+    assert!(server.wait_for_ready().await, "Server failed to become ready");
+    let client = SoapClient::new(server.address);
+
+    let mut subscriber = MockSubscriber::start().await;
+    let http = reqwest::Client::new();
+    let events_url = format!("http://{}/services/AVTransport/events", server.address);
+
+    let response = http
+        .request(subscribe_method(), &events_url)
+        .header("CALLBACK", format!("<{}>", subscriber.callback_url))
+        .header("NT", "upnp:event")
+        .header("User-Agent", "GenaLogTestClient/1.0")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // Drain the initial event, then trigger and drain a second one, so both
+    // delivery attempts have had a chance to be logged.
+    subscriber.next_notification().await;
+    let resp = client
+        .set_av_transport_uri("http://example.com/test.mp3", None)
+        .await;
+    assert_eq!(resp.status(), 200);
+    subscriber.next_notification().await;
+
+    // Logging happens after the HTTP response comes back, inside the same
+    // delivery task — give it a moment to land on disk.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let log_path = log_dir
+        .join("genalogtestclient-1.0")
+        .join("requests.log");
+    let contents = std::fs::read_to_string(&log_path)
+        .unwrap_or_else(|e| panic!("expected a NOTIFY log at {:?}: {}", log_path, e));
+
+    assert!(
+        contents.contains("Request: NOTIFY"),
+        "expected a logged NOTIFY request, got:\n{}",
+        contents
+    );
+    assert!(contents.contains("SID: uuid:"));
+    assert!(contents.contains("SEQ: 0"), "expected the initial event's SEQ 0 to be logged");
+    assert!(contents.contains("SEQ: 1"), "expected the triggered event's SEQ 1 to be logged");
+    assert!(
+        contents.contains("--- Response (200)"),
+        "expected the subscriber's 200 response to be logged, got:\n{}",
+        contents
+    );
+
+    let _ = std::fs::remove_dir_all(&log_dir);
 }
