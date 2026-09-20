@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 upnp-suite-core = { path = "../upnp-suite-core" }
+upnp-suite-client = { path = "../upnp-suite-client" }
 tokio = { workspace = true, features = ["net", "macros", "rt", "rt-multi-thread", "time", "sync", "signal", "io-util", "fs"] }
 thiserror = { workspace = true }
 uuid = { workspace = true }
@@ -36,4 +37,3 @@ tokio = { workspace = true, features = ["test-util"] }
 reqwest = { workspace = true, features = ["json"] }
 test-log = { version = "0.2", features = ["trace"] }
 env_logger = "0.10"
-upnp-suite-client = { path = "../upnp-suite-client" }

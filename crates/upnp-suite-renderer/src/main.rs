@@ -1,18 +1,16 @@
 use backend::dummy::{run_dummy_process, DummyBackendManager};
 use backend::gstreamer::{MenuState, PlaybackControls, SubtitleControl, VideoOutput};
 use backend::{gstreamer, DummyBackend, GStreamerBackend, MediaBackend, MediaBackendError};
-use server::eventing::{av_transport_last_change, AVTransportEventState, EventManager};
-use server::soap::handlers::av_transport::utils::SUPPORTED_PLAY_SPEEDS;
+use server::soap::handlers::av_transport::utils::{parse_play_speed, SUPPORTED_PLAY_SPEEDS};
 use server::soap::types::av_transport::TransportState;
 use server::{ClientLogger, HttpServer};
-use services::av_transport::AVTransport;
-use services::instance::InstanceId;
 use services::MediaRenderer;
 use std::path::PathBuf;
 use std::{error::Error, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use upnp_suite_client::RendererClient;
 use upnp_suite_core::discovery::{service::MediaRendererConfig, SsdpAdvertiser};
 use upnp_suite_core::logging::{LogStyle, TextFormatter};
 mod backend;
@@ -289,43 +287,34 @@ async fn handle_shutdown_signals() {
         .expect("Failed to listen for ctrl-c");
 }
 
-/// Publishes a `LastChange` NOTIFY, same pair of calls
-/// (`server::soap::handlers::av_transport::action`'s `publish_transitioning`/
-/// `publish_transport_state`) a SOAP `Play`/`Pause`/`Stop` uses - so a menu
-/// click is indistinguishable, to any subscriber, from a control point's.
-async fn publish_menu_transitioning(av_transport: &Arc<dyn AVTransport>, events: &Arc<EventManager>) {
-    let mut event = AVTransportEventState::snapshot(InstanceId::DEFAULT, av_transport.as_ref()).await;
-    event.transport_state = TransportState::Transitioning;
-    events.broadcast(av_transport_last_change(&event));
-}
-
-async fn publish_menu_state(av_transport: &Arc<dyn AVTransport>, events: &Arc<EventManager>) {
-    let event = AVTransportEventState::snapshot(InstanceId::DEFAULT, av_transport.as_ref()).await;
-    events.broadcast(av_transport_last_change(&event));
-}
-
-/// Builds the video window menu's actions - each one calls the same
-/// `AVTransport` methods and publishes the same `LastChange` events a SOAP
-/// action would, via `runtime` (the menu's closures run synchronously, on
-/// the main thread, and can't themselves `.await`).
+/// Builds the video window menu's actions - each one drives this same
+/// process's own AVTransport service over its real SOAP endpoint via
+/// `client` (a loopback `upnp-suite-client` connection), so a menu click is
+/// handled - and evented - exactly like a real control point's action
+/// would be, through the very same SOAP handler, with no separate
+/// hand-rolled `LastChange` publish path to keep in sync. `runtime` lets
+/// the menu's closures (which run synchronously, on the main thread, and
+/// can't themselves `.await`) hand the actual SOAP call off to the async
+/// side.
 fn build_playback_controls(
-    av_transport: Arc<dyn AVTransport>,
-    events: Arc<EventManager>,
+    client: Arc<RendererClient>,
     subtitle_control: Option<Arc<dyn SubtitleControl>>,
     runtime: tokio::runtime::Handle,
 ) -> PlaybackControls {
     let play_pause: Box<dyn Fn() + Send + Sync> = {
-        let av_transport = av_transport.clone();
-        let events = events.clone();
+        let client = client.clone();
         let runtime = runtime.clone();
         Box::new(move || {
-            let av_transport = av_transport.clone();
-            let events = events.clone();
+            let client = client.clone();
             runtime.spawn(async move {
-                publish_menu_transitioning(&av_transport, &events).await;
+                let Ok(av_transport) = client.av_transport() else {
+                    return;
+                };
                 let state = av_transport
-                    .get_state()
+                    .get_transport_info()
                     .await
+                    .ok()
+                    .and_then(|info| TransportState::parse(&info.current_transport_state))
                     .unwrap_or(TransportState::Stopped);
                 let result = if state == TransportState::Playing {
                     av_transport.pause().await
@@ -335,39 +324,37 @@ fn build_playback_controls(
                 if let Err(e) = result {
                     warn!(error = %e, "Menu play/pause failed");
                 }
-                publish_menu_state(&av_transport, &events).await;
             });
         })
     };
 
     let stop: Box<dyn Fn() + Send + Sync> = {
-        let av_transport = av_transport.clone();
-        let events = events.clone();
+        let client = client.clone();
         let runtime = runtime.clone();
         Box::new(move || {
-            let av_transport = av_transport.clone();
-            let events = events.clone();
+            let client = client.clone();
             runtime.spawn(async move {
-                publish_menu_transitioning(&av_transport, &events).await;
+                let Ok(av_transport) = client.av_transport() else {
+                    return;
+                };
                 if let Err(e) = av_transport.stop().await {
                     warn!(error = %e, "Menu stop failed");
                 }
-                publish_menu_state(&av_transport, &events).await;
             });
         })
     };
 
     let set_speed: Box<dyn Fn(f64) + Send + Sync> = {
-        let av_transport = av_transport.clone();
-        let events = events.clone();
+        let client = client.clone();
         Box::new(move |speed| {
-            let av_transport = av_transport.clone();
-            let events = events.clone();
+            let client = client.clone();
             runtime.spawn(async move {
+                let Ok(av_transport) = client.av_transport() else {
+                    return;
+                };
                 if let Err(e) = av_transport.set_play_speed(speed).await {
                     warn!(error = %e, speed, "Menu speed change failed");
                 }
-                publish_menu_state(&av_transport, &events).await;
             });
         })
     };
@@ -388,26 +375,40 @@ fn build_playback_controls(
     }
 }
 
-/// Keeps the video window's menu (Play/Pause label, checked speed,
-/// subtitle checkbox) accurate regardless of what last changed the
-/// transport - a SOAP action, the menu itself, or the backend reaching
-/// end-of-stream on its own - by periodically reading the same
-/// `AVTransport` state a `GetTransportInfo` poll would see, rather than
-/// wiring every possible source into a push channel.
-fn spawn_menu_state_poller(
-    av_transport: Arc<dyn AVTransport>,
+/// Keeps the video window's menu (Play/Pause label, checked speed) in sync
+/// by forwarding `client`'s AVTransport event stream - real GENA NOTIFYs
+/// when the loopback SUBSCRIBE succeeds, falling back to polling
+/// internally otherwise (see `RendererClient::subscribe_av_transport`) -
+/// regardless of what last changed the transport: a SOAP action, the menu
+/// itself, or the backend reaching end-of-stream on its own. Subtitles
+/// need no equivalent here - they're a local GStreamer concept with no
+/// UPnP counterpart, and the menu's subtitle checkbox already updates
+/// synchronously on toggle (see `PlaybackMenu::dispatch`); this just reads
+/// the current value each time it rebuilds `MenuState`.
+fn spawn_menu_state_forwarder(
+    client: Arc<RendererClient>,
     subtitle_control: Option<Arc<dyn SubtitleControl>>,
     video_output: VideoOutput,
 ) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(500));
+        let stream = match client.subscribe_av_transport().await {
+            Ok(stream) => stream,
+            Err(e) => {
+                warn!(error = %e, "Failed to subscribe to AVTransport events - video window menu will not stay in sync");
+                return;
+            }
+        };
+        let mut rx = stream.changes();
+
         loop {
-            interval.tick().await;
-            let transport_state = av_transport
-                .get_state()
-                .await
-                .unwrap_or(TransportState::NoMediaPresent);
-            let speed = av_transport.get_play_speed().await.unwrap_or(1.0);
+            if rx.changed().await.is_err() {
+                warn!("AVTransport event stream closed; video window menu will stop updating");
+                break;
+            }
+            let snapshot = rx.borrow_and_update().clone();
+            let transport_state =
+                TransportState::parse(&snapshot.transport_state).unwrap_or(TransportState::NoMediaPresent);
+            let speed = parse_play_speed(&snapshot.play_speed).unwrap_or(1.0);
             let subtitles_enabled = subtitle_control
                 .as_ref()
                 .map(|c| c.subtitles_enabled())
@@ -450,31 +451,8 @@ async fn run_renderer(video_output: VideoOutput) -> Result<(), Box<dyn std::erro
         has_media = %renderer.has_media_capabilities(),
         "Created media renderer"
     );
-
-    // Wires the video window's native menu (play/pause/stop/speed/subtitles)
-    // to this same AVTransport instance and its GENA events - a menu click
-    // updates state and notifies subscribers exactly like the matching SOAP
-    // action would.
-    match renderer.av_transport.get(InstanceId::DEFAULT) {
-        Ok(av_transport) => {
-            info!(
-                has_subtitle_control = selected.subtitle_control.is_some(),
-                "Wiring video window menu to AVTransport instance 0"
-            );
-            let controls = build_playback_controls(
-                av_transport.clone(),
-                renderer.av_transport_events.clone(),
-                selected.subtitle_control.clone(),
-                tokio::runtime::Handle::current(),
-            );
-            info!("Sending playback controls to video window");
-            video_output.send_controls(controls);
-            spawn_menu_state_poller(av_transport, selected.subtitle_control.clone(), video_output.clone());
-        }
-        Err(e) => {
-            warn!(error = %e, "No AVTransport instance 0 - video window menu will not be built");
-        }
-    }
+    let ip = renderer.ip_addr();
+    let port = renderer.port();
 
     let advertiser_result = init_advertiser(&renderer).await;
     let advertiser_opt = match advertiser_result {
@@ -496,6 +474,41 @@ async fn run_renderer(video_output: VideoOutput) -> Result<(), Box<dyn std::erro
     let http_server = HttpServer::new(Arc::new(renderer)).with_client_logger(client_logger);
     let bind_addr = format!("{}:{}", http_server.ip_addr(), http_server.port());
 
+    // Bind - and start accepting connections at the TCP level - before
+    // anything else: the video window's menu, wired up below as a loopback
+    // control point, needs this server actually reachable.
+    let listener = http_server.bind(&bind_addr).await?;
+    let server_task = tokio::spawn(http_server.serve(listener));
+
+    // Wires the video window's native menu (play/pause/stop/speed/subtitles)
+    // to this same renderer's real SOAP/GENA endpoints over loopback -
+    // `upnp-suite-client` talking to this process exactly like a real
+    // control point would, so a menu click is handled (and evented) via
+    // the same SOAP action code path, not a separate one. Connects via the
+    // renderer's own advertised IP rather than 127.0.0.1: the server binds
+    // specifically to that interface (not 0.0.0.0), which is otherwise
+    // unreachable through loopback.
+    match RendererClient::connect(&format!("http://{ip}:{port}/description.xml")).await {
+        Ok(client) => {
+            let client = Arc::new(client);
+            info!(
+                has_subtitle_control = selected.subtitle_control.is_some(),
+                "Wiring video window menu to AVTransport over loopback"
+            );
+            let controls = build_playback_controls(
+                client.clone(),
+                selected.subtitle_control.clone(),
+                tokio::runtime::Handle::current(),
+            );
+            info!("Sending playback controls to video window");
+            video_output.send_controls(controls);
+            spawn_menu_state_forwarder(client, selected.subtitle_control.clone(), video_output.clone());
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to connect loopback client - video window menu will not be built");
+        }
+    }
+
     info!("All services initialized, starting main loop...");
 
     // Run all services concurrently
@@ -516,13 +529,19 @@ async fn run_renderer(video_output: VideoOutput) -> Result<(), Box<dyn std::erro
                 );
             }
         }
-        result = http_server.run(bind_addr) => {
-            if let Err(e) = result {
-                error!(
-                    error = %e,
-                    error_type = std::any::type_name_of_val(&e),
-                    "HTTP Server error"
-                );
+        result = server_task => {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    error!(
+                        error = %e,
+                        error_type = std::any::type_name_of_val(&e),
+                        "HTTP Server error"
+                    );
+                }
+                Err(e) => {
+                    error!(error = %e, "HTTP server task panicked");
+                }
             }
         }
         _ = run_media_monitor(selected.dummy_manager.clone()) => {

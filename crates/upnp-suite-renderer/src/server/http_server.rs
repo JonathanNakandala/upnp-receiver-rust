@@ -188,10 +188,16 @@ impl HttpServer {
             .with_state(Arc::clone(&self.renderer))
     }
 
+    /// Binds `bind_addr` and starts accepting connections at the TCP level
+    /// immediately - split from [`Self::serve`] so a caller that needs the
+    /// server actually reachable (e.g. a loopback `upnp-suite-client`
+    /// connecting to this same process) can be sure of that before doing
+    /// anything that depends on it, rather than racing `serve`'s own
+    /// request-accepting loop.
     #[instrument(skip(self))]
-    pub async fn run(self, bind_addr: String) -> Result<(), ServiceError> {
+    pub async fn bind(&self, bind_addr: &str) -> Result<tokio::net::TcpListener, ServiceError> {
         debug!("Parsing socket address");
-        let addr = match SocketAddr::from_str(&bind_addr) {
+        let addr = match SocketAddr::from_str(bind_addr) {
             Ok(addr) => addr,
             Err(e) => {
                 error!(
@@ -207,19 +213,26 @@ impl HttpServer {
         };
 
         info!(address = %addr, "Starting HTTP server");
-        let listener = match tokio::net::TcpListener::bind(addr).await {
-            Ok(l) => l,
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => {
+                info!("HTTP server started successfully");
+                Ok(l)
+            }
             Err(e) => {
                 error!(
                     error = %e,
                     address = %addr,
                     "Failed to bind TCP listener"
                 );
-                return Err(e.into());
+                Err(e.into())
             }
-        };
+        }
+    }
 
-        info!("HTTP server started successfully");
+    /// Runs the request-accepting loop against an already-bound `listener`
+    /// (see [`Self::bind`]) until the process shuts down.
+    #[instrument(skip(self, listener))]
+    pub async fn serve(self, listener: tokio::net::TcpListener) -> Result<(), ServiceError> {
         let router = self.router();
         match axum::serve(
             listener,
