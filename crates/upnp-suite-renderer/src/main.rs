@@ -14,9 +14,6 @@ mod ip;
 mod server;
 mod services;
 
-/// Advertised in the SSDP/HTTP `Server:` header. Sourced from this crate's
-/// own version (not `upnp-suite-core`'s) so control points see the
-/// renderer application's version, not its internal library dependency's.
 const RENDERER_SERVER_HEADER: &str = concat!("Rust/", env!("CARGO_PKG_VERSION"), " UPnP/1.0");
 
 /// Which [`MediaBackend`] to use, chosen via `--media-backend <value>`.
