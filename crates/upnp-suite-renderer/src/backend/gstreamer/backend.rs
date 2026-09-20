@@ -4,14 +4,20 @@
 use async_trait::async_trait;
 use gstreamer as gst;
 use gstreamer::prelude::*;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use super::video::{self, VideoOutput};
 use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
 use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
+
+/// How long a single call on the dedicated GStreamer pipeline thread
+/// (`run_on_gst_thread`) gets before it's treated as wedged rather than
+/// just slow - see that function's doc for what happens (and what doesn't)
+/// once this fires.
+const GST_CALL_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// What we track ourselves rather than asking GStreamer, either because it
 /// doesn't know it at all (UPnP DIDL-Lite metadata) or because asking it
@@ -157,6 +163,14 @@ pub struct GStreamerBackend {
     // from `state_tx` (the transport state doesn't change across a gapless
     // transition, only the URI/metadata does).
     track_tx: watch::Sender<TrackInfo>,
+    // Every blocking `set_state`/`seek` call for this backend's pipeline
+    // runs on the single dedicated OS thread behind this channel (see
+    // `run_on_gst_thread`) rather than Tokio's blocking-task pool, which
+    // hands each call to a different, arbitrary pool thread - GL/Metal-
+    // backed elements (`glupload`/`gldownload` in the video pipeline,
+    // sharing a GL context with the window's own wgpu renderer) can
+    // require consistent thread affinity that a rotating pool can't give.
+    gst_thread_tx: mpsc::Sender<GstJob>,
 }
 
 impl GStreamerBackend {
@@ -203,7 +217,54 @@ impl GStreamerBackend {
             state,
             state_tx,
             track_tx,
+            gst_thread_tx: spawn_gst_thread(),
         })
+    }
+
+    /// Runs a synchronous GStreamer call (`set_state`, `seek`, ...) on this
+    /// backend's single dedicated pipeline thread - see the `gst_thread_tx`
+    /// field doc for why that's a persistent thread rather than
+    /// `tokio::task::spawn_blocking`.
+    ///
+    /// Bounded by [`GST_CALL_TIMEOUT`]: this dedicated thread processes
+    /// jobs strictly in submission order, so a call that never returns
+    /// (a genuinely wedged pipeline, not just a slow one) wouldn't just
+    /// fail on its own - every *subsequent* call would queue up behind it
+    /// and hang too, taking down playback control entirely with no
+    /// feedback. Timing out here can't un-wedge the pipeline itself, but
+    /// it turns a silent, permanent freeze into a clear, immediate error
+    /// this backend's caller (and so the SOAP layer, and so the video
+    /// window's menu) can actually see and log.
+    async fn run_on_gst_thread<T: Send + 'static>(
+        &self,
+        f: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, MediaBackendError> {
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+        let job: GstJob = Box::new(move || {
+            let _ = result_tx.send(f());
+        });
+        self.gst_thread_tx.send(job).map_err(|_| {
+            MediaBackendError::GStreamer("GStreamer pipeline thread is gone".to_string())
+        })?;
+
+        match tokio::time::timeout(GST_CALL_TIMEOUT, result_rx).await {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(_)) => Err(MediaBackendError::GStreamer(
+                "GStreamer pipeline thread dropped the response".to_string(),
+            )),
+            Err(_) => {
+                error!(
+                    timeout_secs = GST_CALL_TIMEOUT.as_secs(),
+                    "GStreamer pipeline call did not complete in time - the dedicated pipeline \
+                     thread is likely wedged; every subsequent call to it will keep timing out \
+                     the same way until the process is restarted"
+                );
+                Err(MediaBackendError::GStreamer(format!(
+                    "GStreamer operation timed out after {}s - the pipeline appears stuck",
+                    GST_CALL_TIMEOUT.as_secs()
+                )))
+            }
+        }
     }
 
     /// Rebuilds the pipeline with `desired`'s element if it isn't already
@@ -548,13 +609,84 @@ fn connect_about_to_finish(
 /// and isn't itself safe to call concurrently from multiple backends.
 pub(super) fn ensure_initialized() -> Result<(), MediaBackendError> {
     static INIT: OnceLock<Result<(), String>> = OnceLock::new();
-    INIT.get_or_init(|| gst::init().map_err(|e| e.to_string()))
-        .clone()
-        .map_err(MediaBackendError::GStreamer)
+    INIT.get_or_init(|| {
+        gst::init().map_err(|e| e.to_string())?;
+        bridge_gstreamer_logging();
+        Ok(())
+    })
+    .clone()
+    .map_err(MediaBackendError::GStreamer)
+}
+
+/// Bridges GStreamer's own logging into this process's `tracing` output,
+/// under the `gstreamer` target. GStreamer has a logging system entirely
+/// separate from `tracing`/`RUST_LOG` - by default nothing is generated at
+/// all, and once something is (via the `GST_DEBUG` env var, GStreamer's
+/// own equivalent of `RUST_LOG` - e.g. `GST_DEBUG=3` for warnings+errors
+/// globally, or targeted categories like
+/// `GST_DEBUG=GST_STATES:5,GST_EVENT:5` to watch state changes and
+/// FLUSH/seek events specifically, which is what a stuck speed-change
+/// seek would show up under) it goes to its own raw stderr stream, not
+/// this app's structured logs. This makes it show up in the same place as
+/// everything else instead of a second stream a caller has to know to
+/// look for separately - and, since `GST_DEBUG` generates nothing at all
+/// when unset, sets a baseline (warnings/errors) threshold so pipeline
+/// problems are visible by default without requiring it.
+fn bridge_gstreamer_logging() {
+    if std::env::var_os("GST_DEBUG").is_none() {
+        gst::log::set_default_threshold(gst::DebugLevel::Warning);
+    }
+
+    gst::log::remove_default_log_function();
+    gst::log::add_log_function(|category, level, _file, _function, _line, _object, message| {
+        let text = message
+            .get()
+            .map(|m| m.to_string())
+            .unwrap_or_default();
+        let category = category.name();
+        match level {
+            gst::DebugLevel::Error => error!(target: "gstreamer", category, "{text}"),
+            gst::DebugLevel::Warning | gst::DebugLevel::Fixme => {
+                warn!(target: "gstreamer", category, "{text}")
+            }
+            gst::DebugLevel::Info => info!(target: "gstreamer", category, "{text}"),
+            gst::DebugLevel::Debug => debug!(target: "gstreamer", category, "{text}"),
+            _ => trace!(target: "gstreamer", category, "{text}"),
+        }
+    });
 }
 
 fn state_change_error(err: gst::StateChangeError) -> MediaBackendError {
     MediaBackendError::GStreamer(format!("State change failed: {}", err))
+}
+
+/// A unit of work for the dedicated GStreamer pipeline thread - see
+/// `GStreamerBackend::gst_thread_tx`/`run_on_gst_thread`.
+type GstJob = Box<dyn FnOnce() + Send + 'static>;
+
+/// Spawns the single, dedicated OS thread every state-changing/seeking
+/// GStreamer call for one backend instance runs on. Plain
+/// `tokio::task::spawn_blocking` was tried first, but it hands each call to
+/// whichever of many pool threads happens to be free - fine for GStreamer's
+/// own general thread-safety guarantees, but not necessarily for the video
+/// pipeline's GL/Metal-backed elements (`glupload`/`gldownload`, sharing a
+/// GL context with the window's own wgpu renderer), which can require
+/// consistent thread affinity for GL context operations. A persistent
+/// dedicated thread - the same one, every call, for this backend's whole
+/// lifetime - avoids that entirely. Jobs run strictly in submission order;
+/// the thread exits once every `Sender` (i.e. the owning `GStreamerBackend`)
+/// is dropped.
+fn spawn_gst_thread() -> mpsc::Sender<GstJob> {
+    let (tx, rx) = mpsc::channel::<GstJob>();
+    std::thread::Builder::new()
+        .name("gstreamer-pipeline".to_string())
+        .spawn(move || {
+            for job in rx {
+                job();
+            }
+        })
+        .expect("failed to spawn the dedicated GStreamer pipeline thread");
+    tx
 }
 
 #[async_trait]
@@ -574,9 +706,12 @@ impl MediaBackend for GStreamerBackend {
 
         // Drop back to Ready before switching URIs — playbin doesn't support
         // changing `uri` while past that state.
-        playbin
-            .set_state(gst::State::Ready)
-            .map_err(state_change_error)?;
+        {
+            let playbin = playbin.clone();
+            self.run_on_gst_thread(move || playbin.set_state(gst::State::Ready))
+                .await?
+                .map_err(state_change_error)?;
+        }
 
         playbin.set_property("uri", uri);
 
@@ -619,32 +754,48 @@ impl MediaBackend for GStreamerBackend {
         // GStreamer only resolves it once bytes are actually flowing, i.e.
         // some time after Play. get_duration() reflects that honestly by
         // returning None until GStreamer itself knows.
-        playbin
-            .set_state(gst::State::Paused)
+        self.run_on_gst_thread(move || playbin.set_state(gst::State::Paused))
+            .await?
             .map_err(state_change_error)?;
 
         Ok(())
     }
 
     async fn play(&self) -> Result<(), MediaBackendError> {
-        self.playbin()
-            .set_state(gst::State::Playing)
+        // A genuine no-op when already playing - not just an optimization.
+        // The AVTransport `Play` handler relies on this (see its comment:
+        // "play() alone is a no-op if we're already Playing") to reissue
+        // `Play` with a new `Speed` for a pure speed change without
+        // disturbing playback first. Re-requesting `Playing` from
+        // `Playing` re-triggers a state-change transition GStreamer may
+        // still be settling from the *previous* transition, and issuing a
+        // FLUSHING seek (`set_play_speed`) right on top of that has been
+        // observed to hang the pipeline.
+        if self.state.lock().unwrap().transport_state == TransportState::Playing {
+            return Ok(());
+        }
+
+        let playbin = self.playbin();
+        self.run_on_gst_thread(move || playbin.set_state(gst::State::Playing))
+            .await?
             .map_err(state_change_error)?;
         self.state.lock().unwrap().transport_state = TransportState::Playing;
         Ok(())
     }
 
     async fn pause(&self) -> Result<(), MediaBackendError> {
-        self.playbin()
-            .set_state(gst::State::Paused)
+        let playbin = self.playbin();
+        self.run_on_gst_thread(move || playbin.set_state(gst::State::Paused))
+            .await?
             .map_err(state_change_error)?;
         self.state.lock().unwrap().transport_state = TransportState::PausedPlayback;
         Ok(())
     }
 
     async fn stop(&self) -> Result<(), MediaBackendError> {
-        self.playbin()
-            .set_state(gst::State::Ready)
+        let playbin = self.playbin();
+        self.run_on_gst_thread(move || playbin.set_state(gst::State::Ready))
+            .await?
             .map_err(state_change_error)?;
         let mut state = self.state.lock().unwrap();
         state.transport_state = if state.uri.is_some() {
@@ -666,8 +817,9 @@ impl MediaBackend for GStreamerBackend {
 
     async fn seek(&self, position: Duration) -> Result<(), MediaBackendError> {
         let target = gst::ClockTime::from_nseconds(position.as_nanos() as u64);
-        self.playbin()
-            .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, target)
+        let playbin = self.playbin();
+        self.run_on_gst_thread(move || playbin.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, target))
+            .await?
             .map_err(|e| MediaBackendError::GStreamer(format!("Seek failed: {}", e)))
     }
 
@@ -715,13 +867,21 @@ impl MediaBackend for GStreamerBackend {
 
         // Re-seek at the new rate from the current position — GStreamer has
         // no separate "just change the rate" call; a seek is how rate
-        // changes are done, same as a position change.
-        let position = playbin
-            .query_position::<gst::ClockTime>()
-            .unwrap_or(gst::ClockTime::ZERO);
-
-        playbin
-            .seek(
+        // changes are done, same as a position change. `seek()` is a
+        // blocking GStreamer call (it can take a while, or in principle
+        // never return, e.g. against an uncooperative network source) -
+        // `run_on_gst_thread` keeps that off this async runtime's worker
+        // threads (on the dedicated pipeline thread instead), and the
+        // timing log below is here specifically to confirm (or rule out)
+        // that this call itself is what's slow if speed changes are ever
+        // reported as hanging again.
+        let started = Instant::now();
+        info!(speed, "Speed-change seek: starting");
+        let seek_result = self.run_on_gst_thread(move || {
+            let position = playbin
+                .query_position::<gst::ClockTime>()
+                .unwrap_or(gst::ClockTime::ZERO);
+            playbin.seek(
                 speed,
                 gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
                 gst::SeekType::Set,
@@ -729,7 +889,11 @@ impl MediaBackend for GStreamerBackend {
                 gst::SeekType::None,
                 gst::ClockTime::NONE,
             )
-            .map_err(|e| MediaBackendError::GStreamer(format!("Speed change failed: {}", e)))?;
+        })
+        .await?;
+        info!(speed, elapsed_ms = %started.elapsed().as_millis(), ok = seek_result.is_ok(), "Speed-change seek: returned");
+
+        seek_result.map_err(|e| MediaBackendError::GStreamer(format!("Speed change failed: {}", e)))?;
 
         self.state.lock().unwrap().speed = speed;
         Ok(())
