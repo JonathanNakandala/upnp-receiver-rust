@@ -1,3 +1,4 @@
+use crate::services::instance::InstanceId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
@@ -12,6 +13,25 @@ pub enum RenderingControlAction {
     SetVolumeDB(SetVolumeDBRequest),
     GetVolumeDB(GetVolumeDBRequest),
     GetVolumeDBRange(GetVolumeDBRangeRequest),
+}
+
+impl RenderingControlAction {
+    /// The `InstanceID` the control point sent with this action — see
+    /// `AVTransportAction::instance_id` for why this is infallible.
+    pub fn instance_id(&self) -> InstanceId {
+        let raw = match self {
+            Self::ListPresets(r) => r.instance_id,
+            Self::SelectPreset(r) => r.instance_id,
+            Self::SetVolume(r) => r.instance_id,
+            Self::SetMute(r) => r.instance_id,
+            Self::GetVolume(r) => r.instance_id,
+            Self::GetMute(r) => r.instance_id,
+            Self::SetVolumeDB(r) => r.instance_id,
+            Self::GetVolumeDB(r) => r.instance_id,
+            Self::GetVolumeDBRange(r) => r.instance_id,
+        };
+        InstanceId::new(raw)
+    }
 }
 
 #[derive(Debug, Deserialize)]

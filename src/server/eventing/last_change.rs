@@ -13,6 +13,7 @@ use quick_xml::escape::escape;
 use crate::server::soap::handlers::av_transport::utils::{format_duration, format_play_speed};
 use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
 use crate::services::av_transport::AVTransport;
+use crate::services::instance::InstanceId;
 
 /// Everything an AVTransport `LastChange` NOTIFY reports. Gathered in one
 /// place (rather than each call site pulling `TransportState` alone) so a
@@ -21,6 +22,7 @@ use crate::services::av_transport::AVTransport;
 /// and so a client relying on eventing rather than polling `GetMediaInfo`
 /// can follow `AVTransportURI`/`NextAVTransportURI` in real time.
 pub struct AVTransportEventState {
+    pub instance_id: InstanceId,
     pub transport_state: TransportState,
     pub transport_status: TransportStatus,
     pub play_speed: f64,
@@ -36,7 +38,10 @@ impl AVTransportEventState {
     /// Builds the current snapshot from the live `AVTransport` — the state
     /// changing is what triggers a NOTIFY, but the NOTIFY body always
     /// reflects a fresh read rather than carrying stale values forward.
-    pub async fn snapshot(av_transport: &dyn AVTransport) -> Self {
+    /// `instance_id` is carried through verbatim into the `LastChange`
+    /// body's `<InstanceID val="...">` — it identifies which instance
+    /// `av_transport` was resolved for, not something derived from it.
+    pub async fn snapshot(instance_id: InstanceId, av_transport: &dyn AVTransport) -> Self {
         let transport_state = av_transport
             .get_state()
             .await
@@ -50,6 +55,7 @@ impl AVTransportEventState {
         let media = av_transport.get_media_info().await.ok().flatten();
 
         Self {
+            instance_id,
             transport_state,
             transport_status,
             play_speed,
@@ -128,7 +134,7 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
     let inner = format!(
         concat!(
             r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/AVT/">"#,
-            r#"<InstanceID val="0">"#,
+            r#"<InstanceID val="{instance_id}">"#,
             r#"<TransportState val="{state}"/>"#,
             r#"<TransportStatus val="{status}"/>"#,
             r#"<TransportPlaySpeed val="{speed}"/>"#,
@@ -147,6 +153,7 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
             r#"</InstanceID>"#,
             r#"</Event>"#
         ),
+        instance_id = event.instance_id,
         state = transport_state_str(event.transport_state),
         status = transport_status_str(event.transport_status),
         speed = format_play_speed(event.play_speed),
@@ -168,17 +175,18 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
 /// `VolumeDB` is derived from `volume` (see
 /// [`crate::services::rendering_control::volume_to_db`]) rather than passed
 /// in separately, so it can never disagree with `Volume` in the same event.
-pub fn rendering_control_last_change(volume: u16, muted: bool) -> String {
+pub fn rendering_control_last_change(instance_id: InstanceId, volume: u16, muted: bool) -> String {
     let inner = format!(
         concat!(
             r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">"#,
-            r#"<InstanceID val="0">"#,
+            r#"<InstanceID val="{instance_id}">"#,
             r#"<Volume channel="Master" val="{volume}"/>"#,
             r#"<VolumeDB channel="Master" val="{volume_db}"/>"#,
             r#"<Mute channel="Master" val="{muted}"/>"#,
             r#"</InstanceID>"#,
             r#"</Event>"#
         ),
+        instance_id = instance_id,
         volume = volume,
         volume_db = crate::services::rendering_control::volume_to_db(volume),
         muted = if muted { "1" } else { "0" },
@@ -222,6 +230,7 @@ mod tests {
 
     fn event_state(transport_state: TransportState) -> AVTransportEventState {
         AVTransportEventState {
+            instance_id: InstanceId::DEFAULT,
             transport_state,
             transport_status: TransportStatus::OK,
             play_speed: 1.0,
@@ -246,6 +255,15 @@ mod tests {
         assert!(body.contains("&lt;Event xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/AVT/&quot;&gt;"));
         assert!(body.contains("TransportState val=&quot;PLAYING&quot;"));
         assert!(body.contains("CurrentTransportActions val=&quot;Pause,Stop,Seek&quot;"));
+        assert!(body.contains("InstanceID val=&quot;0&quot;"));
+    }
+
+    #[test]
+    fn av_transport_event_reports_the_resolved_instance_id() {
+        let mut state = event_state(TransportState::Playing);
+        state.instance_id = InstanceId::new(7);
+        let body = av_transport_last_change(&state);
+        assert!(body.contains("InstanceID val=&quot;7&quot;"));
     }
 
     #[test]
@@ -271,6 +289,7 @@ mod tests {
     #[test]
     fn av_transport_event_reports_uris() {
         let body = av_transport_last_change(&AVTransportEventState {
+            instance_id: InstanceId::DEFAULT,
             transport_state: TransportState::Playing,
             transport_status: TransportStatus::OK,
             play_speed: 1.0,
@@ -302,11 +321,12 @@ mod tests {
 
     #[test]
     fn rendering_control_event_reports_volume_and_mute() {
-        let body = rendering_control_last_change(42, true);
+        let body = rendering_control_last_change(InstanceId::DEFAULT, 42, true);
 
         assert!(body.contains("urn:schemas-upnp-org:metadata-1-0/RCS/"));
         assert!(body.contains("Volume channel=&quot;Master&quot; val=&quot;42&quot;"));
         assert!(body.contains("Mute channel=&quot;Master&quot; val=&quot;1&quot;"));
+        assert!(body.contains("InstanceID val=&quot;0&quot;"));
         let expected_db = crate::services::rendering_control::volume_to_db(42);
         assert!(body.contains(&format!(
             "VolumeDB channel=&quot;Master&quot; val=&quot;{expected_db}&quot;"
@@ -315,8 +335,14 @@ mod tests {
 
     #[test]
     fn rendering_control_event_reports_unmuted_as_zero() {
-        let body = rendering_control_last_change(10, false);
+        let body = rendering_control_last_change(InstanceId::DEFAULT, 10, false);
         assert!(body.contains("Mute channel=&quot;Master&quot; val=&quot;0&quot;"));
+    }
+
+    #[test]
+    fn rendering_control_event_reports_the_resolved_instance_id() {
+        let body = rendering_control_last_change(InstanceId::new(3), 10, false);
+        assert!(body.contains("InstanceID val=&quot;3&quot;"));
     }
 
     #[test]

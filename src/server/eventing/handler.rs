@@ -15,6 +15,7 @@ use tracing::info;
 use super::last_change;
 use super::last_change::AVTransportEventState;
 use super::manager::{EventManager, SubscribeError};
+use crate::services::instance::InstanceId;
 use crate::services::MediaRenderer;
 
 pub async fn handle_av_transport_events(
@@ -27,7 +28,15 @@ pub async fn handle_av_transport_events(
     let initial_body = {
         let renderer = Arc::clone(&renderer);
         async move {
-            let event = AVTransportEventState::snapshot(renderer.av_transport.as_ref()).await;
+            // GENA subscriptions are per-service, not per-instance (SUBSCRIBE
+            // carries no InstanceID), so the mandatory initial event always
+            // reports the default instance — the only one a plain
+            // subscription without PrepareForConnection can ever mean.
+            let transport = renderer
+                .av_transport
+                .get(InstanceId::DEFAULT)
+                .expect("default AVTransport instance is never removed");
+            let event = AVTransportEventState::snapshot(InstanceId::DEFAULT, transport.as_ref()).await;
             last_change::av_transport_last_change(&event)
         }
     };
@@ -45,13 +54,13 @@ pub async fn handle_rendering_control_events(
     let initial_body = {
         let renderer = Arc::clone(&renderer);
         async move {
-            let volume = renderer.rendering_control.get_volume().await.unwrap_or(0);
-            let muted = renderer
+            let control = renderer
                 .rendering_control
-                .get_mute()
-                .await
-                .unwrap_or(false);
-            last_change::rendering_control_last_change(volume, muted)
+                .get(InstanceId::DEFAULT)
+                .expect("default RenderingControl instance is never removed");
+            let volume = control.get_volume().await.unwrap_or(0);
+            let muted = control.get_mute().await.unwrap_or(false);
+            last_change::rendering_control_last_change(InstanceId::DEFAULT, volume, muted)
         }
     };
 

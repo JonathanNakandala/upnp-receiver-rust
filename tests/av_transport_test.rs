@@ -384,3 +384,21 @@ async fn test_current_transport_actions_lists_next_only_when_queued() {
     let body = resp.text().await.unwrap();
     assert!(body.contains("<Actions>Play,Next</Actions>"), "Response body: {}", body);
 }
+
+#[test(tokio::test)]
+async fn test_play_with_unknown_instance_id_is_rejected() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_av_transport_uri("http://example.com/test.mp3", None)
+        .await;
+    assert_response(resp, 200).await;
+
+    // Nothing has ever created instance 1 — PrepareForConnection isn't
+    // implemented, so only the default instance (0) exists.
+    let resp = client.play_with_instance_id(1).await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 400, "Response body: {}", body);
+    assert!(body.contains("<errorCode>718</errorCode>"), "Response body: {}", body);
+}

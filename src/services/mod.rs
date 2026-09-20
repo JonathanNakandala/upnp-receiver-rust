@@ -1,6 +1,7 @@
 pub mod av_transport;
 pub mod connection_manager;
 pub(crate) mod error;
+pub mod instance;
 pub mod media_renderer;
 pub mod rendering_control;
 mod types_impl;

@@ -72,6 +72,36 @@ impl SoapClient {
             .await
             .unwrap()
     }
+
+    /// Same as [`Self::play`] but with a caller-supplied `InstanceID` —
+    /// exists only to exercise the `InvalidInstanceID` (718) rejection path
+    /// for a non-zero id nothing was ever created under.
+    pub async fn play_with_instance_id(&self, instance_id: u32) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+                        <InstanceID>{}</InstanceID>
+                        <Speed>1</Speed>
+                    </u:Play>
+                </s:Body>
+            </s:Envelope>"#,
+            instance_id
+        );
+
+        self.client
+            .post(format!("{}/services/AVTransport/control", self.base_url))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:AVTransport:1#Play\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
     pub async fn get_transport_info(&self) -> reqwest::Response {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
@@ -403,6 +433,44 @@ impl SoapClient {
                 </s:Body>
             </s:Envelope>"#,
             volume
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetVolume\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    /// Same as [`Self::set_volume`] but with a caller-supplied `InstanceID`
+    /// — exists only to exercise the `InvalidInstanceID` (718) rejection
+    /// path for a non-zero id nothing was ever created under.
+    pub async fn set_volume_with_instance_id(
+        &self,
+        instance_id: u32,
+        volume: u16,
+    ) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>{}</InstanceID>
+                        <Channel>Master</Channel>
+                        <DesiredVolume>{}</DesiredVolume>
+                    </u:SetVolume>
+                </s:Body>
+            </s:Envelope>"#,
+            instance_id, volume
         );
 
         self.client

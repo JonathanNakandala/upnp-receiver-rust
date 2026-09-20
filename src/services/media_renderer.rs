@@ -15,6 +15,7 @@ use crate::server::{load_icon, DeviceIcon};
 use crate::services::{
     av_transport::{AVTransport, AVTransportImpl},
     connection_manager::{ConnectionManager, DummyConnectionManager},
+    instance::{InstanceId, InstanceRegistry},
     rendering_control::{RenderingControl, RenderingControlImpl},
 };
 
@@ -35,9 +36,17 @@ pub struct MediaRenderer {
     services: Vec<MediaRendererService>,
     icon: Arc<Option<DeviceIcon>>,
 
-    // Service implementations
-    pub av_transport: Arc<dyn AVTransport>,
-    pub rendering_control: Arc<dyn RenderingControl>,
+    // Service implementations. AVTransport and RenderingControl are each
+    // indexed by InstanceID — instance 0 always exists (the fallback every
+    // control point uses when PrepareForConnection isn't implemented) — see
+    // `crate::services::instance` for why the two are independent registries
+    // rather than one shared "session" concept. Arc-wrapped, like every
+    // other shared-state field here, so `MediaRenderer::clone()` (used to
+    // hand both the SSDP advertiser and the HTTP server their own owned
+    // `MediaRenderer`) gives out two handles to the *same* live registry
+    // rather than two independently-diverging copies of it.
+    pub av_transport: Arc<InstanceRegistry<InstanceId, dyn AVTransport>>,
+    pub rendering_control: Arc<InstanceRegistry<InstanceId, dyn RenderingControl>>,
     pub connection_manager: Arc<dyn ConnectionManager>,
 
     // GENA subscribers, one manager per evented service.
@@ -132,7 +141,11 @@ impl MediaRenderer {
             let av_transport_for_state = av_transport.clone();
             tokio::spawn(async move {
                 while state_changes.changed().await.is_ok() {
-                    let event = AVTransportEventState::snapshot(av_transport_for_state.as_ref()).await;
+                    let event = AVTransportEventState::snapshot(
+                        InstanceId::DEFAULT,
+                        av_transport_for_state.as_ref(),
+                    )
+                    .await;
                     events.broadcast(av_transport_last_change(&event));
                 }
             });
@@ -147,11 +160,26 @@ impl MediaRenderer {
             let av_transport_for_track = av_transport.clone();
             tokio::spawn(async move {
                 while track_changes.changed().await.is_ok() {
-                    let event = AVTransportEventState::snapshot(av_transport_for_track.as_ref()).await;
+                    let event = AVTransportEventState::snapshot(
+                        InstanceId::DEFAULT,
+                        av_transport_for_track.as_ref(),
+                    )
+                    .await;
                     events.broadcast(av_transport_last_change(&event));
                 }
             });
         }
+
+        // Both backend-driven and fallback implementations become the
+        // default (instance 0) member of their service's registry — this
+        // renderer only ever populates instance 0 today (no
+        // PrepareForConnection to create more), but every action handler
+        // now goes through the registry rather than a bare Arc, so a
+        // rejected InstanceID and a future second instance are both just a
+        // registry operation away instead of a redesign.
+        let av_transport = Arc::new(InstanceRegistry::new(InstanceId::DEFAULT, av_transport));
+        let rendering_control =
+            Arc::new(InstanceRegistry::new(InstanceId::DEFAULT, rendering_control));
 
         Ok(Self {
             unique_id: Uuid::new_v4(),

@@ -11,6 +11,8 @@ use crate::server::soap::types::av_transport::{
     TransportState,
 };
 use crate::server::soap::types::UPnPAction;
+use crate::services::av_transport::AVTransport;
+use crate::services::instance::InstanceId;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -24,9 +26,14 @@ use super::utils::{
 /// Publishes a `LastChange` NOTIFY reflecting the transport state right
 /// after a state-changing action succeeds, so subscribed control points
 /// find out immediately instead of waiting for their next GetTransportInfo
-/// poll.
-async fn publish_transport_state(renderer: &MediaRenderer, events: &Arc<EventManager>) {
-    let event = AVTransportEventState::snapshot(renderer.av_transport.as_ref()).await;
+/// poll. `instance_id`/`transport` are the instance the triggering action
+/// was actually resolved against — see `AVTransportAction::handle` below.
+async fn publish_transport_state(
+    instance_id: InstanceId,
+    transport: &dyn AVTransport,
+    events: &Arc<EventManager>,
+) {
+    let event = AVTransportEventState::snapshot(instance_id, transport).await;
     events.broadcast(av_transport_last_change(&event));
 }
 
@@ -39,8 +46,12 @@ async fn publish_transport_state(renderer: &MediaRenderer, events: &Arc<EventMan
 /// real interim backend state, just an event a subscriber relying on
 /// eventing (rather than polling) can observe before the real post-action
 /// state follows right behind it.
-async fn publish_transitioning(renderer: &MediaRenderer, events: &Arc<EventManager>) {
-    let mut event = AVTransportEventState::snapshot(renderer.av_transport.as_ref()).await;
+async fn publish_transitioning(
+    instance_id: InstanceId,
+    transport: &dyn AVTransport,
+    events: &Arc<EventManager>,
+) {
+    let mut event = AVTransportEventState::snapshot(instance_id, transport).await;
     event.transport_state = TransportState::Transitioning;
     events.broadcast(av_transport_last_change(&event));
 }
@@ -73,11 +84,19 @@ impl UPnPAction for AVTransportAction {
     }
 
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
+        // Resolved once per request: an InstanceID nothing was created under
+        // (i.e. anything but 0 today — see `crate::services::instance`)
+        // fails here with UPnP error 718, before any action-specific logic
+        // runs, rather than silently acting on the wrong (or a default)
+        // instance.
+        let instance_id = self.instance_id();
+        let transport = renderer.av_transport.get(instance_id)?;
+
         match self {
             Self::SetAVTransportURI(req) => {
-                publish_transitioning(&renderer, &renderer.av_transport_events).await;
-                let result = renderer
-                    .av_transport
+                publish_transitioning(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
+                let result = transport
                     .set_transport_uri(req.current_uri.clone(), req.current_uri_metadata.clone())
                     .await;
                 match &result {
@@ -97,15 +116,15 @@ impl UPnPAction for AVTransportAction {
                 // still needs its subscribers corrected off the
                 // `publish_transitioning` above, or they're left believing
                 // the transport is still transitioning.
-                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                publish_transport_state(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 result?;
                 Ok(AVTransportResponse::SetAVTransportURI(
                     SetAVTransportURIResponse {},
                 ))
             }
             Self::SetNextAVTransportURI(req) => {
-                let result = renderer
-                    .av_transport
+                let result = transport
                     .set_next_transport_uri(req.next_uri.clone(), req.next_uri_metadata.clone())
                     .await;
                 match &result {
@@ -122,13 +141,15 @@ impl UPnPAction for AVTransportAction {
                     ),
                 }
                 result?;
-                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                publish_transport_state(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 Ok(AVTransportResponse::SetNextAVTransportURI(
                     SetNextAVTransportURIResponse {},
                 ))
             }
             Self::Play(req) => {
-                publish_transitioning(&renderer, &renderer.av_transport_events).await;
+                publish_transitioning(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 let result = async {
                     let speed = parse_play_speed(&req.speed).ok_or_else(|| {
                         SoapError::Soap(SoapProtocolError::PlaySpeedNotSupported(format!(
@@ -148,8 +169,8 @@ impl UPnPAction for AVTransportAction {
                     // play() alone is a no-op if we're already Playing (e.g. a
                     // control point scrubbing speed mid-playback), so the speed
                     // change still needs to happen unconditionally after it.
-                    renderer.av_transport.play().await?;
-                    renderer.av_transport.set_play_speed(speed).await?;
+                    transport.play().await?;
+                    transport.set_play_speed(speed).await?;
                     Ok(())
                 }
                 .await;
@@ -164,34 +185,40 @@ impl UPnPAction for AVTransportAction {
                     ),
                 }
 
-                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                publish_transport_state(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 result?;
                 Ok(AVTransportResponse::Play(PlayResponse {}))
             }
             Self::Pause(req) => {
-                publish_transitioning(&renderer, &renderer.av_transport_events).await;
-                let result = renderer.av_transport.pause().await;
+                publish_transitioning(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
+                let result = transport.pause().await;
                 match &result {
                     Ok(_) => info!(instance_id = req.instance_id, "Handling Pause"),
                     Err(err) => warn!(instance_id = req.instance_id, error = %err, "Handling Pause"),
                 }
-                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                publish_transport_state(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 result?;
                 Ok(AVTransportResponse::Pause(PauseResponse {}))
             }
             Self::Stop(req) => {
-                publish_transitioning(&renderer, &renderer.av_transport_events).await;
-                let result = renderer.av_transport.stop().await;
+                publish_transitioning(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
+                let result = transport.stop().await;
                 match &result {
                     Ok(_) => info!(instance_id = req.instance_id, "Handling Stop"),
                     Err(err) => warn!(instance_id = req.instance_id, error = %err, "Handling Stop"),
                 }
-                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                publish_transport_state(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 result?;
                 Ok(AVTransportResponse::Stop(StopResponse {}))
             }
             Self::Seek(req) => {
-                publish_transitioning(&renderer, &renderer.av_transport_events).await;
+                publish_transitioning(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 let result = async {
                     if req.unit != "REL_TIME" && req.unit != "ABS_TIME" {
                         return Err(SoapError::Soap(SoapProtocolError::SeekModeNotSupported(
@@ -206,7 +233,7 @@ impl UPnPAction for AVTransportAction {
                         )))
                     })?;
 
-                    renderer.av_transport.seek(target).await?;
+                    transport.seek(target).await?;
                     Ok(())
                 }
                 .await;
@@ -233,22 +260,24 @@ impl UPnPAction for AVTransportAction {
                 // the spec's "when the desired position is reached,
                 // TransportState will return to the previous transport
                 // state" — that "return" is only observable through this.
-                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                publish_transport_state(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 result?;
                 Ok(AVTransportResponse::Seek(SeekResponse {}))
             }
             Self::Next(req) => {
-                let result = renderer.av_transport.next().await;
+                let result = transport.next().await;
                 match &result {
                     Ok(_) => info!(instance_id = req.instance_id, "Handling Next"),
                     Err(err) => warn!(instance_id = req.instance_id, error = %err, "Handling Next"),
                 }
                 result?;
-                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                publish_transport_state(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 Ok(AVTransportResponse::Next(NextResponse {}))
             }
             Self::Previous(req) => {
-                let result = renderer.av_transport.previous().await;
+                let result = transport.previous().await;
                 match &result {
                     Ok(_) => info!(instance_id = req.instance_id, "Handling Previous"),
                     Err(err) => {
@@ -256,14 +285,15 @@ impl UPnPAction for AVTransportAction {
                     }
                 }
                 result?;
-                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                publish_transport_state(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 Ok(AVTransportResponse::Previous(PreviousResponse {}))
             }
             Self::GetTransportInfo(req) => {
                 let result: Result<_, SoapError> = async {
-                    let state = renderer.av_transport.get_state().await?;
-                    let status = renderer.av_transport.get_status().await?;
-                    let speed = renderer.av_transport.get_play_speed().await?;
+                    let state = transport.get_state().await?;
+                    let status = transport.get_status().await?;
+                    let speed = transport.get_play_speed().await?;
                     Ok((state, status, speed))
                 }
                 .await;
@@ -294,7 +324,7 @@ impl UPnPAction for AVTransportAction {
             }
 
             Self::GetMediaInfo(req) => {
-                let result = renderer.av_transport.get_media_info().await;
+                let result = transport.get_media_info().await;
                 match &result {
                     Ok(Some(media)) => info!(
                         instance_id = req.instance_id,
@@ -344,7 +374,7 @@ impl UPnPAction for AVTransportAction {
             }
 
             Self::GetPositionInfo(req) => {
-                let result = renderer.av_transport.get_position_info().await;
+                let result = transport.get_position_info().await;
                 match &result {
                     Ok(Some(position)) => info!(
                         instance_id = req.instance_id,
@@ -411,7 +441,7 @@ impl UPnPAction for AVTransportAction {
                             req.new_play_mode
                         )))
                     })?;
-                    renderer.av_transport.set_play_mode(mode).await?;
+                    transport.set_play_mode(mode).await?;
                     Ok(())
                 }
                 .await;
@@ -431,12 +461,13 @@ impl UPnPAction for AVTransportAction {
                 }
 
                 result?;
-                publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                publish_transport_state(instance_id, transport.as_ref(), &renderer.av_transport_events)
+                    .await;
                 Ok(AVTransportResponse::SetPlayMode(SetPlayModeResponse {}))
             }
 
             Self::GetTransportSettings(req) => {
-                let result = renderer.av_transport.get_play_mode().await;
+                let result = transport.get_play_mode().await;
                 match &result {
                     Ok(mode) => info!(
                         instance_id = req.instance_id,
@@ -461,8 +492,8 @@ impl UPnPAction for AVTransportAction {
 
             Self::GetCurrentTransportActions(req) => {
                 let result: Result<_, SoapError> = async {
-                    let state = renderer.av_transport.get_state().await?;
-                    let media = renderer.av_transport.get_media_info().await?;
+                    let state = transport.get_state().await?;
+                    let media = transport.get_media_info().await?;
                     Ok((state, media))
                 }
                 .await;

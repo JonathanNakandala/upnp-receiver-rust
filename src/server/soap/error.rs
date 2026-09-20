@@ -1,6 +1,7 @@
 use std::str::Utf8Error;
 
 use crate::services::error::{ConnectionError, ServiceError, TransportError};
+use crate::services::instance::UnknownInstance;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use quick_xml::escape::escape;
@@ -37,6 +38,16 @@ pub enum SoapError {
 impl From<TransportError> for SoapError {
     fn from(err: TransportError) -> Self {
         SoapError::Service(ServiceError::Transport(err))
+    }
+}
+
+// Bypasses ServiceError the same way the TransportError impl above does —
+// an unresolvable InstanceID is a SOAP-level argument problem (UPnP error
+// 718), not a service-level failure, so it maps straight to
+// SoapProtocolError rather than through ServiceError.
+impl From<UnknownInstance> for SoapError {
+    fn from(err: UnknownInstance) -> Self {
+        SoapError::Soap(SoapProtocolError::from(err))
     }
 }
 
@@ -147,6 +158,15 @@ pub enum SoapProtocolError {
 
     #[error("Invalid preset name: {0}")]
     InvalidPresetName(String),
+
+    #[error("Invalid InstanceID")]
+    InvalidInstanceId,
+}
+
+impl From<UnknownInstance> for SoapProtocolError {
+    fn from(_: UnknownInstance) -> Self {
+        SoapProtocolError::InvalidInstanceId
+    }
 }
 
 impl SoapProtocolError {
@@ -194,6 +214,10 @@ impl SoapProtocolError {
             SoapProtocolError::InvalidPresetName(_) => UPnPErrorCode {
                 code: 701,
                 description: "Invalid Preset Name",
+            },
+            SoapProtocolError::InvalidInstanceId => UPnPErrorCode {
+                code: 718,
+                description: "Invalid InstanceID",
             },
         }
     }

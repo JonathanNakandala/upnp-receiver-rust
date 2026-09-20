@@ -6,6 +6,8 @@ use crate::server::soap::types::rendering_control::{
     SetMuteResponse, SetVolumeDBResponse, SetVolumeResponse,
 };
 use crate::server::soap::types::UPnPAction;
+use crate::services::instance::InstanceId;
+use crate::services::rendering_control::RenderingControl;
 use crate::services::MediaRenderer;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -13,14 +15,16 @@ use tracing::{info, warn};
 /// Publishes a `LastChange` NOTIFY reflecting current volume/mute right
 /// after a state-changing action succeeds, so subscribed control points
 /// find out immediately instead of waiting for their next poll.
-async fn publish_rendering_state(renderer: &MediaRenderer, events: &Arc<EventManager>) {
-    let volume = renderer.rendering_control.get_volume().await.unwrap_or(0);
-    let muted = renderer
-        .rendering_control
-        .get_mute()
-        .await
-        .unwrap_or(false);
-    events.broadcast(rendering_control_last_change(volume, muted));
+/// `instance_id`/`control` are the instance the triggering action was
+/// actually resolved against — see `RenderingControlAction::handle` below.
+async fn publish_rendering_state(
+    instance_id: InstanceId,
+    control: &dyn RenderingControl,
+    events: &Arc<EventManager>,
+) {
+    let volume = control.get_volume().await.unwrap_or(0);
+    let muted = control.get_mute().await.unwrap_or(false);
+    events.broadcast(rendering_control_last_change(instance_id, volume, muted));
 }
 
 impl UPnPAction for RenderingControlAction {
@@ -45,6 +49,14 @@ impl UPnPAction for RenderingControlAction {
     }
 
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
+        // Resolved once per request — see AVTransportAction::handle for why
+        // this happens before any action-specific logic, including for
+        // ListPresets/SelectPreset below, which don't otherwise touch
+        // `control` but still carry an InstanceID a control point could get
+        // wrong.
+        let instance_id = self.instance_id();
+        let control = renderer.rendering_control.get(instance_id)?;
+
         match self {
             // We only ever expose one preset — there's no persisted
             // configuration to snapshot/restore beyond current volume/mute —
@@ -77,10 +89,7 @@ impl UPnPAction for RenderingControlAction {
                 ))
             }
             Self::SetVolume(req) => {
-                let result = renderer
-                    .rendering_control
-                    .set_volume(req.desired_volume)
-                    .await;
+                let result = control.set_volume(req.desired_volume).await;
                 match &result {
                     Ok(_) => info!(
                         instance_id = req.instance_id,
@@ -97,11 +106,12 @@ impl UPnPAction for RenderingControlAction {
                     ),
                 }
                 result?;
-                publish_rendering_state(&renderer, &renderer.rendering_control_events).await;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
                 Ok(RenderingControlResponse::SetVolume(SetVolumeResponse {}))
             }
             Self::SetMute(req) => {
-                let result = renderer.rendering_control.set_mute(req.desired_mute).await;
+                let result = control.set_mute(req.desired_mute).await;
                 match &result {
                     Ok(_) => info!(
                         instance_id = req.instance_id,
@@ -118,11 +128,12 @@ impl UPnPAction for RenderingControlAction {
                     ),
                 }
                 result?;
-                publish_rendering_state(&renderer, &renderer.rendering_control_events).await;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
                 Ok(RenderingControlResponse::SetMute(SetMuteResponse {}))
             }
             Self::GetVolume(req) => {
-                let result = renderer.rendering_control.get_volume().await;
+                let result = control.get_volume().await;
                 match &result {
                     Ok(current_volume) => info!(
                         instance_id = req.instance_id,
@@ -143,7 +154,7 @@ impl UPnPAction for RenderingControlAction {
                 }))
             }
             Self::GetMute(req) => {
-                let result = renderer.rendering_control.get_mute().await;
+                let result = control.get_mute().await;
                 match &result {
                     Ok(current_mute) => info!(
                         instance_id = req.instance_id,
@@ -164,10 +175,7 @@ impl UPnPAction for RenderingControlAction {
                 }))
             }
             Self::SetVolumeDB(req) => {
-                let result = renderer
-                    .rendering_control
-                    .set_volume_db(req.desired_volume)
-                    .await;
+                let result = control.set_volume_db(req.desired_volume).await;
                 match &result {
                     Ok(_) => info!(
                         instance_id = req.instance_id,
@@ -184,11 +192,12 @@ impl UPnPAction for RenderingControlAction {
                     ),
                 }
                 result?;
-                publish_rendering_state(&renderer, &renderer.rendering_control_events).await;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
                 Ok(RenderingControlResponse::SetVolumeDB(SetVolumeDBResponse {}))
             }
             Self::GetVolumeDB(req) => {
-                let result = renderer.rendering_control.get_volume_db().await;
+                let result = control.get_volume_db().await;
                 match &result {
                     Ok(current_volume) => info!(
                         instance_id = req.instance_id,
@@ -209,7 +218,7 @@ impl UPnPAction for RenderingControlAction {
                 }))
             }
             Self::GetVolumeDBRange(req) => {
-                let (min_value, max_value) = renderer.rendering_control.volume_db_range();
+                let (min_value, max_value) = control.volume_db_range();
                 info!(
                     instance_id = req.instance_id,
                     channel = %req.channel,

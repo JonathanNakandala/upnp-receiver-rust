@@ -208,3 +208,16 @@ async fn test_set_mute_changes_get_mute() {
         body
     );
 }
+
+#[test(tokio::test)]
+async fn test_set_volume_with_unknown_instance_id_is_rejected() {
+    let (_server, client) = setup().await;
+
+    // Nothing has ever created instance 1 — PrepareForConnection isn't
+    // implemented, so only the default instance (0) exists.
+    let resp = client.set_volume_with_instance_id(1, 50).await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 400, "Response body: {}", body);
+    assert!(body.contains("<errorCode>718</errorCode>"), "Response body: {}", body);
+}
