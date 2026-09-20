@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/upnp-suite-core",
+    "crates/upnp-suite-renderer",
+    "crates/upnp-suite-cli",
+]
+
+[workspace.dependencies]
+tokio = "1.42.0"
+thiserror = "2.0.4"
+uuid = { version = "1.7", features = ["v4"] }
+async-trait = "0.1.83"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
+local-ip-address = "0.6.3"
+httpdate = "1.0.3"
+axum = { version = "0.7.9", features = ["http1", "tokio", "macros"] }
+askama = "0.12.1"
+futures = "0.3.31"
+serde = { version = "1.0.216", features = ["derive"] }
+quick-xml = { version = "0.37.1", features = ["serialize"] }
+serde_json = "1.0.133"
+tower-http = { version = "0.6.2", features = ["trace"] }
+nix = { version = "0.31.3", features = ["process", "signal"] }
+gstreamer = "0.25.3"
+reqwest = { version = "0.11", default-features = false }
+rand = "0.8"
+termtree = "1.0.0"

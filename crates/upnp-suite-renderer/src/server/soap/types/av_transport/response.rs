@@ -1,0 +1,119 @@
+use serde::Serialize;
+
+use super::{TransportState, TransportStatus};
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetAVTransportURIResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetNextAVTransportURIResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PlayResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PauseResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct StopResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SeekResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct NextResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct PreviousResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetTransportInfoResponse {
+    pub current_transport_state: TransportState,
+    pub current_transport_status: TransportStatus,
+    pub current_speed: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetMediaInfoResponse {
+    pub nr_tracks: u32,
+    pub media_duration: String,
+    #[serde(rename = "CurrentURI")]
+    pub current_uri: String,
+    #[serde(rename = "CurrentURIMetaData")]
+    pub current_uri_metadata: String,
+    #[serde(rename = "NextURI")]
+    pub next_uri: String,
+    #[serde(rename = "NextURIMetaData")]
+    pub next_uri_metadata: String,
+    pub play_medium: String,
+    pub record_medium: String,
+    pub write_status: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetPlayModeResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetTransportSettingsResponse {
+    pub play_mode: String,
+    pub rec_quality_mode: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetCurrentTransportActionsResponse {
+    pub actions: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetDeviceCapabilitiesResponse {
+    pub play_media: String,
+    pub rec_media: String,
+    pub rec_quality_modes: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetPositionInfoResponse {
+    pub track: u32,
+    pub track_duration: String,
+    #[serde(rename = "TrackMetaData")]
+    pub track_metadata: String,
+    #[serde(rename = "TrackURI")]
+    pub track_uri: String,
+    pub rel_time: String,
+    pub abs_time: String,
+    pub rel_count: i32,
+    pub abs_count: i32,
+}
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum AVTransportResponse {
+    SetAVTransportURI(SetAVTransportURIResponse),
+    SetNextAVTransportURI(SetNextAVTransportURIResponse),
+    Play(PlayResponse),
+    Pause(PauseResponse),
+    Stop(StopResponse),
+    Seek(SeekResponse),
+    Next(NextResponse),
+    Previous(PreviousResponse),
+    TransportInfo(GetTransportInfoResponse),
+    MediaInfo(GetMediaInfoResponse),
+    PositionInfo(GetPositionInfoResponse),
+    SetPlayMode(SetPlayModeResponse),
+    TransportSettings(GetTransportSettingsResponse),
+    CurrentTransportActions(GetCurrentTransportActionsResponse),
+    DeviceCapabilities(GetDeviceCapabilitiesResponse),
+}

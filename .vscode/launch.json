@@ -1,0 +1,49 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug upnp-suite-renderer",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=upnp-suite-renderer",
+                    "--package=upnp-suite-renderer"
+                ]
+            },
+            // e.g. "--media-backend", "dummy", "--log-clients", "--icon", "path/to/icon.png"
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUST_LOG": "info"
+            },
+            // "console" pipes stdout through a plain pipe, and Rust fully
+            // block-buffers (not line-buffers) stdout when it isn't a real
+            // tty — tracing output then never flushes for a long-running
+            // process. "integrated" gives it a real pty instead, so logs
+            // stream live (into the Integrated Terminal tab, not the Debug
+            // Console panel).
+            "terminal": "integrated"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug upnp-discover",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=upnp-discover",
+                    "--package=upnp-suite-cli"
+                ]
+            },
+            // e.g. "5", "--vars"
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUST_LOG": "info"
+            },
+            "terminal": "integrated"
+        }
+    ]
+}

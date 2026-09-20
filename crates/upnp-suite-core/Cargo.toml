@@ -1,0 +1,18 @@
+[package]
+name = "upnp-suite-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { workspace = true, features = ["net", "time", "rt", "macros"] }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+quick-xml = { workspace = true }
+httpdate = { workspace = true }

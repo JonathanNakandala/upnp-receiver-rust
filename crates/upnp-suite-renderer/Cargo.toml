@@ -1,0 +1,32 @@
+[package]
+name = "upnp-suite-renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+upnp-suite-core = { path = "../upnp-suite-core" }
+tokio = { workspace = true, features = ["net", "macros", "rt", "rt-multi-thread", "time", "sync", "signal", "io-util", "fs"] }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+local-ip-address = { workspace = true }
+httpdate = { workspace = true }
+axum = { workspace = true }
+askama = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+quick-xml = { workspace = true }
+serde_json = { workspace = true }
+tower-http = { workspace = true }
+nix = { workspace = true }
+gstreamer = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+reqwest = { workspace = true, features = ["json"] }
+test-log = { version = "0.2", features = ["trace"] }
+env_logger = "0.10"

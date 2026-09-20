@@ -1,0 +1,95 @@
+use crate::server::soap::error::{SoapError, SoapProtocolError};
+use crate::server::soap::handlers::av_transport::AVTransportService;
+use crate::server::soap::handlers::connection_manager::ConnectionManagerService;
+use crate::server::soap::handlers::rendering_control::RenderingControlService;
+use crate::server::soap::parser::parse_soap_action;
+use crate::server::soap::types::UPnPService;
+use crate::services::MediaRenderer;
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{HeaderMap, Response};
+use axum::routing::post;
+use axum::Router;
+use std::sync::Arc;
+use tracing::{debug, trace};
+
+/// State (the `Arc<MediaRenderer>`) is supplied by the parent router's
+/// `.with_state()` call in `HttpServer::router`, not stored here — this type
+/// just groups route registration.
+pub struct UPnPServiceRouter;
+
+impl Default for UPnPServiceRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl UPnPServiceRouter {
+    pub fn new() -> Self {
+        Self
+    }
+    pub fn router(self) -> Router<Arc<MediaRenderer>> {
+        trace!("Creating router");
+        Router::new()
+            .route(
+                "/services/AVTransport/control",
+                post(Self::handle_av_transport),
+            )
+            .route(
+                "/services/RenderingControl/control",
+                post(Self::handle_rendering_control),
+            )
+            .route(
+                "/services/ConnectionManager/control",
+                post(Self::handle_connection_manager),
+            )
+    }
+
+    async fn handle_service<S: UPnPService>(
+        State(renderer): State<Arc<MediaRenderer>>,
+        headers: HeaderMap,
+        body: String,
+    ) -> Result<Response<Body>, SoapError> {
+        // Extract SOAP action first
+        debug!("Extracting Soap Action");
+        let soap_action = parse_soap_action(&headers)?;
+
+        // Parse the action content based on the action name
+        let action: S::Action = S::parse_action(&soap_action, &body).map_err(|e| {
+            SoapError::Soap(SoapProtocolError::ParseError(format!(
+                "Failed to parse action: {}",
+                e
+            )))
+        })?;
+
+        // Handle the action
+        S::handle_action(action, renderer).await
+    }
+
+    async fn handle_av_transport(
+        State(renderer): State<Arc<MediaRenderer>>,
+        headers: HeaderMap,
+        body: String,
+    ) -> Result<Response<Body>, SoapError> {
+        trace!(body = body, headers = ?headers, "AV Transport Handler Activated");
+        Self::handle_service::<AVTransportService>(State(renderer), headers, body).await
+    }
+
+    async fn handle_rendering_control(
+        State(renderer): State<Arc<MediaRenderer>>,
+        headers: HeaderMap,
+        body: String,
+    ) -> Result<Response<Body>, SoapError> {
+        trace!(body = body, headers = ?headers, "RenderingControl Handler Activated");
+        Self::handle_service::<RenderingControlService>(State(renderer), headers, body).await
+    }
+
+    async fn handle_connection_manager(
+        State(renderer): State<Arc<MediaRenderer>>,
+        headers: HeaderMap,
+        body: String,
+    ) -> Result<Response<Body>, SoapError> {
+        trace!(body = body, headers = ?headers, "ConnectionManager Handler Activated");
+        Self::handle_service::<ConnectionManagerService>(State(renderer), headers, body).await
+    }
+}
