@@ -23,6 +23,7 @@
 mod app;
 mod capability;
 mod frame;
+mod menu;
 mod renderer;
 mod sink;
 
@@ -30,18 +31,75 @@ pub use frame::VideoFrame;
 pub(crate) use capability::can_render;
 pub(crate) use sink::build_video_sink;
 
-use winit::event_loop::{EventLoop, EventLoopProxy};
+use crate::server::soap::types::av_transport::TransportState;
+use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy};
 
-/// Delivered from GStreamer's streaming thread into the event loop running
-/// on the main thread.
-enum VideoEvent {
-    Frame(VideoFrame),
+/// Makes explicit what winit already does by default for an unbundled
+/// binary (no Info.plist/bundle identifier): become the regular,
+/// foreground app and activate immediately, rather than relying on that
+/// bundle-identifier heuristic - see the module docs on why the app's menu
+/// bar visibility should not depend on an inferred default.
+#[cfg(target_os = "macos")]
+fn configure_macos_activation(builder: &mut EventLoopBuilder<VideoEvent>) {
+    use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+    builder
+        .with_activation_policy(ActivationPolicy::Regular)
+        .with_activate_ignoring_other_apps(true);
 }
 
-/// Handle the media backend feeds decoded frames into. Cloning and sending
-/// are both safe from any thread - the appsink callback in [`sink`] runs on
-/// one of GStreamer's own streaming threads, never the main thread this
-/// handle's other end (the window/renderer in [`app`]) runs on.
+#[cfg(not(target_os = "macos"))]
+fn configure_macos_activation(_builder: &mut EventLoopBuilder<VideoEvent>) {}
+
+/// Delivered from GStreamer's streaming thread, or from `main`'s async side,
+/// into the event loop running on the main thread.
+enum VideoEvent {
+    Frame(VideoFrame),
+    /// Sent once, shortly after the renderer starts - see [`PlaybackControls`].
+    Controls(PlaybackControls),
+    /// Sent on a timer from `main`'s async side, so the menu's Play/Pause
+    /// label, checked speed and subtitle checkbox stay accurate regardless
+    /// of what changed them (a SOAP action, this same menu, or the backend
+    /// reaching end-of-stream on its own).
+    State(MenuState),
+}
+
+/// What the video window's native menu displays - not pushed reactively,
+/// since transport state can change from several independent sources, but
+/// polled on a timer from the single source of truth (`AVTransport::get_state`
+/// and friends) by whoever calls [`VideoOutput::send_state`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MenuState {
+    pub transport_state: TransportState,
+    pub speed: f64,
+    pub subtitles_enabled: bool,
+}
+
+/// The video window's native menu (play/pause, stop, speed, fullscreen,
+/// subtitles) acts on these rather than on `AVTransport`/`MediaBackend`
+/// directly, so this module doesn't need to depend on the services/eventing
+/// layer - whoever sends this (`main`) wires each closure to the real
+/// AVTransport call plus the matching GENA `LastChange` publish, the same
+/// pair a SOAP action does, so a menu click is indistinguishable from a
+/// control point's to any subscriber.
+pub struct PlaybackControls {
+    pub play_pause: Box<dyn Fn() + Send + Sync>,
+    pub stop: Box<dyn Fn() + Send + Sync>,
+    pub set_speed: Box<dyn Fn(f64) + Send + Sync>,
+    /// Synchronous, unlike the others: the subtitle track is a local
+    /// GStreamer pipeline property, not a UPnP action - no async call or
+    /// `LastChange` event involved. Returns the new enabled state, so the
+    /// menu checkbox can update immediately rather than waiting for the
+    /// next state poll.
+    pub toggle_subtitles: Box<dyn Fn() -> bool + Send + Sync>,
+    /// Populates the Speed submenu, e.g. `[0.25, 0.5, 1.0, 2.0, 4.0]`.
+    pub supported_speeds: Vec<f64>,
+}
+
+/// Handle the media backend feeds decoded frames into, and `main`'s async
+/// side feeds playback controls and state updates into. Cloning and sending
+/// are both safe from any thread - callers run on GStreamer's own streaming
+/// threads or on the async runtime's, never the main thread this handle's
+/// other end (the window/menu in [`app`]) runs on.
 #[derive(Clone)]
 pub struct VideoOutput {
     proxy: EventLoopProxy<VideoEvent>,
@@ -53,6 +111,17 @@ impl VideoOutput {
         // exiting) - nothing to do about that from a GStreamer streaming
         // thread, so the frame is just dropped.
         let _ = self.proxy.send_event(VideoEvent::Frame(frame));
+    }
+
+    /// Sent once, as soon as the AVTransport service exists - well before
+    /// any video window opens, since that's lazy on the first frame (see
+    /// the module docs).
+    pub fn send_controls(&self, controls: PlaybackControls) {
+        let _ = self.proxy.send_event(VideoEvent::Controls(controls));
+    }
+
+    pub fn send_state(&self, state: MenuState) {
+        let _ = self.proxy.send_event(VideoEvent::State(state));
     }
 }
 
@@ -70,7 +139,9 @@ pub fn new() -> (
     VideoOutput,
     impl FnOnce() -> Result<(), winit::error::EventLoopError>,
 ) {
-    let event_loop = EventLoop::<VideoEvent>::with_user_event()
+    let mut builder = EventLoop::<VideoEvent>::with_user_event();
+    configure_macos_activation(&mut builder);
+    let event_loop = builder
         .build()
         .expect("failed to create the video window's event loop");
     let proxy = event_loop.create_proxy();

@@ -8,6 +8,6 @@ pub mod backend;
 pub mod codecs;
 pub mod video;
 
-pub use backend::{GStreamerBackend, PlaybinVersion};
+pub use backend::{GStreamerBackend, PlaybinVersion, SubtitleControl};
 pub use codecs::supported_mime_types;
-pub use video::VideoOutput;
+pub use video::{MenuState, PlaybackControls, VideoOutput};

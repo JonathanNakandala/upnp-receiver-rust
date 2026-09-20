@@ -24,3 +24,5 @@ Cargo.lock
 
 # Client request logs (--log-clients), captured for protocol debugging
 /logs/
+
+.vscode/reference/

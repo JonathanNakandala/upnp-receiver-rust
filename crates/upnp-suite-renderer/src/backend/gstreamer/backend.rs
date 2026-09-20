@@ -40,6 +40,20 @@ struct PlayerState {
     // `SetPlayMode`. `about-to-finish` consults it when nothing's queued in
     // `next` (see `connect_about_to_finish`).
     play_mode: PlayMode,
+    // The current track's streams, as reported by GStreamer's
+    // `GST_MESSAGE_STREAM_COLLECTION` bus message - `None` until that
+    // arrives (shortly after `load_media`, once decodebin3 knows what the
+    // file contains). `SubtitleControl` needs this: toggling a subtitle
+    // track on/off is done by re-sending a `select-streams` event listing
+    // which of these stream ids should be active, not a simple property
+    // (unlike `playbin` v1's `current-text` - `playbin3` has no such
+    // property, this is the only API it exposes for stream selection).
+    stream_collection: Option<gst::StreamCollection>,
+    // Whether the subtitle track (if any) should be included the next time
+    // a `select-streams` event is sent - reset to `true` by `load_media`
+    // for each new track, since there's nothing UPnP-visible carrying a
+    // per-track "no subtitles" preference forward.
+    subtitles_enabled: bool,
 }
 
 impl Default for PlayerState {
@@ -52,6 +66,8 @@ impl Default for PlayerState {
             speed: 1.0,
             next: None,
             play_mode: PlayMode::Normal,
+            stream_collection: None,
+            subtitles_enabled: true,
         }
     }
 }
@@ -234,6 +250,32 @@ impl GStreamerBackend {
     }
 }
 
+/// Local (non-UPnP) subtitle on/off toggle for the video window's menu -
+/// its own trait rather than a `MediaBackend` method, since it's a
+/// GStreamer/video pipeline property, not a capability every backend has a
+/// concept of.
+pub trait SubtitleControl: Send + Sync {
+    /// Flips the current subtitle track on/off, returning the new state.
+    fn toggle_subtitles(&self) -> bool;
+    fn subtitles_enabled(&self) -> bool;
+}
+
+impl SubtitleControl for GStreamerBackend {
+    fn toggle_subtitles(&self) -> bool {
+        let enabled = {
+            let mut player_state = self.state.lock().unwrap();
+            player_state.subtitles_enabled = !player_state.subtitles_enabled;
+            player_state.subtitles_enabled
+        };
+        apply_stream_selection(&self.playbin(), &self.state, enabled);
+        enabled
+    }
+
+    fn subtitles_enabled(&self) -> bool {
+        self.state.lock().unwrap().subtitles_enabled
+    }
+}
+
 /// Video needs `playbin3` unconditionally; audio uses whichever version was
 /// requested.
 fn required_version(has_video_output: bool, requested: PlaybinVersion) -> PlaybinVersion {
@@ -325,6 +367,7 @@ fn spawn_bus_watcher(
             gst::MessageType::Eos,
             gst::MessageType::Error,
             gst::MessageType::Warning,
+            gst::MessageType::StreamCollection,
         ];
         let mut interval = tokio::time::interval(Duration::from_millis(100));
 
@@ -360,11 +403,65 @@ fn spawn_bus_watcher(
                             "GStreamer pipeline warning"
                         );
                     }
+                    gst::MessageView::StreamCollection(msg) => {
+                        let collection = msg.stream_collection();
+                        info!(
+                            streams = collection.len(),
+                            "GStreamer reported the current track's stream collection"
+                        );
+                        // A fresh collection means a fresh track - apply
+                        // whatever the current subtitle preference is (set
+                        // to `true` by `load_media`, or toggled since) to
+                        // it, rather than leaving new streams unselected.
+                        let subtitles_enabled = {
+                            let mut player_state = state.lock().unwrap();
+                            player_state.stream_collection = Some(collection);
+                            player_state.subtitles_enabled
+                        };
+                        apply_stream_selection(&playbin, &state, subtitles_enabled);
+                    }
                     _ => {}
                 }
             }
         }
     })
+}
+
+/// Sends a `select-streams` event listing every non-text stream, plus the
+/// first text stream if `subtitles_enabled` - the only API `playbin3`
+/// exposes for stream selection (see [`PlayerState::stream_collection`]'s
+/// docs for why `playbin` v1's simpler `current-text` property doesn't
+/// exist here).
+fn apply_stream_selection(playbin: &gst::Element, state: &Arc<Mutex<PlayerState>>, subtitles_enabled: bool) {
+    let Some(collection) = state.lock().unwrap().stream_collection.clone() else {
+        return;
+    };
+
+    let mut first_text_included = false;
+    let stream_ids: Vec<String> = collection
+        .iter()
+        .filter_map(|stream| {
+            let id = stream.stream_id()?.to_string();
+            if stream.stream_type().contains(gst::StreamType::TEXT) {
+                if subtitles_enabled && !first_text_included {
+                    first_text_included = true;
+                    Some(id)
+                } else {
+                    None
+                }
+            } else {
+                Some(id)
+            }
+        })
+        .collect();
+
+    info!(
+        streams = ?stream_ids,
+        subtitles_enabled,
+        "Sending select-streams"
+    );
+    let ids: Vec<&str> = stream_ids.iter().map(String::as_str).collect();
+    playbin.send_event(gst::event::SelectStreams::new(ids));
 }
 
 /// Shared cleanup for both bus-watcher cases: drop the pipeline back to
@@ -498,6 +595,12 @@ impl MediaBackend for GStreamerBackend {
             // context — whatever was previously queued to follow the old
             // track no longer applies.
             state.next = None;
+            // Stale until the new track's own StreamCollection message
+            // arrives; subtitles default back on for each new track, since
+            // there's no UPnP-visible per-track "no subtitles" preference
+            // to carry forward.
+            state.stream_collection = None;
+            state.subtitles_enabled = true;
         }
 
         // Kick off preroll into Paused so playback can start immediately
