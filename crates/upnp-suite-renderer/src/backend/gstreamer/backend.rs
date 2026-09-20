@@ -1,23 +1,13 @@
-//! [`MediaBackend`] implementation on top of real GStreamer playback via
-//! `playbin`, in-process — as opposed to [`DummyBackend`], which talks to a
-//! separate simulated subprocess over TCP and does no real decoding.
-//!
-//! First step: get a `playbin` pipeline actually decoding and playing audio
-//! (MP3 in particular — `playbin` auto-plugs the right demuxer/decoder for
-//! whatever the source turns out to be, so this isn't MP3-specific beyond
-//! "that's what's been exercised so far"). Volume/mute ride along for free
-//! since `playbin` exposes them as plain properties.
-//!
-//! [`DummyBackend`]: crate::backend::dummy::DummyBackend
+//! [`MediaBackend`] implementation using GStreamer for playback
+//! Requires it to be installed locally
 
 use async_trait::async_trait;
 use gstreamer as gst;
 use gstreamer::prelude::*;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::watch;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
 use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
@@ -80,10 +70,16 @@ pub struct GStreamerBackend {
     // from `state_tx` (the transport state doesn't change across a gapless
     // transition, only the URI/metadata does).
     track_tx: watch::Sender<TrackInfo>,
-    bus_watcher_shutdown: Arc<AtomicBool>,
+    bus_watcher: tokio::task::JoinHandle<()>,
 }
 
 impl GStreamerBackend {
+    // `playbin3` was tried and reverted: it rejects a seek issued before its
+    // (much heavier) initial stream-collection negotiation completes —
+    // ~2.5s of retries observed for a seek right after `play()`, vs ~7ms on
+    // `playbin`, which accepts a seek mid-preroll. That's exactly the
+    // SetAVTransportURI -> Play -> Seek-to-resume-position sequence many
+    // UPnP control points use, so it's not an edge case here.
     pub fn new() -> Result<Self, MediaBackendError> {
         ensure_initialized()?;
 
@@ -97,14 +93,8 @@ impl GStreamerBackend {
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let (state_tx, _) = watch::channel(TransportState::NoMediaPresent);
         let (track_tx, _) = watch::channel(TrackInfo::default());
-        let bus_watcher_shutdown = Arc::new(AtomicBool::new(false));
 
-        spawn_bus_watcher(
-            playbin.clone(),
-            state.clone(),
-            state_tx.clone(),
-            bus_watcher_shutdown.clone(),
-        );
+        let bus_watcher = spawn_bus_watcher(playbin.clone(), state.clone(), state_tx.clone());
         connect_about_to_finish(&playbin, state.clone(), track_tx.clone());
 
         Ok(Self {
@@ -112,74 +102,94 @@ impl GStreamerBackend {
             state,
             state_tx,
             track_tx,
-            bus_watcher_shutdown,
+            bus_watcher,
         })
     }
 }
 
 impl Drop for GStreamerBackend {
     fn drop(&mut self) {
-        // Signal the bus-watcher thread to stop (it notices within its next
-        // ~200ms poll and exits on its own — nothing here to join).
-        self.bus_watcher_shutdown.store(true, Ordering::Relaxed);
+        // Best-effort: `abort()` only requests cancellation (it takes effect
+        // next time the task is polled/yields), but nothing here depends on
+        // the watcher having stopped by the time this returns.
+        self.bus_watcher.abort();
         // Best-effort: release the audio device and any decoder resources.
         let _ = self.playbin.set_state(gst::State::Null);
     }
 }
 
-/// Runs on a dedicated OS thread (GStreamer's bus is a blocking-poll API;
-/// there's no GLib main loop pumped anywhere in this app for `bus.add_watch`
-/// callbacks to fire on) watching for the two messages that mean playback
-/// stopped without anyone calling `stop()`: end-of-stream, and a pipeline
-/// error (bad/missing codec, dropped network stream, etc.). Without this,
-/// `GetTransportInfo` would keep reporting `Playing` forever after a track
-/// finishes naturally or a stream dies mid-playback.
+/// Watches the bus for the messages that mean playback stopped without
+/// anyone calling `stop()` — end-of-stream, and a pipeline error
+/// (bad/missing codec, dropped network stream, etc.) — plus warnings, logged
+/// for diagnostics but not otherwise acted on. Without the Eos/Error handling
+/// here, `GetTransportInfo` would keep reporting `Playing` forever after a
+/// track finishes naturally or a stream dies mid-playback.
+///
+/// Runs as a tokio task, polling the bus's normal async queue with a
+/// non-blocking [`gst::Bus::pop_filtered`] on a short interval — deliberately
+/// *not* [`gst::Bus::stream_filtered`]/[`gst::Bus::stream`], which install a
+/// sync bus handler. A sync handler's callback runs synchronously on
+/// whichever thread posts the message — for `playbin` that includes its own
+/// internal streaming/decoding threads — and fires for *every* bus message
+/// (state changes, QOS, tags, ...), not just the ones filtered for here.
+/// Doing channel/allocation work inline on those threads for every message
+/// was audible as playback stutter. Polling instead only ever touches
+/// GStreamer's lightweight default async enqueue, from this task's own
+/// thread.
 fn spawn_bus_watcher(
     playbin: gst::Element,
     state: Arc<Mutex<PlayerState>>,
     state_tx: watch::Sender<TransportState>,
-    shutdown: Arc<AtomicBool>,
-) {
-    std::thread::spawn(move || {
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
         let Some(bus) = playbin.bus() else {
             return;
         };
 
-        while !shutdown.load(Ordering::Relaxed) {
-            let Some(msg) = bus.timed_pop_filtered(
-                gst::ClockTime::from_mseconds(200),
-                &[gst::MessageType::Eos, gst::MessageType::Error],
-            ) else {
-                continue;
-            };
+        let message_types = [
+            gst::MessageType::Eos,
+            gst::MessageType::Error,
+            gst::MessageType::Warning,
+        ];
+        let mut interval = tokio::time::interval(Duration::from_millis(100));
 
-            match msg.view() {
-                gst::MessageView::Eos(_) => {
-                    info!("GStreamer reported end-of-stream, stopping");
-                    stop_after_unprompted_end(
-                        &playbin,
-                        &state,
-                        &state_tx,
-                        TransportStatus::OK,
-                    );
+        loop {
+            interval.tick().await;
+
+            // Drain every matching message queued since the last tick, not
+            // just one — a burst (e.g. a warning right before an error)
+            // shouldn't have to wait out extra ticks to be seen.
+            while let Some(msg) = bus.pop_filtered(&message_types) {
+                match msg.view() {
+                    gst::MessageView::Eos(_) => {
+                        info!("GStreamer reported end-of-stream, stopping");
+                        stop_after_unprompted_end(&playbin, &state, &state_tx, TransportStatus::OK);
+                    }
+                    gst::MessageView::Error(err) => {
+                        error!(
+                            error = %err.error(),
+                            debug = ?err.debug(),
+                            "GStreamer pipeline error, stopping playback"
+                        );
+                        stop_after_unprompted_end(
+                            &playbin,
+                            &state,
+                            &state_tx,
+                            TransportStatus::ErrorOccurred,
+                        );
+                    }
+                    gst::MessageView::Warning(warning) => {
+                        warn!(
+                            warning = %warning.error(),
+                            debug = ?warning.debug(),
+                            "GStreamer pipeline warning"
+                        );
+                    }
+                    _ => {}
                 }
-                gst::MessageView::Error(err) => {
-                    error!(
-                        error = %err.error(),
-                        debug = ?err.debug(),
-                        "GStreamer pipeline error, stopping playback"
-                    );
-                    stop_after_unprompted_end(
-                        &playbin,
-                        &state,
-                        &state_tx,
-                        TransportStatus::ErrorOccurred,
-                    );
-                }
-                _ => {}
             }
         }
-    });
+    })
 }
 
 /// Shared cleanup for both bus-watcher cases: drop the pipeline back to
@@ -639,10 +649,8 @@ mod tests {
     #[tokio::test]
     #[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test -- --ignored`"]
     async fn reaches_stopped_on_natural_end_of_stream() {
-        let path = std::env::temp_dir().join(format!(
-            "upnp_receiver_test_eos_{}.mp3",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("upnp_receiver_test_eos_{}.mp3", std::process::id()));
         // The shared fixture is already short (~1s of audio), so playback
         // reaches EOS quickly without a dedicated shorter one.
         generate_test_mp3(&path);

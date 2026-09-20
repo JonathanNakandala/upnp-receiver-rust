@@ -5,12 +5,6 @@ use std::sync::Arc;
 
 use super::{MediaBackend, MediaBackendError};
 
-/// [`RenderingControl`] implementation backed by a real [`MediaBackend`]
-/// (GStreamer's `playbin` volume/mute properties, in practice) instead of
-/// [`RenderingControlImpl`](crate::services::rendering_control::RenderingControlImpl)'s
-/// disconnected in-memory state — without this, a control point's volume
-/// slider moves and reads back correctly while doing nothing to the actual
-/// sound.
 pub struct MediaBackendRenderingControl {
     backend: Arc<dyn MediaBackend>,
 }
@@ -31,9 +25,7 @@ impl MediaBackendRenderingControl {
     }
 
     // UPnP's Volume state variable is a ui2, but we only ever deal in
-    // percent (0-100) — same range RenderingControlImpl enforced, kept here
-    // so callers see the same rejection regardless of which backend is
-    // wired in.
+    // percent (0-100)
     fn validate_volume(volume: u16) -> Result<(), ServiceError> {
         if volume > 100 {
             return Err(ServiceError::InvalidValue(format!(
