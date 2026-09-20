@@ -8,7 +8,7 @@ fn init_logging() {
     let subscriber = tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::from_default_env()
-                .add_directive("upnp_receiver=debug".parse().unwrap())
+                .add_directive("upnp_suite_renderer=debug".parse().unwrap())
                 .add_directive("test=debug".parse().unwrap()),
         )
         .with_span_events(FmtSpan::FULL)

@@ -1,7 +1,7 @@
 //! Control-point side of SSDP: sends `M-SEARCH` and collects device
 //! responses. Complements [`super::SsdpAdvertiser`], which only ever
-//! *answers* M-SEARCH — nothing in the `upnp-receiver` binary itself uses
-//! this; it's for tools like `upnp-discover` that need to find *other*
+//! *answers* M-SEARCH — nothing in the `upnp-suite-renderer` binary itself
+//! uses this; it's for tools like `upnp-discover` that need to find *other*
 //! UPnP devices on the network.
 
 use crate::discovery::error::DiscoveryServiceError;

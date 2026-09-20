@@ -195,7 +195,7 @@ where
 }
 
 /// Maps a tracing target (Rust module path, e.g.
-/// `upnp_receiver::discovery::ssdp`) to a short, stable component name.
+/// `upnp_suite_core::discovery::ssdp`) to a short, stable component name.
 /// Substring matching keeps this robust to nested submodules (e.g.
 /// `server::soap::handlers::av_transport::action` still maps to
 /// `av_transport`) without needing a call site to opt in.
@@ -220,9 +220,9 @@ fn component_for(target: &str) -> std::borrow::Cow<'static, str> {
         ("soap", "SOAP"),
     ];
 
-    // The crate-root module (main.rs) has a target equal to the crate name
-    // itself, with no "::" to distinguish it from a real submodule.
-    if target == "upnp_receiver" {
+    // Each binary's crate-root module (main.rs) has a target equal to its
+    // own crate name, with no "::" to distinguish it from a real submodule.
+    if target == "upnp_suite_renderer" || target == "upnp_suite_cli" {
         return std::borrow::Cow::Borrowed("Main");
     }
 

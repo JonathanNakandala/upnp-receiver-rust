@@ -5,8 +5,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::backend::{MediaBackend, MediaBackendAVTransport, MediaBackendRenderingControl};
-use crate::discovery::error::DiscoveryServiceError;
-use crate::discovery::service::{
+use upnp_suite_core::discovery::error::DiscoveryServiceError;
+use upnp_suite_core::discovery::service::{
     MediaRendererConfig, MediaRendererService, Server, ServiceInfo, SsdpService,
 };
 use crate::ip::get_default_ip;

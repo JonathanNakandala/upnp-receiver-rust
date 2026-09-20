@@ -1,13 +1,15 @@
-[package]
-name = "upnp-receiver"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "crates/upnp-suite-core",
+    "crates/upnp-suite-renderer",
+    "crates/upnp-suite-cli",
+]
 
-[dependencies]
-tokio = { version = "1.42.0", features = ["net", "macros", "rt", "rt-multi-thread", "time", "sync", "signal", "io-util", "fs"] }
+[workspace.dependencies]
+tokio = "1.42.0"
 thiserror = "2.0.4"
 uuid = { version = "1.7", features = ["v4"] }
-derive_builder = "0.20"
 async-trait = "0.1.83"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
@@ -17,8 +19,6 @@ axum = { version = "0.7.9", features = ["http1", "tokio", "macros"] }
 askama = "0.12.1"
 futures = "0.3.31"
 serde = { version = "1.0.216", features = ["derive"] }
-serde-xml-rs = "0.6"
-serde_with = "1.13.0"
 quick-xml = { version = "0.37.1", features = ["serialize"] }
 serde_json = "1.0.133"
 tower-http = { version = "0.6.2", features = ["trace"] }
@@ -27,8 +27,3 @@ gstreamer = "0.25.3"
 reqwest = { version = "0.11", default-features = false }
 rand = "0.8"
 termtree = "1.0.0"
-[dev-dependencies]
-tokio = { version = "1.42.0", features = ["test-util", "test-util"] }
-reqwest = { version = "0.11", features = ["json"] }
-test-log = { version = "0.2", features = ["trace"] }
-env_logger = "0.10"

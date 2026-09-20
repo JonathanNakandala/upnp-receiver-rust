@@ -47,7 +47,7 @@ pub enum MediaRendererService {
 }
 
 impl MediaRendererService {
-    pub(crate) fn to_urn(&self) -> String {
+    pub fn to_urn(&self) -> String {
         match self {
             Self::AVTransport => "urn:schemas-upnp-org:service:AVTransport:1",
             Self::RenderingControl => "urn:schemas-upnp-org:service:RenderingControl:1",
@@ -80,7 +80,7 @@ impl MediaRendererConfig {
         MediaRendererConfigBuilder::default()
     }
 
-    pub(crate) fn default_services() -> Vec<MediaRendererService> {
+    pub fn default_services() -> Vec<MediaRendererService> {
         vec![
             MediaRendererService::AVTransport,
             MediaRendererService::RenderingControl,

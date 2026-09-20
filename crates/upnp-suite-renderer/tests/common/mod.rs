@@ -1,4 +1,4 @@
-extern crate upnp_receiver;
+extern crate upnp_suite_renderer;
 pub mod mock_subscriber;
 pub mod soap_client;
 
@@ -7,9 +7,9 @@ pub use soap_client::SoapClient;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use upnp_receiver::server::ClientLogger;
-use upnp_receiver::services::MediaRenderer;
-use upnp_receiver::{HttpServer, MediaRendererConfig};
+use upnp_suite_renderer::server::ClientLogger;
+use upnp_suite_renderer::services::MediaRenderer;
+use upnp_suite_renderer::{HttpServer, MediaRendererConfig};
 pub struct TestServer {
     pub address: SocketAddr,
     shutdown_tx: oneshot::Sender<()>,

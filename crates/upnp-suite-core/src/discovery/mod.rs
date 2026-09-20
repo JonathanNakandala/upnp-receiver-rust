@@ -1,10 +1,10 @@
 pub mod client;
 pub mod description;
-pub(crate) mod error;
+pub mod error;
 mod messages;
 mod request;
 mod search;
-pub(crate) mod service;
+pub mod service;
 mod ssdp;
 
 pub use error::DiscoveryServiceError;

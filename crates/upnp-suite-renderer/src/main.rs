@@ -1,7 +1,5 @@
 use backend::dummy::{run_dummy_process, DummyBackendManager};
 use backend::{gstreamer, DummyBackend, GStreamerBackend, MediaBackend};
-use discovery::{service::MediaRendererConfig, SsdpAdvertiser};
-use logging::{LogStyle, TextFormatter};
 use server::{ClientLogger, HttpServer};
 use services::MediaRenderer;
 use std::path::PathBuf;
@@ -9,12 +7,17 @@ use std::{error::Error, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use upnp_suite_core::discovery::{service::MediaRendererConfig, SsdpAdvertiser};
+use upnp_suite_core::logging::{LogStyle, TextFormatter};
 mod backend;
-mod discovery;
 mod ip;
-mod logging;
 mod server;
 mod services;
+
+/// Advertised in the SSDP/HTTP `Server:` header. Sourced from this crate's
+/// own version (not `upnp-suite-core`'s) so control points see the
+/// renderer application's version, not its internal library dependency's.
+const RENDERER_SERVER_HEADER: &str = concat!("Rust/", env!("CARGO_PKG_VERSION"), " UPnP/1.0");
 
 /// Which [`MediaBackend`] to use, chosen via `--media-backend <value>`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,6 +216,7 @@ fn create_renderer(
 ) -> Result<MediaRenderer, Box<dyn Error>> {
     let mut builder = MediaRendererConfig::builder()
         .port(8080)
+        .server(RENDERER_SERVER_HEADER.to_string())
         .friendly_name("Jono's Rust Media Renderer".to_string());
     if let Some(icon_path) = icon_path {
         builder = builder.icon_path(icon_path);

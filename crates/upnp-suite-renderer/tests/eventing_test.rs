@@ -4,7 +4,7 @@ use common::{MockSubscriber, SoapClient, TestServer};
 use reqwest::Method;
 use std::sync::Arc;
 use std::time::Duration;
-use upnp_receiver::server::ClientLogger;
+use upnp_suite_renderer::server::ClientLogger;
 
 async fn setup() -> (TestServer, SoapClient) {
     let server = TestServer::new().await;
@@ -231,7 +231,7 @@ async fn subscribe_without_a_callback_is_rejected() {
 #[tokio::test]
 async fn outbound_notifies_are_logged_when_client_logging_is_enabled() {
     let log_dir = std::env::temp_dir().join(format!(
-        "upnp_receiver_test_gena_log_{}",
+        "upnp_suite_renderer_test_gena_log_{}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&log_dir);

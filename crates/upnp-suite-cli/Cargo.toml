@@ -1,0 +1,16 @@
+[package]
+name = "upnp-suite-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "upnp-discover"
+path = "src/main.rs"
+
+[dependencies]
+upnp-suite-core = { path = "../upnp-suite-core" }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "time"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+termtree = { workspace = true }

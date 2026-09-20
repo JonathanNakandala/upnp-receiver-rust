@@ -1,5 +1,5 @@
 use super::protocol::{MediaCommand, MediaResponse};
-use crate::logging::{LogStyle, TextFormatter};
+use upnp_suite_core::logging::{LogStyle, TextFormatter};
 use crate::server::soap::types::av_transport::TransportState;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

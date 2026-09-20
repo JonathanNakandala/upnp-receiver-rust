@@ -10,7 +10,7 @@
 //!   the concrete options/ranges a control point may send that variable.
 //!
 //! Progress/errors go through `tracing` (the same timestamp-free
-//! `TextFormatter` the receiver binary uses); the actual report is a
+//! `TextFormatter` the renderer binary uses); the actual report is a
 //! separate tree-per-device printout via `termtree`, since a 30-action
 //! service reads far better as a wrapped block than as a single
 //! `key=value` log field.
@@ -19,11 +19,11 @@ use std::io::IsTerminal;
 use std::time::Duration;
 use termtree::Tree;
 use tracing_subscriber::EnvFilter;
-use upnp_receiver::discovery::client::{discover, SsdpResponse};
-use upnp_receiver::discovery::description::{
+use upnp_suite_core::discovery::client::{discover, SsdpResponse};
+use upnp_suite_core::discovery::description::{
     fetch_device_report, DeviceReport, ServiceReport, VariableConstraint,
 };
-use upnp_receiver::logging::{LogStyle, TextFormatter};
+use upnp_suite_core::logging::{LogStyle, TextFormatter};
 
 const DEFAULT_WAIT_SECS: u64 = 3;
 /// Column width the wrapped action/variable lists target, including the
