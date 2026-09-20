@@ -36,3 +36,4 @@ tokio = { workspace = true, features = ["test-util"] }
 reqwest = { workspace = true, features = ["json"] }
 test-log = { version = "0.2", features = ["trace"] }
 env_logger = "0.10"
+upnp-suite-client = { path = "../upnp-suite-client" }
