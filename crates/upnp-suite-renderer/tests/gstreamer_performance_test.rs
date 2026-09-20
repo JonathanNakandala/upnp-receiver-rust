@@ -30,6 +30,7 @@
 mod gstreamer_common;
 use gstreamer_common::{fixture_path, generate_test_mp3};
 use std::time::{Duration, Instant};
+use upnp_suite_renderer::backend::gstreamer::PlaybinVersion;
 use upnp_suite_renderer::backend::{GStreamerBackend, MediaBackend};
 
 /// Baseline: ~7ms average over 5 seeks once prerolled. Budget gives >20x
@@ -202,4 +203,86 @@ async fn track_switch_latency_stays_within_budget() {
 
     let _ = std::fs::remove_file(&path_a);
     let _ = std::fs::remove_file(&path_b);
+}
+
+/// Direct comparison, not a regression gate: prints each pipeline's average
+/// seek latency over a long track instead of asserting a budget, since the
+/// point here is to see the numbers side by side, not fail CI on either
+/// one. Run with `cargo test --test gstreamer_performance_test -- --ignored --nocapture compares_playbin`.
+///
+/// Runs both pipelines sequentially in one test (not two parallel ones):
+/// several real GStreamer audio pipelines playing concurrently on this
+/// machine contend for the same audio device and are unreliable in
+/// parallel - run this test file with `--test-threads=1` if running it
+/// alongside the rest of this suite.
+#[tokio::test]
+#[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test --test gstreamer_performance_test -- --ignored --nocapture`"]
+async fn compares_playbin_and_playbin3_seek_latency_across_a_long_track() {
+    // ~180s (3 minutes) at ~23ms/buffer - long enough that seeking to
+    // widely spaced positions actually exercises buffering behavior, which
+    // a few-second clip wouldn't (see `PlaybinVersion::V3`'s docs -
+    // `playbin3` buffers demuxed data by default, `playbin` doesn't).
+    let path = fixture_path("perf_compare_playbin");
+    generate_test_mp3(&path, 7826);
+    let uri = format!("file://{}", path.display());
+
+    let targets = [
+        Duration::from_secs(20),
+        Duration::from_secs(60),
+        Duration::from_secs(100),
+        Duration::from_secs(140),
+        Duration::from_secs(170),
+    ];
+
+    let v1 = average_seek_latency(PlaybinVersion::V1, &uri, &targets).await;
+    let v3 = average_seek_latency(PlaybinVersion::V3, &uri, &targets).await;
+
+    println!("playbin  (v1): {v1:?} average over {} seeks", targets.len());
+    println!("playbin3 (v3): {v3:?} average over {} seeks", targets.len());
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Loads `uri`, waits for duration to be known, then seeks to each of
+/// `targets` in turn and returns the average time for the position to
+/// reflect the seek - same landing check `seek_latency_stays_within_budget`
+/// uses.
+async fn average_seek_latency(
+    version: PlaybinVersion,
+    uri: &str,
+    targets: &[Duration],
+) -> Duration {
+    let backend = GStreamerBackend::new_with_playbin_version(version).unwrap();
+    backend.load_media(uri, None).await.unwrap();
+    backend.play().await.unwrap();
+
+    let ready_start = Instant::now();
+    while backend.get_duration().await.unwrap().is_none() {
+        assert!(
+            ready_start.elapsed() < POLL_TIMEOUT,
+            "duration never became known ({version:?})"
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+
+    let mut total = Duration::ZERO;
+    for &target in targets {
+        let start = Instant::now();
+        backend.seek(target).await.unwrap();
+        loop {
+            let pos = backend.get_position().await.unwrap();
+            if pos >= target.saturating_sub(Duration::from_millis(200)) {
+                break;
+            }
+            assert!(
+                start.elapsed() < POLL_TIMEOUT,
+                "seek never landed ({version:?})"
+            );
+            tokio::time::sleep(POLL_INTERVAL).await;
+        }
+        total += start.elapsed();
+    }
+
+    backend.stop().await.unwrap();
+    total / targets.len() as u32
 }

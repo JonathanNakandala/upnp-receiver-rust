@@ -24,6 +24,11 @@ nix = { workspace = true }
 gstreamer = { workspace = true }
 reqwest = { workspace = true }
 rand = { workspace = true }
+winit = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+gstreamer-video = { workspace = true }
+gstreamer-app = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

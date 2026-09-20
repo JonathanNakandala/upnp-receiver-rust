@@ -1,5 +1,6 @@
 use backend::dummy::{run_dummy_process, DummyBackendManager};
-use backend::{gstreamer, DummyBackend, GStreamerBackend, MediaBackend};
+use backend::gstreamer::VideoOutput;
+use backend::{gstreamer, DummyBackend, GStreamerBackend, MediaBackend, MediaBackendError};
 use server::{ClientLogger, HttpServer};
 use services::MediaRenderer;
 use std::path::PathBuf;
@@ -118,9 +119,20 @@ async fn start_dummy_backend() -> SelectedBackend {
     }
 }
 
-async fn select_backend(choice: BackendChoice) -> SelectedBackend {
+/// Picks and constructs the backend `--media-backend` (or its `Auto`
+/// default) asked for. Takes `build_gstreamer_backend` rather than a
+/// `VideoOutput` (or any other GStreamer-specific construction detail)
+/// directly: this function's job is choosing *among* backends, and
+/// `BackendChoice::Dummy` - and any backend added here later - has nothing
+/// to do with how the GStreamer variant wires up its video window. A
+/// closure keeps that detail scoped to the one match arm that needs it
+/// instead of leaking a GStreamer type into every caller of this function.
+async fn select_backend(
+    choice: BackendChoice,
+    build_gstreamer_backend: impl FnOnce() -> Result<GStreamerBackend, MediaBackendError>,
+) -> SelectedBackend {
     match choice {
-        BackendChoice::GStreamer => match GStreamerBackend::new() {
+        BackendChoice::GStreamer => match build_gstreamer_backend() {
             Ok(backend) => use_gstreamer_backend(backend),
             Err(e) => {
                 eprintln!("--media-backend gstreamer requested but GStreamer is unavailable: {e}");
@@ -128,7 +140,7 @@ async fn select_backend(choice: BackendChoice) -> SelectedBackend {
             }
         },
         BackendChoice::Dummy => start_dummy_backend().await,
-        BackendChoice::Auto => match GStreamerBackend::new() {
+        BackendChoice::Auto => match build_gstreamer_backend() {
             Ok(backend) => use_gstreamer_backend(backend),
             Err(e) => {
                 warn!(error = %e, "GStreamer unavailable, falling back to dummy media backend");
@@ -263,27 +275,22 @@ async fn handle_shutdown_signals() {
         .expect("Failed to listen for ctrl-c");
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// Everything that isn't the video window: builds the backend, the SSDP
+/// advertiser and the HTTP/SOAP server, and runs them until a shutdown
+/// signal arrives. Split out from `main` so it can run inside a tokio
+/// runtime on its own background thread - see `main`'s doc comment for why.
+async fn run_renderer(video_output: VideoOutput) -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
 
-    // Check if running as the dummy backend's child process
-    if args.len() >= 3 && args[1] == "--backend" {
-        if let Ok(port) = args[2].parse::<u16>() {
-            return run_dummy_process(port).await;
-        } else {
-            eprintln!("Invalid port number for backend process");
-            std::process::exit(1);
-        }
-    }
-
-    // Regular application code
     init_logging(&parse_log_format())?;
     info!("Starting UPnP Media Renderer...");
 
     // Initialize components
     let backend_choice = parse_backend_choice(&args);
-    let selected = select_backend(backend_choice).await;
+    let selected = select_backend(backend_choice, || {
+        GStreamerBackend::new_with_video_output(video_output)
+    })
+    .await;
     let renderer = create_renderer(
         selected.media_backend.clone(),
         selected.supported_mime_types.clone(),
@@ -370,5 +377,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    Ok(())
+}
+
+/// Not `#[tokio::main]`: the video window's event loop ([`gstreamer::video`])
+/// has to run on the process's main thread (a winit/AppKit requirement,
+/// strict on macOS), and that loop blocks for the life of the app - it
+/// can't share the main thread with a tokio runtime driving everything
+/// else. So this thread runs only the window; a second thread gets its own
+/// tokio runtime and runs the actual renderer (SSDP, HTTP/SOAP, playback).
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+
+    // Running as the dummy backend's child process: a separate, short-lived
+    // invocation of this same binary (see `DummyBackendManager`), with no
+    // video window involved at all.
+    if args.len() >= 3 && args[1] == "--backend" {
+        return match args[2].parse::<u16>() {
+            Ok(port) => tokio::runtime::Runtime::new()?.block_on(run_dummy_process(port)),
+            Err(_) => {
+                eprintln!("Invalid port number for backend process");
+                std::process::exit(1);
+            }
+        };
+    }
+
+    let (video_output, run_video_window) = gstreamer::video::new();
+
+    std::thread::Builder::new()
+        .name("upnp-renderer".to_string())
+        .spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().expect("failed to start the async runtime");
+            let result = runtime.block_on(run_renderer(video_output));
+            if let Err(e) = result {
+                eprintln!("Renderer exited with an error: {e}");
+            }
+            // The renderer (SSDP/HTTP/SOAP/playback) is everything this
+            // process does other than show a window; once it's done there's
+            // nothing left running, so end the whole process, including the
+            // video window's event loop still blocking the main thread.
+            std::process::exit(0);
+        })
+        .expect("failed to spawn the renderer thread");
+
+    run_video_window()?;
     Ok(())
 }

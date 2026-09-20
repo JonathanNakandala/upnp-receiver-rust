@@ -9,6 +9,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
+use super::video::{self, VideoOutput};
 use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
 use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
 
@@ -55,8 +56,78 @@ impl Default for PlayerState {
     }
 }
 
-pub struct GStreamerBackend {
+/// Which GStreamer playback element to build.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PlaybinVersion {
+    /// `playbin` - used for audio.
+    #[default]
+    V1,
+    /// `playbin3` - always used for video: `playbin`'s negotiation commits
+    /// to a hardware decoder's GL-memory output before checking whether the
+    /// subtitle-overlay stage downstream can read it, and fails when it
+    /// can't. `playbin3` checks the whole downstream chain's caps first, so
+    /// it asks the decoder for plain memory instead when that's needed.
+    V3,
+}
+
+impl PlaybinVersion {
+    fn element_name(self) -> &'static str {
+        match self {
+            PlaybinVersion::V1 => "playbin",
+            PlaybinVersion::V3 => "playbin3",
+        }
+    }
+}
+
+/// The GStreamer element plus what has to be rebuilt alongside it whenever
+/// the element itself is swapped for a different [`PlaybinVersion`].
+struct Pipeline {
     playbin: gst::Element,
+    version: PlaybinVersion,
+    bus_watcher: tokio::task::JoinHandle<()>,
+}
+
+impl Pipeline {
+    fn build(
+        version: PlaybinVersion,
+        video_output: Option<VideoOutput>,
+        state: Arc<Mutex<PlayerState>>,
+        state_tx: watch::Sender<TransportState>,
+        track_tx: watch::Sender<TrackInfo>,
+    ) -> Result<Self, MediaBackendError> {
+        let element_name = version.element_name();
+        let playbin = gst::ElementFactory::make(element_name)
+            .name("upnp-receiver-playbin")
+            .build()
+            .map_err(|e| {
+                MediaBackendError::GStreamer(format!("Failed to create {element_name}: {e}"))
+            })?;
+        info!(playbin = element_name, "Building GStreamer playback pipeline");
+
+        use_download_buffering(&playbin);
+        playbin.set_property("video-sink", video::build_video_sink(video_output)?);
+
+        let bus_watcher = spawn_bus_watcher(playbin.clone(), state.clone(), state_tx);
+        connect_about_to_finish(&playbin, state, track_tx);
+
+        Ok(Self {
+            playbin,
+            version,
+            bus_watcher,
+        })
+    }
+
+    fn shutdown(self) {
+        self.bus_watcher.abort();
+        let _ = self.playbin.set_state(gst::State::Null);
+    }
+}
+
+pub struct GStreamerBackend {
+    pipeline: Mutex<Pipeline>,
+    // Kept so a pipeline rebuild (see `ensure_playbin_version`) wires the
+    // new element's `video-sink` up the same way the first one was.
+    video_output: Option<VideoOutput>,
     state: Arc<Mutex<PlayerState>>,
     // Fires on transitions GStreamer makes on its own — end-of-stream or a
     // pipeline error — as opposed to ones a `play`/`pause`/`stop` call
@@ -70,41 +141,144 @@ pub struct GStreamerBackend {
     // from `state_tx` (the transport state doesn't change across a gapless
     // transition, only the URI/metadata does).
     track_tx: watch::Sender<TrackInfo>,
-    bus_watcher: tokio::task::JoinHandle<()>,
 }
 
 impl GStreamerBackend {
-    // `playbin3` was tried and reverted: it rejects a seek issued before its
-    // (much heavier) initial stream-collection negotiation completes —
-    // ~2.5s of retries observed for a seek right after `play()`, vs ~7ms on
-    // `playbin`, which accepts a seek mid-preroll. That's exactly the
-    // SetAVTransportURI -> Play -> Seek-to-resume-position sequence many
-    // UPnP control points use, so it's not an edge case here.
     pub fn new() -> Result<Self, MediaBackendError> {
+        Self::build(None, PlaybinVersion::default())
+    }
+
+    /// Same as [`Self::new`], but with an explicit [`PlaybinVersion`]
+    /// instead of the default - for tests or comparing the two directly.
+    pub fn new_with_playbin_version(version: PlaybinVersion) -> Result<Self, MediaBackendError> {
+        Self::build(None, version)
+    }
+
+    /// Same as [`Self::new`], but also displays decoded video in its own
+    /// window via `video_output` - see [`super::video`] for how frames get
+    /// from GStreamer's decoding thread to that window.
+    pub fn new_with_video_output(video_output: VideoOutput) -> Result<Self, MediaBackendError> {
+        Self::build(Some(video_output), PlaybinVersion::V3)
+    }
+
+    fn build(
+        video_output: Option<VideoOutput>,
+        playbin_version: PlaybinVersion,
+    ) -> Result<Self, MediaBackendError> {
         ensure_initialized()?;
 
-        let playbin = gst::ElementFactory::make("playbin")
-            .name("upnp-receiver-playbin")
-            .build()
-            .map_err(|e| {
-                MediaBackendError::GStreamer(format!("Failed to create playbin: {}", e))
-            })?;
+        let playbin_version = required_version(video_output.is_some(), playbin_version);
 
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let (state_tx, _) = watch::channel(TransportState::NoMediaPresent);
         let (track_tx, _) = watch::channel(TrackInfo::default());
 
-        let bus_watcher = spawn_bus_watcher(playbin.clone(), state.clone(), state_tx.clone());
-        connect_about_to_finish(&playbin, state.clone(), track_tx.clone());
+        let pipeline = Pipeline::build(
+            playbin_version,
+            video_output.clone(),
+            state.clone(),
+            state_tx.clone(),
+            track_tx.clone(),
+        )?;
 
         Ok(Self {
-            playbin,
+            pipeline: Mutex::new(pipeline),
+            video_output,
             state,
             state_tx,
             track_tx,
-            bus_watcher,
         })
     }
+
+    /// Rebuilds the pipeline with `desired`'s element if it isn't already
+    /// running it, carrying volume and mute over to the replacement. A
+    /// backend built with video output stays on `playbin3` regardless of
+    /// `desired` - see [`PlaybinVersion::V3`].
+    fn ensure_playbin_version(&self, desired: PlaybinVersion) -> Result<(), MediaBackendError> {
+        let desired = required_version(self.video_output.is_some(), desired);
+
+        let mut pipeline = self.pipeline.lock().unwrap();
+        if pipeline.version == desired {
+            return Ok(());
+        }
+
+        info!(
+            from = pipeline.version.element_name(),
+            to = desired.element_name(),
+            "Switching GStreamer pipeline"
+        );
+
+        let volume: f64 = pipeline.playbin.property("volume");
+        let mute: bool = pipeline.playbin.property("mute");
+
+        let replacement = Pipeline::build(
+            desired,
+            self.video_output.clone(),
+            self.state.clone(),
+            self.state_tx.clone(),
+            self.track_tx.clone(),
+        )?;
+        replacement.playbin.set_property("volume", volume);
+        replacement.playbin.set_property("mute", mute);
+
+        std::mem::replace(&mut *pipeline, replacement).shutdown();
+        Ok(())
+    }
+
+    /// The current playbin/playbin3 element. Cheap to clone (a GObject
+    /// reference, not the pipeline itself) - callers hold this instead of
+    /// the lock while doing anything that isn't instant, so a concurrent
+    /// `ensure_playbin_version` swap never blocks on them.
+    fn playbin(&self) -> gst::Element {
+        self.pipeline.lock().unwrap().playbin.clone()
+    }
+}
+
+/// Video needs `playbin3` unconditionally; audio uses whichever version was
+/// requested.
+fn required_version(has_video_output: bool, requested: PlaybinVersion) -> PlaybinVersion {
+    if has_video_output {
+        PlaybinVersion::V3
+    } else {
+        requested
+    }
+}
+
+/// Swaps the `buffering` flag for `download`. Everything this renderer
+/// plays is a finite, seekable, on-demand file, never a live stream, so
+/// `download` is the better fit: it caches to a local temp file as it
+/// downloads, so a seek into anything already downloaded is instant with no
+/// network wait, and playback isn't gated on an in-memory ring buffer
+/// refilling to a percentage threshold - which on a source whose real
+/// throughput is well under the link speed (a phone-hosted HTTP server on
+/// gigabit ethernet, for instance - the link isn't the bottleneck, the
+/// server's own disk/CPU is) can mean repeatedly pausing and resuming
+/// playback while that threshold refills.
+fn use_download_buffering(playbin: &gst::Element) {
+    let flags = playbin.property_value("flags");
+    let Some(flags_class) = gst::glib::FlagsClass::with_type(flags.type_()) else {
+        warn!("playbin's \"flags\" property isn't a flags type; leaving buffering mode as-is");
+        return;
+    };
+
+    let updated = flags_class
+        .builder_with_value(flags)
+        .map(|builder| builder.unset_by_nick("buffering").set_by_nick("download"))
+        .and_then(|builder| builder.build());
+
+    match updated {
+        Some(flags) => playbin.set_property("flags", flags),
+        None => warn!("Failed to switch playbin from buffering to download mode"),
+    }
+}
+
+/// Whether `metadata`'s DIDL-Lite hints at video content, checked as a
+/// plain substring search rather than XML parsing - it only ever decides
+/// which pipeline to start a track with, nothing depends on it being exact.
+fn metadata_suggests_video(metadata: Option<&str>) -> bool {
+    metadata.is_some_and(|metadata| {
+        metadata.contains(":video/") || metadata.contains("object.item.videoItem")
+    })
 }
 
 impl Drop for GStreamerBackend {
@@ -112,9 +286,10 @@ impl Drop for GStreamerBackend {
         // Best-effort: `abort()` only requests cancellation (it takes effect
         // next time the task is polled/yields), but nothing here depends on
         // the watcher having stopped by the time this returns.
-        self.bus_watcher.abort();
+        let pipeline = self.pipeline.get_mut().unwrap();
+        pipeline.bus_watcher.abort();
         // Best-effort: release the audio device and any decoder resources.
-        let _ = self.playbin.set_state(gst::State::Null);
+        let _ = pipeline.playbin.set_state(gst::State::Null);
     }
 }
 
@@ -233,6 +408,12 @@ fn stop_after_unprompted_end(
 /// reduce to "loop what's playing now". Anything else (`NORMAL`/`SHUFFLE`,
 /// which has no queue to shuffle within), we do nothing and `playbin` plays
 /// out to EOS as normal, same as before this existed.
+///
+/// A gapless transition stays on the current pipeline element even if the
+/// next track needs the other [`PlaybinVersion`] - switching pipelines mid
+/// gapless-splice isn't supported. An explicit `SetAVTransportURI` (the
+/// common case) always goes through [`GStreamerBackend::load_media`], which
+/// does pick the right version.
 fn connect_about_to_finish(
     playbin: &gst::Element,
     state: Arc<Mutex<PlayerState>>,
@@ -286,13 +467,21 @@ impl MediaBackend for GStreamerBackend {
         uri: &str,
         metadata: Option<String>,
     ) -> Result<(), MediaBackendError> {
+        let desired_version = if metadata_suggests_video(metadata.as_deref()) {
+            PlaybinVersion::V3
+        } else {
+            PlaybinVersion::V1
+        };
+        self.ensure_playbin_version(desired_version)?;
+        let playbin = self.playbin();
+
         // Drop back to Ready before switching URIs — playbin doesn't support
         // changing `uri` while past that state.
-        self.playbin
+        playbin
             .set_state(gst::State::Ready)
             .map_err(state_change_error)?;
 
-        self.playbin.set_property("uri", uri);
+        playbin.set_property("uri", uri);
 
         {
             let mut state = self.state.lock().unwrap();
@@ -327,7 +516,7 @@ impl MediaBackend for GStreamerBackend {
         // GStreamer only resolves it once bytes are actually flowing, i.e.
         // some time after Play. get_duration() reflects that honestly by
         // returning None until GStreamer itself knows.
-        self.playbin
+        playbin
             .set_state(gst::State::Paused)
             .map_err(state_change_error)?;
 
@@ -335,7 +524,7 @@ impl MediaBackend for GStreamerBackend {
     }
 
     async fn play(&self) -> Result<(), MediaBackendError> {
-        self.playbin
+        self.playbin()
             .set_state(gst::State::Playing)
             .map_err(state_change_error)?;
         self.state.lock().unwrap().transport_state = TransportState::Playing;
@@ -343,7 +532,7 @@ impl MediaBackend for GStreamerBackend {
     }
 
     async fn pause(&self) -> Result<(), MediaBackendError> {
-        self.playbin
+        self.playbin()
             .set_state(gst::State::Paused)
             .map_err(state_change_error)?;
         self.state.lock().unwrap().transport_state = TransportState::PausedPlayback;
@@ -351,7 +540,7 @@ impl MediaBackend for GStreamerBackend {
     }
 
     async fn stop(&self) -> Result<(), MediaBackendError> {
-        self.playbin
+        self.playbin()
             .set_state(gst::State::Ready)
             .map_err(state_change_error)?;
         let mut state = self.state.lock().unwrap();
@@ -366,7 +555,7 @@ impl MediaBackend for GStreamerBackend {
 
     async fn get_position(&self) -> Result<Duration, MediaBackendError> {
         Ok(self
-            .playbin
+            .playbin()
             .query_position::<gst::ClockTime>()
             .map(|t| Duration::from_nanos(t.nseconds()))
             .unwrap_or_default())
@@ -374,14 +563,14 @@ impl MediaBackend for GStreamerBackend {
 
     async fn seek(&self, position: Duration) -> Result<(), MediaBackendError> {
         let target = gst::ClockTime::from_nseconds(position.as_nanos() as u64);
-        self.playbin
+        self.playbin()
             .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, target)
             .map_err(|e| MediaBackendError::GStreamer(format!("Seek failed: {}", e)))
     }
 
     async fn get_duration(&self) -> Result<Option<Duration>, MediaBackendError> {
         Ok(self
-            .playbin
+            .playbin()
             .query_duration::<gst::ClockTime>()
             .map(|t| Duration::from_nanos(t.nseconds())))
     }
@@ -419,15 +608,16 @@ impl MediaBackend for GStreamerBackend {
             return Ok(());
         }
 
+        let playbin = self.playbin();
+
         // Re-seek at the new rate from the current position — GStreamer has
         // no separate "just change the rate" call; a seek is how rate
         // changes are done, same as a position change.
-        let position = self
-            .playbin
+        let position = playbin
             .query_position::<gst::ClockTime>()
             .unwrap_or(gst::ClockTime::ZERO);
 
-        self.playbin
+        playbin
             .seek(
                 speed,
                 gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
@@ -457,22 +647,22 @@ impl MediaBackend for GStreamerBackend {
 
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {
         let linear = (volume as f64 / 100.0).clamp(0.0, 1.0);
-        self.playbin.set_property("volume", linear);
+        self.playbin().set_property("volume", linear);
         Ok(())
     }
 
     async fn get_volume(&self) -> Result<u8, MediaBackendError> {
-        let linear: f64 = self.playbin.property("volume");
+        let linear: f64 = self.playbin().property("volume");
         Ok((linear.clamp(0.0, 1.0) * 100.0).round() as u8)
     }
 
     async fn set_mute(&self, muted: bool) -> Result<(), MediaBackendError> {
-        self.playbin.set_property("mute", muted);
+        self.playbin().set_property("mute", muted);
         Ok(())
     }
 
     async fn get_mute(&self) -> Result<bool, MediaBackendError> {
-        Ok(self.playbin.property("mute"))
+        Ok(self.playbin().property("mute"))
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {
@@ -545,5 +735,76 @@ mod tests {
 
         backend.set_mute(false).await.unwrap();
         assert!(!backend.get_mute().await.unwrap());
+    }
+
+    #[test]
+    fn detects_video_from_res_protocol_info() {
+        let metadata = r#"<res protocolInfo="http-get:*:video/x-matroska:*">http://x</res>"#;
+        assert!(metadata_suggests_video(Some(metadata)));
+    }
+
+    #[test]
+    fn detects_video_from_upnp_class() {
+        let metadata = "<upnp:class>object.item.videoItem</upnp:class>";
+        assert!(metadata_suggests_video(Some(metadata)));
+    }
+
+    #[test]
+    fn does_not_flag_audio_metadata_as_video() {
+        let metadata = r#"<res protocolInfo="http-get:*:audio/mpeg:*">http://x</res>"#;
+        assert!(!metadata_suggests_video(Some(metadata)));
+        assert!(!metadata_suggests_video(None));
+    }
+
+    #[tokio::test]
+    async fn switches_playbin_version_between_audio_and_video_loads() {
+        let backend = GStreamerBackend::new().unwrap();
+        assert_eq!(
+            backend.pipeline.lock().unwrap().version,
+            PlaybinVersion::V1
+        );
+
+        // The version switch is a side effect of `load_media` regardless of
+        // whether the URI itself turns out to be playable - a nonexistent
+        // path is enough to test it without a real media fixture, so the
+        // playback result itself is deliberately ignored here.
+        let _ = backend
+            .load_media(
+                "file:///nonexistent.mkv",
+                Some(r#"<res protocolInfo="http-get:*:video/x-matroska:*"/>"#.to_string()),
+            )
+            .await;
+        assert_eq!(
+            backend.pipeline.lock().unwrap().version,
+            PlaybinVersion::V3
+        );
+
+        let _ = backend
+            .load_media(
+                "file:///nonexistent.mp3",
+                Some(r#"<res protocolInfo="http-get:*:audio/mpeg:*"/>"#.to_string()),
+            )
+            .await;
+        assert_eq!(
+            backend.pipeline.lock().unwrap().version,
+            PlaybinVersion::V1
+        );
+    }
+
+    #[test]
+    fn switches_buffering_flag_for_download() {
+        gst::init().unwrap();
+        let playbin = gst::ElementFactory::make("playbin3").build().unwrap();
+        use_download_buffering(&playbin);
+
+        let flags: u32 = playbin
+            .property_value("flags")
+            .transform::<u32>()
+            .unwrap()
+            .get::<u32>()
+            .unwrap();
+
+        assert_eq!(flags & 0x100, 0, "buffering bit should be cleared");
+        assert_eq!(flags & 0x80, 0x80, "download bit should be set");
     }
 }
