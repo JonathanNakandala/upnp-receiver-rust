@@ -222,10 +222,9 @@ fn stop_after_unprompted_end(
 
 /// Connects `playbin`'s `about-to-finish` signal, which is how GStreamer
 /// itself recommends doing gapless playback: it fires a couple of seconds
-/// before end-of-stream, on GStreamer's own streaming thread, and the
-/// idiomatic handler sets the `uri` property to the next track right there
-/// — `playbin` then splices it in with no audible gap. (Contrast with
-/// waiting for EOS and *then* loading the next URI, which always has one.)
+/// before end-of-stream, on GStreamer's streaming thread, and the
+/// handler sets the `uri` property to the next track right there
+/// — `playbin` then splices it in with no audible gap.
 ///
 /// If an explicit `SetNextAVTransportURI` is queued, that always takes
 /// priority. Otherwise, if `CurrentPlayMode` is `REPEAT_ONE`/`REPEAT_ALL`,
@@ -415,15 +414,7 @@ impl MediaBackend for GStreamerBackend {
 
         // The AVTransport handler always reissues Speed after Play (so it
         // still takes effect if a control point is scrubbing speed
-        // mid-playback), even when nothing actually changed — which is the
-        // overwhelmingly common case, since most control points just always
-        // send Speed=1. A rate-change seek is real work for playbin (FLUSH
-        // + a fresh preroll), and right after `load_media` the pipeline may
-        // still be completing its *first* preroll into PAUSED; racing a
-        // redundant one against that intermittently fails with "Failed to
-        // seek". Skipping when the rate is already what was asked for
-        // avoids the seek entirely for the common no-op case, not just the
-        // race — a real rate change still always seeks.
+        // mid-playback) so we can do nothing if it's not changing.
         if (self.state.lock().unwrap().speed - speed).abs() < f64::EPSILON {
             return Ok(());
         }
@@ -522,275 +513,15 @@ impl MediaBackend for GStreamerBackend {
     }
 }
 
+// Tests that need real audio playback (correctness) or wall-clock latency
+// budgets (performance regressions) live in `tests/gstreamer_playback_test.rs`
+// and `tests/gstreamer_performance_test.rs` respectively — they only ever
+// touch `GStreamerBackend` through its public `MediaBackend` API, so they
+// belong as integration tests rather than unit tests here. What's left below
+// are the unit tests that don't need real hardware/audio.
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Encodes a short sine-wave tone to a real MP3 file, entirely via
-    /// GStreamer (no checked-in fixture, no external `gst-launch-1.0`
-    /// process) — so the playback test below exercises a real MP3 decode,
-    /// not just a container GStreamer happens to already understand.
-    fn generate_test_mp3(path: &std::path::Path) {
-        ensure_initialized().unwrap();
-
-        let pipeline_desc = format!(
-            "audiotestsrc num-buffers=50 wave=sine ! audioconvert ! lamemp3enc ! filesink location={}",
-            path.display()
-        );
-        let pipeline = gst::parse::launch(&pipeline_desc)
-            .unwrap()
-            .downcast::<gst::Pipeline>()
-            .unwrap();
-
-        pipeline.set_state(gst::State::Playing).unwrap();
-
-        let bus = pipeline.bus().unwrap();
-        for msg in bus.iter_timed(gst::ClockTime::NONE) {
-            match msg.view() {
-                gst::MessageView::Eos(_) => break,
-                gst::MessageView::Error(err) => panic!(
-                    "test fixture encode pipeline error: {} ({:?})",
-                    err.error(),
-                    err.debug()
-                ),
-                _ => {}
-            }
-        }
-
-        pipeline.set_state(gst::State::Null).unwrap();
-    }
-
-    #[tokio::test]
-    #[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test -- --ignored`"]
-    async fn play_at_default_speed_does_not_race_initial_preroll() {
-        // Regression test: AVTransport's Play handler always reissues
-        // set_play_speed(1.0) right after play(), even when the control
-        // point never asked for anything but normal speed (BubbleUPnP,
-        // among others, always sends Speed=1). Before the no-op skip in
-        // set_play_speed, this raced the pipeline's *first* preroll —
-        // triggered here by calling both back-to-back with no delay in
-        // between — and playbin's rate-change seek intermittently failed
-        // with "Failed to seek" on a fresh track.
-        let path = std::env::temp_dir().join(format!(
-            "upnp_receiver_test_speed_race_{}.mp3",
-            std::process::id()
-        ));
-        generate_test_mp3(&path);
-        let uri = format!("file://{}", path.display());
-
-        let backend = GStreamerBackend::new().unwrap();
-
-        for _ in 0..20 {
-            backend
-                .load_media(&uri, Some("test track".to_string()))
-                .await
-                .unwrap();
-            backend.play().await.unwrap();
-            backend.set_play_speed(1.0).await.unwrap();
-            backend.stop().await.unwrap();
-        }
-
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[tokio::test]
-    #[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test -- --ignored`"]
-    async fn plays_a_real_mp3_end_to_end() {
-        let path =
-            std::env::temp_dir().join(format!("upnp_receiver_test_{}.mp3", std::process::id()));
-        generate_test_mp3(&path);
-        let uri = format!("file://{}", path.display());
-
-        let backend = GStreamerBackend::new().unwrap();
-        backend
-            .load_media(&uri, Some("test track".to_string()))
-            .await
-            .unwrap();
-
-        backend.play().await.unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
-        assert_eq!(
-            backend.get_playback_state().await.unwrap(),
-            TransportState::Playing
-        );
-
-        // Our test fixture is a bare MP3 (no Xing/VBRI header), so duration
-        // isn't resolved until bytes are actually flowing — check it here,
-        // after Play, rather than right after load.
-        let duration = backend.get_duration().await.unwrap();
-        assert!(
-            duration.is_some(),
-            "playbin should know the duration once data is flowing"
-        );
-
-        let position = backend.get_position().await.unwrap();
-        assert!(
-            position > Duration::ZERO,
-            "position should have advanced while playing, got {:?}",
-            position
-        );
-
-        backend.pause().await.unwrap();
-        assert_eq!(
-            backend.get_playback_state().await.unwrap(),
-            TransportState::PausedPlayback
-        );
-
-        backend.stop().await.unwrap();
-        assert_eq!(
-            backend.get_playback_state().await.unwrap(),
-            TransportState::Stopped
-        );
-
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[tokio::test]
-    #[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test -- --ignored`"]
-    async fn reaches_stopped_on_natural_end_of_stream() {
-        let path =
-            std::env::temp_dir().join(format!("upnp_receiver_test_eos_{}.mp3", std::process::id()));
-        // The shared fixture is already short (~1s of audio), so playback
-        // reaches EOS quickly without a dedicated shorter one.
-        generate_test_mp3(&path);
-        let uri = format!("file://{}", path.display());
-
-        let backend = GStreamerBackend::new().unwrap();
-        let mut state_changes = backend.state_changes();
-
-        backend
-            .load_media(&uri, Some("test track".to_string()))
-            .await
-            .unwrap();
-        backend.play().await.unwrap();
-
-        // The bus watcher polls the pipeline bus on its own thread, so wait
-        // on its notification channel rather than the transport state
-        // directly — avoids a fixed sleep racing the actual EOS timing.
-        tokio::time::timeout(Duration::from_secs(5), state_changes.changed())
-            .await
-            .expect("bus watcher should report a state change before the timeout")
-            .unwrap();
-
-        assert_eq!(
-            backend.get_playback_state().await.unwrap(),
-            TransportState::Stopped,
-            "reaching end-of-stream on its own should be reported the same as an explicit stop()"
-        );
-
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[tokio::test]
-    #[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test -- --ignored`"]
-    async fn gapless_transition_promotes_queued_next_track() {
-        let path_a = std::env::temp_dir().join(format!(
-            "upnp_receiver_test_gapless_a_{}.mp3",
-            std::process::id()
-        ));
-        let path_b = std::env::temp_dir().join(format!(
-            "upnp_receiver_test_gapless_b_{}.mp3",
-            std::process::id()
-        ));
-        generate_test_mp3(&path_a);
-        generate_test_mp3(&path_b);
-        let uri_a = format!("file://{}", path_a.display());
-        let uri_b = format!("file://{}", path_b.display());
-
-        let backend = GStreamerBackend::new().unwrap();
-        let mut track_changes = backend.track_changes();
-
-        backend
-            .load_media(&uri_a, Some("track a".to_string()))
-            .await
-            .unwrap();
-        backend
-            .set_next_media(&uri_b, Some("track b".to_string()))
-            .await
-            .unwrap();
-        assert_eq!(
-            backend.get_next_media().await.unwrap(),
-            Some(TrackInfo {
-                uri: uri_b.clone(),
-                metadata: Some("track b".to_string()),
-            })
-        );
-
-        backend.play().await.unwrap();
-
-        // `about-to-finish` fires on its own once GStreamer decides it's
-        // running low on queued data for the current track — wait on the
-        // notification rather than a fixed sleep, same reasoning as the EOS
-        // test above.
-        tokio::time::timeout(Duration::from_secs(5), track_changes.changed())
-            .await
-            .expect("about-to-finish should promote the queued track before the timeout")
-            .unwrap();
-
-        assert_eq!(
-            backend.get_current_uri().await.unwrap(),
-            Some(uri_b),
-            "current URI should have switched to the queued next track"
-        );
-        assert_eq!(
-            backend.get_next_media().await.unwrap(),
-            None,
-            "the queued slot should be consumed once promoted"
-        );
-        assert_eq!(
-            backend.get_playback_state().await.unwrap(),
-            TransportState::Playing,
-            "a gapless transition shouldn't visibly stop playback in between"
-        );
-
-        let _ = std::fs::remove_file(&path_a);
-        let _ = std::fs::remove_file(&path_b);
-    }
-
-    #[tokio::test]
-    #[ignore = "spins up real GStreamer audio playback on this machine; run with `cargo test -- --ignored`"]
-    async fn repeat_one_loops_current_track_with_no_explicit_next() {
-        let path = std::env::temp_dir().join(format!(
-            "upnp_receiver_test_repeat_{}.mp3",
-            std::process::id()
-        ));
-        generate_test_mp3(&path);
-        let uri = format!("file://{}", path.display());
-
-        let backend = GStreamerBackend::new().unwrap();
-        let mut track_changes = backend.track_changes();
-
-        backend
-            .load_media(&uri, Some("looping track".to_string()))
-            .await
-            .unwrap();
-        backend.set_play_mode(PlayMode::RepeatOne).await.unwrap();
-        assert_eq!(backend.get_play_mode().await.unwrap(), PlayMode::RepeatOne);
-
-        backend.play().await.unwrap();
-
-        // No explicit SetNextAVTransportURI was ever queued, so the only
-        // thing that can fire `track_changes` here is `about-to-finish`
-        // consulting `CurrentPlayMode` and re-queueing the same track.
-        tokio::time::timeout(Duration::from_secs(5), track_changes.changed())
-            .await
-            .expect("about-to-finish should loop the track before the timeout")
-            .unwrap();
-
-        assert_eq!(
-            backend.get_current_uri().await.unwrap(),
-            Some(uri),
-            "current URI should still be the same track, looped rather than stopped"
-        );
-        assert_eq!(
-            backend.get_playback_state().await.unwrap(),
-            TransportState::Playing,
-            "looping gaplessly shouldn't visibly stop playback in between"
-        );
-
-        let _ = std::fs::remove_file(&path);
-    }
 
     #[tokio::test]
     async fn reports_no_media_present_before_anything_is_loaded() {
