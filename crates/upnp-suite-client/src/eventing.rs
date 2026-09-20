@@ -471,23 +471,31 @@ fn parse_timeout_header(value: &str) -> Option<Duration> {
 /// `RendererClient` holds, dispatching each incoming NOTIFY to the
 /// subscription its SID belongs to.
 pub(crate) struct NotifyListener {
-    local_addr: SocketAddr,
+    /// The address advertised in CALLBACK - the machine's LAN-reachable IP,
+    /// not necessarily what the listener is bound to. A subscribed-to
+    /// device off-host (the common case for an external control point like
+    /// `upnp-suite-cli`) can never route a NOTIFY back to 127.0.0.1; only a
+    /// subscriber on the *same* host as the device (e.g. this renderer
+    /// subscribing to its own loopback SOAP endpoint) can use that. Binding
+    /// `0.0.0.0` and advertising the real interface IP works for both.
+    advertise_addr: SocketAddr,
     routes: Mutex<HashMap<String, mpsc::UnboundedSender<String>>>,
 }
 
 impl NotifyListener {
     pub(crate) async fn start() -> Result<Arc<Self>, ClientError> {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:0")
             .await
             .map_err(|e| {
                 ClientError::MalformedResponse(format!("failed to bind NOTIFY listener: {e}"))
             })?;
-        let local_addr = listener.local_addr().map_err(|e| {
+        let port = listener.local_addr().map_err(|e| {
             ClientError::MalformedResponse(format!("failed to read NOTIFY listener address: {e}"))
-        })?;
+        })?.port();
+        let advertise_ip = local_ip_address::local_ip().unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
 
         let this = Arc::new(Self {
-            local_addr,
+            advertise_addr: SocketAddr::new(advertise_ip, port),
             routes: Mutex::new(HashMap::new()),
         });
 
@@ -503,7 +511,7 @@ impl NotifyListener {
     }
 
     fn callback_url(&self) -> String {
-        format!("http://{}/", self.local_addr)
+        format!("http://{}/", self.advertise_addr)
     }
 
     fn register(&self, sid: String) -> mpsc::UnboundedReceiver<String> {

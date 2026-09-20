@@ -13,6 +13,7 @@ reqwest = { workspace = true }
 quick-xml = { workspace = true }
 serde = { workspace = true }
 axum = { workspace = true }
+local-ip-address = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
