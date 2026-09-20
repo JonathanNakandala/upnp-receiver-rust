@@ -72,17 +72,30 @@ async fn full_gena_loop_for_av_transport() {
         .await;
     assert_eq!(resp.status(), 200);
 
+    // SetAVTransportURI now also announces a brief TRANSITIONING event ahead
+    // of the real post-load state, per the AVTransport spec's allowance for
+    // "may temporarily go to TRANSITIONING" — see `publish_transitioning`.
+    let transitioning = subscriber.next_notification().await;
+    assert_eq!(transitioning.sid, sid);
+    assert_eq!(transitioning.seq, 1);
+    assert!(transitioning.body.contains("TRANSITIONING"));
+
     let after_load = subscriber.next_notification().await;
     assert_eq!(after_load.sid, sid);
-    assert_eq!(after_load.seq, 1);
+    assert_eq!(after_load.seq, 2);
     assert!(after_load.body.contains("STOPPED"));
 
     let resp = client.play().await;
     assert_eq!(resp.status(), 200);
 
+    let transitioning = subscriber.next_notification().await;
+    assert_eq!(transitioning.sid, sid);
+    assert_eq!(transitioning.seq, 3);
+    assert!(transitioning.body.contains("TRANSITIONING"));
+
     let after_play = subscriber.next_notification().await;
     assert_eq!(after_play.sid, sid);
-    assert_eq!(after_play.seq, 2);
+    assert_eq!(after_play.seq, 4);
     assert!(
         after_play.body.contains("PLAYING"),
         "expected a PLAYING event after Play, got: {}",

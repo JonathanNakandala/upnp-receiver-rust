@@ -7,6 +7,7 @@
     <device>
         <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
         <dlna:X_DLNADOC>DMR-1.50</dlna:X_DLNADOC>
+        <dlna:X_DLNACAP></dlna:X_DLNACAP>
         <friendlyName>{{ friendly_name }}</friendlyName>
         <manufacturer>{{ manufacturer }}</manufacturer>
         <manufacturerURL>{{ manufacturer_url }}</manufacturerURL>
@@ -16,6 +17,17 @@
         <modelURL>{{ model_url }}</modelURL>
         <serialNumber>{{ serial_number }}</serialNumber>
         <UDN>uuid:{{ uuid }}</UDN>
+        {% if let Some(icon) = icon %}
+        <iconList>
+            <icon>
+                <mimetype>{{ icon.mimetype }}</mimetype>
+                <width>{{ icon.width }}</width>
+                <height>{{ icon.height }}</height>
+                <depth>24</depth>
+                <url>{{ icon.url }}</url>
+            </icon>
+        </iconList>
+        {% endif %}
         <serviceList>
             <service>
                 <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
