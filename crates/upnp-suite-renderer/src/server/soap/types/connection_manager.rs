@@ -6,6 +6,9 @@ pub enum ConnectionManagerAction {
     GetProtocolInfo(GetProtocolInfoRequest),
     GetCurrentConnectionIDs(GetCurrentConnectionIDsRequest),
     GetCurrentConnectionInfo(GetCurrentConnectionInfoRequest),
+    PrepareForConnection(PrepareForConnectionRequest),
+    ConnectionComplete(ConnectionCompleteRequest),
+    GetFeatureList(GetFeatureListRequest),
 }
 
 #[derive(Debug, Deserialize)]
@@ -19,6 +22,27 @@ pub struct GetCurrentConnectionInfoRequest {
     #[serde(rename = "ConnectionID")]
     pub connection_id: i32,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct PrepareForConnectionRequest {
+    #[serde(rename = "RemoteProtocolInfo")]
+    pub remote_protocol_info: String,
+    #[serde(rename = "PeerConnectionManager")]
+    pub peer_connection_manager: String,
+    #[serde(rename = "PeerConnectionID")]
+    pub peer_connection_id: i32,
+    #[serde(rename = "Direction")]
+    pub direction: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConnectionCompleteRequest {
+    #[serde(rename = "ConnectionID")]
+    pub connection_id: i32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetFeatureListRequest {}
 
 #[derive(Debug, Serialize)]
 pub struct GetProtocolInfoResponse {
@@ -53,9 +77,31 @@ pub struct GetCurrentConnectionInfoResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct PrepareForConnectionResponse {
+    #[serde(rename = "ConnectionID")]
+    pub connection_id: i32,
+    #[serde(rename = "AVTransportID")]
+    pub av_transport_id: i32,
+    #[serde(rename = "RcsID")]
+    pub rcs_id: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConnectionCompleteResponse {}
+
+#[derive(Debug, Serialize)]
+pub struct GetFeatureListResponse {
+    #[serde(rename = "FeatureList")]
+    pub feature_list: String,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum ConnectionManagerResponse {
     ProtocolInfo(GetProtocolInfoResponse),
     ConnectionIDs(GetCurrentConnectionIDsResponse),
     ConnectionInfo(GetCurrentConnectionInfoResponse),
+    PrepareForConnection(PrepareForConnectionResponse),
+    ConnectionComplete(ConnectionCompleteResponse),
+    FeatureList(GetFeatureListResponse),
 }

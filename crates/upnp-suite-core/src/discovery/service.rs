@@ -51,7 +51,7 @@ impl MediaRendererService {
         match self {
             Self::AVTransport => "urn:schemas-upnp-org:service:AVTransport:1",
             Self::RenderingControl => "urn:schemas-upnp-org:service:RenderingControl:1",
-            Self::ConnectionManager => "urn:schemas-upnp-org:service:ConnectionManager:1",
+            Self::ConnectionManager => "urn:schemas-upnp-org:service:ConnectionManager:3",
         }
         .to_string()
     }

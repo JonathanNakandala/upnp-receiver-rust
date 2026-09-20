@@ -254,7 +254,10 @@ impl EventManager {
                 method: "NOTIFY".to_string(),
                 path: url.to_string(),
                 soap_action: None,
-                gena_headers: vec![("SID".to_string(), sid.to_string()), ("SEQ".to_string(), seq.to_string())],
+                gena_headers: vec![
+                    ("SID".to_string(), sid.to_string()),
+                    ("SEQ".to_string(), seq.to_string()),
+                ],
                 request_body: body.to_string(),
                 response_status: status.unwrap_or(0),
                 response_body: response_body.to_string(),
@@ -343,7 +346,10 @@ mod tests {
         let mgr = manager();
         let sub = subscribe(&mgr, Some("<http://host:1/a><http://host:2/b>"), None).unwrap();
 
-        assert_eq!(sub.callback_urls, vec!["http://host:1/a", "http://host:2/b"]);
+        assert_eq!(
+            sub.callback_urls,
+            vec!["http://host:1/a", "http://host:2/b"]
+        );
     }
 
     #[test]

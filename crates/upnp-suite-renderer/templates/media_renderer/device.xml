@@ -44,7 +44,7 @@
                 <eventSubURL>/services/RenderingControl/events</eventSubURL>
             </service>
             <service>
-                <serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>
+                <serviceType>urn:schemas-upnp-org:service:ConnectionManager:3</serviceType>
                 <serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>
                 <SCPDURL>/services/ConnectionManager/description.xml</SCPDURL>
                 <controlURL>/services/ConnectionManager/control</controlURL>

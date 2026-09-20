@@ -36,12 +36,11 @@ impl TestServer {
                 .friendly_name("Test Renderer".to_string())
                 .build(),
         )
-            .unwrap();
+        .unwrap();
 
         tracing::debug!("Created media renderer");
 
-        let http_server =
-            HttpServer::new(Arc::new(renderer)).with_client_logger(client_logger);
+        let http_server = HttpServer::new(Arc::new(renderer)).with_client_logger(client_logger);
         let bind_addr = SocketAddr::from(([127, 0, 0, 1], 0));
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 

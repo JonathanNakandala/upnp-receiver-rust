@@ -4,23 +4,23 @@
 //! instead of having to poll `GetTransportInfo`/`GetVolume`/
 //! `GetCurrentConnectionIDs` on a timer.
 //!
-//! ConnectionManager's `CurrentConnectionIDs` is the one exception that
-//! basically never changes in this renderer (always just `"0"`), so it'll
-//! rarely if ever produce a NOTIFY after the initial one — but the
-//! `SUBSCRIBE` endpoint itself still needs to exist and behave correctly,
-//! since `device.xml` advertises an `eventSubURL` for it and a strict
-//! control point may depend on getting a real response rather than a 404.
+//! ConnectionManager's `CurrentConnectionIDs` only changes when a control
+//! point calls `PrepareForConnection`/`ConnectionComplete` — a control point
+//! that never does (the common case) still only ever sees the initial `"0"`
+//! NOTIFY — but the `SUBSCRIBE` endpoint itself always needs to exist and
+//! behave correctly, since `device.xml` advertises an `eventSubURL` for it
+//! and a strict control point may depend on getting a real response rather
+//! than a 404.
 
 mod handler;
 mod last_change;
 mod manager;
 
 pub use handler::{
-    handle_av_transport_events, handle_connection_manager_events,
-    handle_rendering_control_events,
+    handle_av_transport_events, handle_connection_manager_events, handle_rendering_control_events,
 };
 pub use last_change::{
-    av_transport_last_change, rendering_control_last_change, transport_actions_for,
-    AVTransportEventState,
+    av_transport_last_change, connection_manager_current_ids_event, rendering_control_last_change,
+    transport_actions_for, AVTransportEventState,
 };
 pub use manager::EventManager;

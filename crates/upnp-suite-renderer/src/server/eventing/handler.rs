@@ -36,7 +36,8 @@ pub async fn handle_av_transport_events(
                 .av_transport
                 .get(InstanceId::DEFAULT)
                 .expect("default AVTransport instance is never removed");
-            let event = AVTransportEventState::snapshot(InstanceId::DEFAULT, transport.as_ref()).await;
+            let event =
+                AVTransportEventState::snapshot(InstanceId::DEFAULT, transport.as_ref()).await;
             last_change::av_transport_last_change(&event)
         }
     };
@@ -82,11 +83,7 @@ pub async fn handle_connection_manager_events(
                 .get_current_connection_ids()
                 .await
                 .unwrap_or_default();
-            let ids = ids
-                .iter()
-                .map(i32::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
+            let ids = ids.iter().map(i32::to_string).collect::<Vec<_>>().join(",");
             last_change::connection_manager_current_ids_event(&ids)
         }
     };
@@ -134,7 +131,12 @@ async fn subscribe_new(
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
 
-    match manager.subscribe(callback, timeout_header, remote_addr.to_string(), user_agent) {
+    match manager.subscribe(
+        callback,
+        timeout_header,
+        remote_addr.to_string(),
+        user_agent,
+    ) {
         Ok(sub) => {
             info!(sid = %sub.sid, callbacks = ?sub.callback_urls, "New GENA subscription");
             manager.notify_initial(&sub, initial_body);

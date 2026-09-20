@@ -4,8 +4,9 @@ use crate::server::soap::types::soap_action::ParsedSoapAction;
 use crate::server::soap::types::UPnPService;
 
 use crate::server::soap::types::connection_manager::{
-    ConnectionManagerAction, GetCurrentConnectionIDsRequest, GetCurrentConnectionInfoRequest,
-    GetProtocolInfoRequest,
+    ConnectionCompleteRequest, ConnectionManagerAction, GetCurrentConnectionIDsRequest,
+    GetCurrentConnectionInfoRequest, GetFeatureListRequest, GetProtocolInfoRequest,
+    PrepareForConnectionRequest,
 };
 
 pub struct ConnectionManagerService;
@@ -15,7 +16,7 @@ impl UPnPService for ConnectionManagerService {
     type Action = ConnectionManagerAction;
 
     fn service_type() -> &'static str {
-        "urn:schemas-upnp-org:service:ConnectionManager:1"
+        "urn:schemas-upnp-org:service:ConnectionManager:3"
     }
 
     fn service_id() -> &'static str {
@@ -26,10 +27,7 @@ impl UPnPService for ConnectionManagerService {
         "ConnectionManager"
     }
 
-    fn parse_action(
-        action: &ParsedSoapAction,
-        content: &str,
-    ) -> Result<Self::Action, SoapError> {
+    fn parse_action(action: &ParsedSoapAction, content: &str) -> Result<Self::Action, SoapError> {
         let action_name: &str = action.action.as_str();
         match action_name {
             "GetProtocolInfo" => {
@@ -50,6 +48,23 @@ impl UPnPService for ConnectionManagerService {
                     action_name,
                 )?;
                 Ok(ConnectionManagerAction::GetCurrentConnectionInfo(request))
+            }
+            "PrepareForConnection" => {
+                let request = extract_and_parse_soap_body::<PrepareForConnectionRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(ConnectionManagerAction::PrepareForConnection(request))
+            }
+            "ConnectionComplete" => {
+                let request =
+                    extract_and_parse_soap_body::<ConnectionCompleteRequest>(content, action_name)?;
+                Ok(ConnectionManagerAction::ConnectionComplete(request))
+            }
+            "GetFeatureList" => {
+                let request =
+                    extract_and_parse_soap_body::<GetFeatureListRequest>(content, action_name)?;
+                Ok(ConnectionManagerAction::GetFeatureList(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",

@@ -46,7 +46,8 @@ impl SoapClient {
             )
             .body(body)
             .send()
-            .await.unwrap()
+            .await
+            .unwrap()
     }
 
     pub async fn play(&self) -> reqwest::Response {
@@ -721,6 +722,34 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
+                    <u:GetProtocolInfo xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:3"/>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/ConnectionManager/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:ConnectionManager:3#GetProtocolInfo\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    /// Same as [`Self::get_protocol_info`] but with a `:1` `SOAPAction` —
+    /// exercises that a control point which only knows about
+    /// `ConnectionManager:1` (this renderer used to only advertise `:1`)
+    /// still gets served after the bump to `:3`.
+    pub async fn get_protocol_info_v1(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
                     <u:GetProtocolInfo xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1"/>
                 </s:Body>
             </s:Envelope>"#;
@@ -745,7 +774,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetCurrentConnectionIDs xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1"/>
+                    <u:GetCurrentConnectionIDs xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:3"/>
                 </s:Body>
             </s:Envelope>"#;
 
@@ -757,7 +786,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:ConnectionManager:1#GetCurrentConnectionIDs\"",
+                "\"urn:schemas-upnp-org:service:ConnectionManager:3#GetCurrentConnectionIDs\"",
             )
             .body(body)
             .send()
@@ -770,7 +799,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetCurrentConnectionInfo xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1">
+                    <u:GetCurrentConnectionInfo xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:3">
                         <ConnectionID>{}</ConnectionID>
                     </u:GetCurrentConnectionInfo>
                 </s:Body>
@@ -786,7 +815,96 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:ConnectionManager:1#GetCurrentConnectionInfo\"",
+                "\"urn:schemas-upnp-org:service:ConnectionManager:3#GetCurrentConnectionInfo\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn prepare_for_connection(
+        &self,
+        remote_protocol_info: &str,
+        direction: &str,
+    ) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:PrepareForConnection xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:3">
+                        <RemoteProtocolInfo>{}</RemoteProtocolInfo>
+                        <PeerConnectionManager></PeerConnectionManager>
+                        <PeerConnectionID>-1</PeerConnectionID>
+                        <Direction>{}</Direction>
+                    </u:PrepareForConnection>
+                </s:Body>
+            </s:Envelope>"#,
+            remote_protocol_info, direction
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/ConnectionManager/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:ConnectionManager:3#PrepareForConnection\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn connection_complete(&self, connection_id: i32) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:ConnectionComplete xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:3">
+                        <ConnectionID>{}</ConnectionID>
+                    </u:ConnectionComplete>
+                </s:Body>
+            </s:Envelope>"#,
+            connection_id
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/ConnectionManager/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:ConnectionManager:3#ConnectionComplete\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_feature_list(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetFeatureList xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:3"/>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/ConnectionManager/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:ConnectionManager:3#GetFeatureList\"",
             )
             .body(body)
             .send()

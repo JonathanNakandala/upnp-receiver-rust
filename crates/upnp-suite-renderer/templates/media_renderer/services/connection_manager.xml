@@ -75,6 +75,66 @@
                 </argument>
             </argumentList>
         </action>
+        <action>
+            <name>PrepareForConnection</name>
+            <argumentList>
+                <argument>
+                    <name>RemoteProtocolInfo</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_ProtocolInfo</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>PeerConnectionManager</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_ConnectionManager</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>PeerConnectionID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>Direction</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_Direction</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>ConnectionID</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>AVTransportID</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>A_ARG_TYPE_AVTransportID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>RcsID</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>A_ARG_TYPE_RcsID</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>ConnectionComplete</name>
+            <argumentList>
+                <argument>
+                    <name>ConnectionID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_ConnectionID</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>GetFeatureList</name>
+            <argumentList>
+                <argument>
+                    <name>FeatureList</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>FeatureList</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
     </actionList>
     <serviceStateTable>
         <stateVariable sendEvents="no">
@@ -87,6 +147,10 @@
         </stateVariable>
         <stateVariable sendEvents="yes">
             <name>CurrentConnectionIDs</name>
+            <dataType>string</dataType>
+        </stateVariable>
+        <stateVariable sendEvents="no">
+            <name>FeatureList</name>
             <dataType>string</dataType>
         </stateVariable>
         <stateVariable sendEvents="no">

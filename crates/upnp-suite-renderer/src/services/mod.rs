@@ -53,6 +53,19 @@ pub mod types {
         pub status: ConnectionManagerStatus,
     }
 
+    /// What `ConnectionManager::prepare_connection` (UPnP's
+    /// `PrepareForConnection()`) hands back: the newly allocated
+    /// `ConnectionID`, plus the `AVTransportID`/`RcsID` a control point
+    /// should use for subsequent AVTransport/RenderingControl calls tied to
+    /// this connection (`-1` for either means no such service instance is
+    /// associated with the connection).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct PreparedConnection {
+        pub connection_id: i32,
+        pub av_transport_id: i32,
+        pub rcs_id: i32,
+    }
+
     #[derive(Debug, Clone)]
     pub struct MediaInfo {
         pub uri: String,
