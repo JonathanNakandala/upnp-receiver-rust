@@ -3,6 +3,11 @@
 //! [`RendererClient::subscribe_av_transport`]), volume/mute likewise, and
 //! track position, which is never GENA-evented in UPnP so it's always
 //! polled directly here via `GetPositionInfo`.
+//!
+//! Also accepts playback controls: space toggles play/pause, `s` stops,
+//! `+`/`-` step volume, and `m` toggles mute — issued as SOAP actions
+//! against the selected device and reflected back once its GENA NOTIFY
+//! (or the next position poll) catches up.
 
 use std::time::Duration;
 
@@ -20,6 +25,7 @@ use crate::discover;
 
 const AV_TRANSPORT_PREFIX: &str = "urn:schemas-upnp-org:service:AVTransport:";
 const POSITION_POLL: Duration = Duration::from_millis(1000);
+const VOLUME_STEP: u16 = 5;
 
 pub async fn run(wait: Duration) {
     let devices = match discover::scan(wait).await {
@@ -74,6 +80,7 @@ pub async fn run(wait: Duration) {
     let av = client
         .av_transport()
         .expect("AVTransport confirmed present by the candidate filter above");
+    let rc = client.rendering_control().ok();
 
     let mut position = PositionInfo::default();
     if let Ok(info) = av.get_position_info().await {
@@ -131,6 +138,48 @@ pub async fn run(wait: Duration) {
                         if quit {
                             break;
                         }
+
+                        let is_playing = transport_rx.borrow().transport_state == "PLAYING";
+                        let current_volume = rendering_rx.as_ref().map(|rx| rx.borrow().volume);
+                        let current_muted = rendering_rx.as_ref().map(|rx| rx.borrow().muted);
+
+                        match key.code {
+                            KeyCode::Char(' ') => {
+                                let result = if is_playing { av.pause().await } else { av.play().await };
+                                if let Err(err) = result {
+                                    eprintln!("Play/pause failed: {err}");
+                                }
+                            }
+                            KeyCode::Char('s') => {
+                                if let Err(err) = av.stop().await {
+                                    eprintln!("Stop failed: {err}");
+                                }
+                            }
+                            KeyCode::Char('+') | KeyCode::Char('=') => {
+                                if let (Some(rc), Some(volume)) = (&rc, current_volume) {
+                                    let new_volume = volume.saturating_add(VOLUME_STEP).min(100);
+                                    if let Err(err) = rc.set_volume(new_volume).await {
+                                        eprintln!("Set volume failed: {err}");
+                                    }
+                                }
+                            }
+                            KeyCode::Char('-') | KeyCode::Char('_') => {
+                                if let (Some(rc), Some(volume)) = (&rc, current_volume) {
+                                    let new_volume = volume.saturating_sub(VOLUME_STEP);
+                                    if let Err(err) = rc.set_volume(new_volume).await {
+                                        eprintln!("Set volume failed: {err}");
+                                    }
+                                }
+                            }
+                            KeyCode::Char('m') => {
+                                if let (Some(rc), Some(muted)) = (&rc, current_muted) {
+                                    if let Err(err) = rc.set_mute(!muted).await {
+                                        eprintln!("Set mute failed: {err}");
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                     Some(Ok(_)) => {}
                     Some(Err(_)) | None => break,
@@ -172,7 +221,7 @@ fn render(
     frame.render_widget(volume_panel(rendering), layout[3]);
 
     frame.render_widget(
-        Paragraph::new("q / Esc / Ctrl-C to quit").dim(),
+        Paragraph::new("space play/pause · s stop · +/- volume · m mute · q / Esc / Ctrl-C quit").dim(),
         layout[4],
     );
 }
