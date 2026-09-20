@@ -11,6 +11,7 @@ use quick_xml::reader::Reader;
 use reqwest::Url;
 
 use crate::error::{ClientError, SoapFault};
+use crate::xml::local_name;
 
 /// Sends `action` to `control_url` for `service_type` (e.g.
 /// `"urn:schemas-upnp-org:service:AVTransport:1"`) with `args` as the
@@ -181,12 +182,4 @@ fn parse_fault(xml: &str) -> Option<SoapFault> {
     }
 
     saw_fault.then_some(fault)
-}
-
-fn local_name(name: &[u8]) -> &str {
-    let name = std::str::from_utf8(name).unwrap_or("");
-    match name.rfind(':') {
-        Some(pos) => &name[pos + 1..],
-        None => name,
-    }
 }

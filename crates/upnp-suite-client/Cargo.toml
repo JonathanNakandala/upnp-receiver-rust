@@ -6,12 +6,13 @@ publish = false
 
 [dependencies]
 upnp-suite-core = { path = "../upnp-suite-core" }
-tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time", "net"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 quick-xml = { workspace = true }
 serde = { workspace = true }
+axum = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
