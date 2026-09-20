@@ -2,6 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "separate-pull-requests": true,
   "include-component-in-tag": true,
+  "component-no-space": true,
   "pull-request-title-pattern": "chore(${component}): release ${version}",
   "packages": {
     "crates/upnp-suite-renderer": {
