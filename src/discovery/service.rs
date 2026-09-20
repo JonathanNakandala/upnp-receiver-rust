@@ -1,4 +1,5 @@
 use crate::discovery::error::DiscoveryServiceError;
+use std::path::PathBuf;
 use std::{fmt, net::IpAddr};
 use uuid::Uuid;
 pub const DEFAULT_SERVER: &str = concat!("Rust/", env!("CARGO_PKG_VERSION"), " UPnP/1.0");
@@ -69,6 +70,9 @@ pub struct MediaRendererConfig {
     pub model_number: String,
     pub model_url: String,
     pub serial_number: String,
+    /// Path to a PNG/JPEG/GIF file to serve as the device icon
+    /// (`--icon <path>`). No `iconList` is advertised at all when unset.
+    pub icon_path: Option<PathBuf>,
 }
 
 impl MediaRendererConfig {
@@ -100,6 +104,7 @@ impl Default for MediaRendererConfig {
             model_number: "1.0.0".to_string(),
             model_url: "https://github.com/yourusername/project".to_string(),
             serial_number: "1".to_string(),
+            icon_path: None,
         }
     }
 }
@@ -162,6 +167,11 @@ impl MediaRendererConfigBuilder {
 
     pub fn serial_number(mut self, number: String) -> Self {
         self.config.serial_number = number;
+        self
+    }
+
+    pub fn icon_path(mut self, path: PathBuf) -> Self {
+        self.config.icon_path = Some(path);
         self
     }
 

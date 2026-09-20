@@ -4,7 +4,7 @@ use crate::server::eventing::{
 };
 use crate::server::soap::handlers::UPnPServiceRouter;
 use crate::server::templates::{
-    MediaRendererAvTransportTemplate, MediaRendererConnectionManagerTemplate,
+    DeviceIconTemplateData, MediaRendererAvTransportTemplate, MediaRendererConnectionManagerTemplate,
     MediaRendererDeviceTemplate, MediaRendererRenderingControlTemplate,
 };
 use crate::services::MediaRenderer;
@@ -39,6 +39,24 @@ impl IntoResponse for XmlResponse {
             StatusCode::OK,
             [(header::CONTENT_TYPE, "application/xml")],
             self.0,
+        )
+            .into_response()
+    }
+}
+
+/// Serves a loaded [`crate::server::DeviceIcon`]'s raw bytes with its
+/// sniffed `Content-Type`.
+struct IconResponse {
+    bytes: Vec<u8>,
+    mimetype: &'static str,
+}
+
+impl IntoResponse for IconResponse {
+    fn into_response(self) -> axum::response::Response {
+        (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, self.mimetype)],
+            self.bytes,
         )
             .into_response()
     }
@@ -146,6 +164,10 @@ impl HttpServer {
             )
             // SOAP control routes
             .merge(UPnPServiceRouter::new().router());
+
+        if let Some(icon) = self.renderer.icon() {
+            router = router.route(&icon_url_path(icon), get(handle_icon));
+        }
 
         if let Some(logger) = &self.client_logger {
             // Wraps the whole router (routed and unmatched paths alike), so a
@@ -330,6 +352,27 @@ fn request_span(req: &axum::http::Request<Body>) -> tracing::Span {
     tracing::info_span!("request", client = remote_addr.as_deref().unwrap_or("-"))
 }
 
+/// The URL a loaded device icon is served at — its extension matches the
+/// icon's sniffed format (`/icon.png`, `/icon.jpg`, `/icon.gif`), since some
+/// control points sniff an icon's type from the URL rather than trusting
+/// the HTTP `Content-Type`.
+fn icon_url_path(icon: &crate::server::DeviceIcon) -> String {
+    format!("/icon{}", icon.extension)
+}
+
+async fn handle_icon(State(renderer): State<Arc<MediaRenderer>>) -> impl IntoResponse {
+    match renderer.icon() {
+        Some(icon) => IconResponse {
+            bytes: icon.bytes.clone(),
+            mimetype: icon.mimetype,
+        }
+        .into_response(),
+        // Unreachable in practice: this route is only registered when an
+        // icon is loaded (see `router`).
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 // Template handlers
 #[instrument(skip(renderer))]
 async fn handle_device_description(
@@ -350,6 +393,12 @@ async fn handle_device_description(
         model_url: renderer.model_url().to_string(),
         serial_number: renderer.serial_number().to_string(),
         uuid: renderer.unique_id().to_string(),
+        icon: renderer.icon().map(|icon| DeviceIconTemplateData {
+            url: icon_url_path(icon),
+            mimetype: icon.mimetype,
+            width: icon.width,
+            height: icon.height,
+        }),
     };
 
     trace!("Rendering device description template");

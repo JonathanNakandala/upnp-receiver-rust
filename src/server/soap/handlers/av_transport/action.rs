@@ -8,6 +8,7 @@ use crate::server::soap::types::av_transport::{
     GetMediaInfoResponse, GetTransportInfoResponse, GetTransportSettingsResponse, NextResponse,
     PauseResponse, PlayMode, PlayResponse, PreviousResponse, SeekResponse,
     SetAVTransportURIResponse, SetNextAVTransportURIResponse, SetPlayModeResponse, StopResponse,
+    TransportState,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::MediaRenderer;
@@ -26,6 +27,21 @@ use super::utils::{
 /// poll.
 async fn publish_transport_state(renderer: &MediaRenderer, events: &Arc<EventManager>) {
     let event = AVTransportEventState::snapshot(renderer.av_transport.as_ref()).await;
+    events.broadcast(av_transport_last_change(&event));
+}
+
+/// Publishes a synthetic `LastChange` NOTIFY announcing `TRANSITIONING`
+/// right before a state-changing action is attempted. Per the AVTransport
+/// spec, `Play`/`Pause`/`Stop`/`SetAVTransportURI` "may temporarily go to
+/// the TRANSITIONING state" and `Seek` "changes TransportState to
+/// TRANSITIONING and then returns immediately" — real transitions here are
+/// effectively instant (no buffering/seek-completion wait), so this isn't a
+/// real interim backend state, just an event a subscriber relying on
+/// eventing (rather than polling) can observe before the real post-action
+/// state follows right behind it.
+async fn publish_transitioning(renderer: &MediaRenderer, events: &Arc<EventManager>) {
+    let mut event = AVTransportEventState::snapshot(renderer.av_transport.as_ref()).await;
+    event.transport_state = TransportState::Transitioning;
     events.broadcast(av_transport_last_change(&event));
 }
 
@@ -59,6 +75,7 @@ impl UPnPAction for AVTransportAction {
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
         match self {
             Self::SetAVTransportURI(req) => {
+                publish_transitioning(&renderer, &renderer.av_transport_events).await;
                 let result = renderer
                     .av_transport
                     .set_transport_uri(req.current_uri.clone(), req.current_uri_metadata.clone())
@@ -76,8 +93,12 @@ impl UPnPAction for AVTransportAction {
                         "Handling SetAVTransportURI"
                     ),
                 }
-                result?;
+                // Published whether this succeeded or not: a failed action
+                // still needs its subscribers corrected off the
+                // `publish_transitioning` above, or they're left believing
+                // the transport is still transitioning.
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                result?;
                 Ok(AVTransportResponse::SetAVTransportURI(
                     SetAVTransportURIResponse {},
                 ))
@@ -107,6 +128,7 @@ impl UPnPAction for AVTransportAction {
                 ))
             }
             Self::Play(req) => {
+                publish_transitioning(&renderer, &renderer.av_transport_events).await;
                 let result = async {
                     let speed = parse_play_speed(&req.speed).ok_or_else(|| {
                         SoapError::Soap(SoapProtocolError::PlaySpeedNotSupported(format!(
@@ -142,31 +164,34 @@ impl UPnPAction for AVTransportAction {
                     ),
                 }
 
-                result?;
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                result?;
                 Ok(AVTransportResponse::Play(PlayResponse {}))
             }
             Self::Pause(req) => {
+                publish_transitioning(&renderer, &renderer.av_transport_events).await;
                 let result = renderer.av_transport.pause().await;
                 match &result {
                     Ok(_) => info!(instance_id = req.instance_id, "Handling Pause"),
                     Err(err) => warn!(instance_id = req.instance_id, error = %err, "Handling Pause"),
                 }
-                result?;
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                result?;
                 Ok(AVTransportResponse::Pause(PauseResponse {}))
             }
             Self::Stop(req) => {
+                publish_transitioning(&renderer, &renderer.av_transport_events).await;
                 let result = renderer.av_transport.stop().await;
                 match &result {
                     Ok(_) => info!(instance_id = req.instance_id, "Handling Stop"),
                     Err(err) => warn!(instance_id = req.instance_id, error = %err, "Handling Stop"),
                 }
-                result?;
                 publish_transport_state(&renderer, &renderer.av_transport_events).await;
+                result?;
                 Ok(AVTransportResponse::Stop(StopResponse {}))
             }
             Self::Seek(req) => {
+                publish_transitioning(&renderer, &renderer.av_transport_events).await;
                 let result = async {
                     if req.unit != "REL_TIME" && req.unit != "ABS_TIME" {
                         return Err(SoapError::Soap(SoapProtocolError::SeekModeNotSupported(
@@ -202,6 +227,13 @@ impl UPnPAction for AVTransportAction {
                     ),
                 }
 
+                // Seek doesn't change TransportState itself, but the
+                // TRANSITIONING announced above still needs a follow-up
+                // event reverting subscribers back to the real state, per
+                // the spec's "when the desired position is reached,
+                // TransportState will return to the previous transport
+                // state" — that "return" is only observable through this.
+                publish_transport_state(&renderer, &renderer.av_transport_events).await;
                 result?;
                 Ok(AVTransportResponse::Seek(SeekResponse {}))
             }

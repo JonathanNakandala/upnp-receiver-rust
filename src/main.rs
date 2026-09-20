@@ -143,6 +143,16 @@ async fn select_backend(choice: BackendChoice) -> SelectedBackend {
 /// directory — useful for working out what real-world clients actually send
 /// and which of it isn't implemented yet. Override the location with the
 /// `CLIENT_LOG_DIR` env var.
+/// `--icon <path>` points at a PNG/JPEG/GIF file to advertise as the device
+/// icon; its dimensions/mimetype are sniffed from the file itself. Omitted
+/// entirely (no `iconList`) when not passed.
+fn parse_icon_path(args: &[String]) -> Option<PathBuf> {
+    args.iter()
+        .position(|a| a == "--icon")
+        .and_then(|i| args.get(i + 1))
+        .map(PathBuf::from)
+}
+
 fn client_log_dir() -> PathBuf {
     std::env::var("CLIENT_LOG_DIR")
         .map(PathBuf::from)
@@ -199,11 +209,15 @@ fn init_logging(format: &str) -> Result<(), Box<dyn Error>> {
 fn create_renderer(
     media_backend: Option<Arc<dyn MediaBackend>>,
     supported_mime_types: Vec<String>,
+    icon_path: Option<PathBuf>,
 ) -> Result<MediaRenderer, Box<dyn Error>> {
-    let config = MediaRendererConfig::builder()
+    let mut builder = MediaRendererConfig::builder()
         .port(8080)
-        .friendly_name("Jono's Rust Media Renderer".to_string())
-        .build();
+        .friendly_name("Jono's Rust Media Renderer".to_string());
+    if let Some(icon_path) = icon_path {
+        builder = builder.icon_path(icon_path);
+    }
+    let config = builder.build();
 
     MediaRenderer::new_with_media_backend(config, media_backend, supported_mime_types).map_err(
         |e| {
@@ -272,6 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let renderer = create_renderer(
         selected.media_backend.clone(),
         selected.supported_mime_types.clone(),
+        parse_icon_path(&args),
     )?;
 
     info!(

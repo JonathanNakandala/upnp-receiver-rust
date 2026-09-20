@@ -1,5 +1,15 @@
 use askama::Template;
 
+/// The subset of a loaded [`crate::server::DeviceIcon`] the `device.xml`
+/// template needs — kept separate so the template doesn't reach into the
+/// icon's raw bytes.
+pub struct DeviceIconTemplateData {
+    pub url: String,
+    pub mimetype: &'static str,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Template)]
 #[template(path = "media_renderer/device.xml")]
 pub struct MediaRendererDeviceTemplate {
@@ -12,6 +22,7 @@ pub struct MediaRendererDeviceTemplate {
     pub model_url: String,
     pub serial_number: String,
     pub uuid: String,
+    pub icon: Option<DeviceIconTemplateData>,
 }
 
 #[derive(Template)]

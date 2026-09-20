@@ -11,6 +11,7 @@ use crate::discovery::service::{
 };
 use crate::ip::get_default_ip;
 use crate::server::eventing::{av_transport_last_change, AVTransportEventState, EventManager};
+use crate::server::{load_icon, DeviceIcon};
 use crate::services::{
     av_transport::{AVTransport, AVTransportImpl},
     connection_manager::{ConnectionManager, DummyConnectionManager},
@@ -32,6 +33,7 @@ pub struct MediaRenderer {
     model_url: String,
     serial_number: String,
     services: Vec<MediaRendererService>,
+    icon: Arc<Option<DeviceIcon>>,
 
     // Service implementations
     pub av_transport: Arc<dyn AVTransport>,
@@ -80,6 +82,19 @@ impl MediaRenderer {
                 detected_ip
             }
         };
+
+        // Loading the icon is best-effort: a bad --icon path shouldn't stop
+        // the renderer from starting, just leave it without one (no
+        // `iconList` advertised at all).
+        let icon = config.icon_path.as_ref().and_then(|path| {
+            match load_icon(path) {
+                Ok(icon) => Some(icon),
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "Failed to load device icon, continuing without one");
+                    None
+                }
+            }
+        });
 
         // Initialize services based on whether we have a media backend
         let (av_transport, rendering_control) = if let Some(backend) = media_backend.clone() {
@@ -152,6 +167,7 @@ impl MediaRenderer {
             model_url: config.model_url,
             serial_number: config.serial_number,
             services: MediaRendererConfig::default_services(),
+            icon: Arc::new(icon),
             // Set service implementations
             av_transport,
             rendering_control,
@@ -208,6 +224,10 @@ impl MediaRenderer {
     pub fn unique_id(&self) -> Uuid {
         self.unique_id
     }
+
+    pub fn icon(&self) -> Option<&DeviceIcon> {
+        self.icon.as_ref().as_ref()
+    }
 }
 impl Clone for MediaRenderer {
     fn clone(&self) -> Self {
@@ -225,6 +245,7 @@ impl Clone for MediaRenderer {
             model_url: self.model_url.clone(),
             serial_number: self.serial_number.clone(),
             services: self.services.clone(),
+            icon: self.icon.clone(),
             // Clone the Arc service implementations
             av_transport: self.av_transport.clone(),
             rendering_control: self.rendering_control.clone(),
