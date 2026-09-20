@@ -14,7 +14,7 @@ mod rendering_control;
 mod soap;
 mod xml;
 
-pub use av_transport::{AVTransportClient, TransportInfo};
+pub use av_transport::{AVTransportClient, PositionInfo, TransportInfo};
 pub use device::RendererClient;
 pub use error::{ClientError, SoapFault};
 pub use eventing::EventStream;

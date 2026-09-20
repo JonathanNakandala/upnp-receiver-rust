@@ -21,6 +21,22 @@ pub struct TransportInfo {
     pub current_speed: String,
 }
 
+/// What `GetPositionInfo` reports - track position isn't GENA-evented (no
+/// `LastChange` variable carries it), so this is the only way a control
+/// point learns it, typically by polling.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PositionInfo {
+    pub track: String,
+    /// `H+:MM:SS` (or `NOT_IMPLEMENTED`), same raw format the device sends.
+    pub track_duration: String,
+    pub track_uri: String,
+    pub track_metadata: Option<String>,
+    /// `H+:MM:SS` elapsed within the current track.
+    pub rel_time: String,
+    /// `H+:MM:SS` elapsed since the start of the AVTransportURI resource.
+    pub abs_time: String,
+}
+
 pub struct AVTransportClient<'a> {
     http: &'a reqwest::Client,
     control_url: &'a Url,
@@ -96,6 +112,24 @@ impl<'a> AVTransportClient<'a> {
             current_transport_state: field(&fields, "CurrentTransportState")?,
             current_transport_status: field(&fields, "CurrentTransportStatus")?,
             current_speed: field(&fields, "CurrentSpeed")?,
+        })
+    }
+
+    pub async fn get_position_info(&self) -> Result<PositionInfo, ClientError> {
+        let fields = self
+            .invoke("GetPositionInfo", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+
+        Ok(PositionInfo {
+            track: field(&fields, "Track")?,
+            track_duration: field(&fields, "TrackDuration")?,
+            track_uri: fields.get("TrackURI").cloned().unwrap_or_default(),
+            track_metadata: fields
+                .get("TrackMetaData")
+                .cloned()
+                .filter(|s| !s.is_empty()),
+            rel_time: field(&fields, "RelTime")?,
+            abs_time: fields.get("AbsTime").cloned().unwrap_or_default(),
         })
     }
 }
