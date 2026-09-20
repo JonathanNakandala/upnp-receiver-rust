@@ -17,10 +17,17 @@ pub enum UpnpService {
     RenderingControl,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UpnpServiceVersion {
-    V1,
-}
+/// The numeric version segment of a `SOAPAction` header (e.g. `3` in
+/// `...:ConnectionManager:3#GetFeatureList`). Not gated against what a
+/// service actually implements — UPnP backward compatibility requires a
+/// device to keep answering older-versioned requests even after bumping a
+/// service's declared version (see the MediaRenderer/MediaServer device
+/// specs, "shall respond to all actions defined by ... or lower"), and
+/// nothing downstream of parsing currently branches on this value, so any
+/// well-formed version number is accepted rather than only the one currently
+/// advertised.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UpnpServiceVersion(pub u32);
 
 #[async_trait]
 impl<S> FromRequestParts<S> for ParsedSoapAction

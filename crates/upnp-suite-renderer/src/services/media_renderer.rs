@@ -5,10 +5,6 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::backend::{MediaBackend, MediaBackendAVTransport, MediaBackendRenderingControl};
-use upnp_suite_core::discovery::error::DiscoveryServiceError;
-use upnp_suite_core::discovery::service::{
-    MediaRendererConfig, MediaRendererService, Server, ServiceInfo, SsdpService,
-};
 use crate::ip::get_default_ip;
 use crate::server::eventing::{av_transport_last_change, AVTransportEventState, EventManager};
 use crate::server::{load_icon, DeviceIcon};
@@ -17,6 +13,10 @@ use crate::services::{
     connection_manager::{ConnectionManager, DummyConnectionManager},
     instance::{InstanceId, InstanceRegistry},
     rendering_control::{RenderingControl, RenderingControlImpl},
+};
+use upnp_suite_core::discovery::error::DiscoveryServiceError;
+use upnp_suite_core::discovery::service::{
+    MediaRendererConfig, MediaRendererService, Server, ServiceInfo, SsdpService,
 };
 
 pub struct MediaRenderer {
@@ -178,8 +178,10 @@ impl MediaRenderer {
         // rejected InstanceID and a future second instance are both just a
         // registry operation away instead of a redesign.
         let av_transport = Arc::new(InstanceRegistry::new(InstanceId::DEFAULT, av_transport));
-        let rendering_control =
-            Arc::new(InstanceRegistry::new(InstanceId::DEFAULT, rendering_control));
+        let rendering_control = Arc::new(InstanceRegistry::new(
+            InstanceId::DEFAULT,
+            rendering_control,
+        ));
 
         Ok(Self {
             unique_id: Uuid::new_v4(),

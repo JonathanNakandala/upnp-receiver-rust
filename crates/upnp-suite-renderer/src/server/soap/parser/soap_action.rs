@@ -28,9 +28,10 @@ pub fn parse_soap_action(headers: &HeaderMap) -> Result<ParsedSoapAction, SoapEr
         Some(&"ConnectionManager") => UpnpService::ConnectionManager,
         Some(&"RenderingControl") => UpnpService::RenderingControl,
         Some(other) => {
-            return Err(SoapError::Soap(SoapProtocolError::InvalidAction(
-                format!("Unrecognized service: {}", other),
-            )))
+            return Err(SoapError::Soap(SoapProtocolError::InvalidAction(format!(
+                "Unrecognized service: {}",
+                other
+            ))))
         }
         None => {
             return Err(SoapError::Soap(SoapProtocolError::InvalidAction(
@@ -54,15 +55,10 @@ pub fn parse_soap_action(headers: &HeaderMap) -> Result<ParsedSoapAction, SoapEr
         )));
     }
 
-    let version = match version_action_parts[0] {
-        "1" => UpnpServiceVersion::V1,
-        // Add more versions if needed
-        _ => {
-            return Err(SoapError::Soap(SoapProtocolError::InvalidAction(
-                "Unsupported version".into(),
-            )))
-        }
-    };
+    let version = version_action_parts[0]
+        .parse::<u32>()
+        .map(UpnpServiceVersion)
+        .map_err(|_| SoapError::Soap(SoapProtocolError::InvalidAction("Invalid version".into())))?;
 
     let action = version_action_parts[1].to_string();
 
@@ -90,7 +86,7 @@ mod tests {
             create_headers("urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI");
         let result = parse_soap_action(&headers).unwrap();
         assert_eq!(result.service, UpnpService::AVTransport);
-        assert_eq!(result.version, UpnpServiceVersion::V1);
+        assert_eq!(result.version, UpnpServiceVersion(1));
         assert_eq!(result.action, "SetAVTransportURI");
     }
 
@@ -100,7 +96,7 @@ mod tests {
             create_headers("urn:schemas-upnp-org:service:ConnectionManager:1#GetProtocolInfo");
         let result = parse_soap_action(&headers).unwrap();
         assert_eq!(result.service, UpnpService::ConnectionManager);
-        assert_eq!(result.version, UpnpServiceVersion::V1);
+        assert_eq!(result.version, UpnpServiceVersion(1));
         assert_eq!(result.action, "GetProtocolInfo");
     }
 
@@ -109,7 +105,7 @@ mod tests {
         let headers = create_headers("urn:schemas-upnp-org:service:RenderingControl:1#SetVolume");
         let result = parse_soap_action(&headers).unwrap();
         assert_eq!(result.service, UpnpService::RenderingControl);
-        assert_eq!(result.version, UpnpServiceVersion::V1);
+        assert_eq!(result.version, UpnpServiceVersion(1));
         assert_eq!(result.action, "SetVolume");
     }
 
@@ -118,8 +114,18 @@ mod tests {
         let headers = create_headers("\"urn:schemas-upnp-org:service:AVTransport:1#Play\"");
         let result = parse_soap_action(&headers).unwrap();
         assert_eq!(result.service, UpnpService::AVTransport);
-        assert_eq!(result.version, UpnpServiceVersion::V1);
+        assert_eq!(result.version, UpnpServiceVersion(1));
         assert_eq!(result.action, "Play");
+    }
+
+    #[test]
+    fn test_higher_service_version() {
+        let headers =
+            create_headers("urn:schemas-upnp-org:service:ConnectionManager:3#GetFeatureList");
+        let result = parse_soap_action(&headers).unwrap();
+        assert_eq!(result.service, UpnpService::ConnectionManager);
+        assert_eq!(result.version, UpnpServiceVersion(3));
+        assert_eq!(result.action, "GetFeatureList");
     }
 
     #[test]

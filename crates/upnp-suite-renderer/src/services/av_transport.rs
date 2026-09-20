@@ -180,7 +180,11 @@ impl AVTransport for AVTransportImpl {
 
     async fn seek(&self, position: Duration) -> Result<(), TransportError> {
         let mut state = self.state.write().await;
-        let duration = state.media.as_ref().ok_or(TransportError::NoMedia)?.duration;
+        let duration = state
+            .media
+            .as_ref()
+            .ok_or(TransportError::NoMedia)?
+            .duration;
 
         if let Some(duration) = duration {
             if position > duration {

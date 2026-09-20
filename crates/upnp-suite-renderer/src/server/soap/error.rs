@@ -183,10 +183,12 @@ impl SoapProtocolError {
                     description: "Invalid Action",
                 }
             }
-            SoapProtocolError::ParseError(_) | SoapProtocolError::MissingField(_) => UPnPErrorCode {
-                code: 402,
-                description: "Invalid Args",
-            },
+            SoapProtocolError::ParseError(_) | SoapProtocolError::MissingField(_) => {
+                UPnPErrorCode {
+                    code: 402,
+                    description: "Invalid Args",
+                }
+            }
             SoapProtocolError::SerializationError(_) => UPnPErrorCode {
                 code: 501,
                 description: "Action Failed",
@@ -230,6 +232,20 @@ impl ServiceError {
             ServiceError::Connection(ConnectionError::UnsupportedProtocol(_)) => UPnPErrorCode {
                 code: 714,
                 description: "Illegal MIME-Type",
+            },
+            ServiceError::Connection(ConnectionError::IncompatibleProtocolInfo(_)) => {
+                UPnPErrorCode {
+                    code: 701,
+                    description: "Incompatible protocol info",
+                }
+            }
+            ServiceError::Connection(ConnectionError::IncompatibleDirection(_)) => UPnPErrorCode {
+                code: 702,
+                description: "Incompatible directions",
+            },
+            ServiceError::Connection(ConnectionError::ConnectionTableOverflow) => UPnPErrorCode {
+                code: 708,
+                description: "Connection table overflow",
             },
             ServiceError::Connection(_)
             | ServiceError::Protocol(_)
@@ -348,9 +364,9 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_connection_id_reports_706() {
-        let body = fault_body(SoapError::Soap(SoapProtocolError::InvalidConnectionReference(
-            "99".to_string(),
-        )))
+        let body = fault_body(SoapError::Soap(
+            SoapProtocolError::InvalidConnectionReference("99".to_string()),
+        ))
         .await;
         assert!(body.contains("<errorCode>706</errorCode>"));
     }

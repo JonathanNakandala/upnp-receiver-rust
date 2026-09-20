@@ -86,6 +86,22 @@ pub enum ConnectionError {
 
     #[error("invalid connection state: {0}")]
     InvalidState(String),
+
+    /// `PrepareForConnection`'s `RemoteProtocolInfo` doesn't match anything
+    /// this ConnectionManager reports in `SinkProtocolInfo` — UPnP error 701.
+    #[error("incompatible protocol info: {0}")]
+    IncompatibleProtocolInfo(String),
+
+    /// `PrepareForConnection`'s `Direction` isn't one this ConnectionManager
+    /// can satisfy — a MediaRenderer only ever sinks (`Input`) — UPnP error
+    /// 702.
+    #[error("incompatible direction: {0}")]
+    IncompatibleDirection(String),
+
+    /// `PrepareForConnection` was called while the connection table is
+    /// already at capacity — UPnP error 708.
+    #[error("connection table overflow")]
+    ConnectionTableOverflow,
 }
 
 #[derive(Error, Debug, Clone)]

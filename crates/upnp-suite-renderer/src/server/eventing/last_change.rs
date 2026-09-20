@@ -51,7 +51,10 @@ impl AVTransportEventState {
             .await
             .unwrap_or(TransportStatus::OK);
         let play_speed = av_transport.get_play_speed().await.unwrap_or(1.0);
-        let play_mode = av_transport.get_play_mode().await.unwrap_or(PlayMode::Normal);
+        let play_mode = av_transport
+            .get_play_mode()
+            .await
+            .unwrap_or(PlayMode::Normal);
         let media = av_transport.get_media_info().await.ok().flatten();
 
         Self {
@@ -61,7 +64,10 @@ impl AVTransportEventState {
             play_speed,
             current_uri: media.as_ref().map(|m| m.uri.clone()).unwrap_or_default(),
             current_metadata: media.as_ref().and_then(|m| m.metadata.clone()),
-            next_uri: media.as_ref().map(|m| m.next_uri.clone()).unwrap_or_default(),
+            next_uri: media
+                .as_ref()
+                .map(|m| m.next_uri.clone())
+                .unwrap_or_default(),
             next_metadata: media.as_ref().and_then(|m| m.next_metadata.clone()),
             track_duration: media
                 .as_ref()
@@ -252,7 +258,9 @@ mod tests {
         assert!(body.contains("<LastChange>"));
         // The inner Event XML is escaped as text, so its angle brackets show
         // up entity-encoded in the outer body.
-        assert!(body.contains("&lt;Event xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/AVT/&quot;&gt;"));
+        assert!(
+            body.contains("&lt;Event xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/AVT/&quot;&gt;")
+        );
         assert!(body.contains("TransportState val=&quot;PLAYING&quot;"));
         assert!(body.contains("CurrentTransportActions val=&quot;Pause,Stop,Seek&quot;"));
         assert!(body.contains("InstanceID val=&quot;0&quot;"));
@@ -275,15 +283,24 @@ mod tests {
 
     #[test]
     fn transport_actions_include_next_only_when_queued_and_media_active() {
-        assert_eq!(transport_actions_for(TransportState::Playing, false), "Pause,Stop,Seek");
+        assert_eq!(
+            transport_actions_for(TransportState::Playing, false),
+            "Pause,Stop,Seek"
+        );
         assert_eq!(
             transport_actions_for(TransportState::Playing, true),
             "Pause,Stop,Seek,Next"
         );
-        assert_eq!(transport_actions_for(TransportState::Stopped, true), "Play,Next");
+        assert_eq!(
+            transport_actions_for(TransportState::Stopped, true),
+            "Play,Next"
+        );
         // Nothing loaded at all — Next has nowhere to go regardless of the
         // (irrelevant) queued flag.
-        assert_eq!(transport_actions_for(TransportState::NoMediaPresent, true), "");
+        assert_eq!(
+            transport_actions_for(TransportState::NoMediaPresent, true),
+            ""
+        );
     }
 
     #[test]
