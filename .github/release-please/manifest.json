@@ -1,4 +1,4 @@
 {
   "crates/upnp-suite-renderer": "0.1.0",
-  "crates/upnp-suite-cli": "0.1.0"
+  "crates/upnp-suite-cli": "0.2.0"
 }
