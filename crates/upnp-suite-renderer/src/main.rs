@@ -1,7 +1,12 @@
 use backend::dummy::{run_dummy_process, DummyBackendManager};
-use backend::gstreamer::VideoOutput;
+use backend::gstreamer::{MenuState, PlaybackControls, SubtitleControl, VideoOutput};
 use backend::{gstreamer, DummyBackend, GStreamerBackend, MediaBackend, MediaBackendError};
+use server::eventing::{av_transport_last_change, AVTransportEventState, EventManager};
+use server::soap::handlers::av_transport::utils::SUPPORTED_PLAY_SPEEDS;
+use server::soap::types::av_transport::TransportState;
 use server::{ClientLogger, HttpServer};
+use services::av_transport::AVTransport;
+use services::instance::InstanceId;
 use services::MediaRenderer;
 use std::path::PathBuf;
 use std::{error::Error, sync::Arc, time::Duration};
@@ -54,6 +59,11 @@ fn parse_backend_choice(args: &[String]) -> BackendChoice {
 /// backend needs a health-monitor task and an async shutdown step.
 struct SelectedBackend {
     media_backend: Option<Arc<dyn MediaBackend>>,
+    /// The video window's menu subtitle toggle needs this specifically
+    /// (not just the generic `MediaBackend`) - only ever `Some` for the
+    /// GStreamer backend, since subtitle tracks are a GStreamer pipeline
+    /// concept the dummy backend has nothing analogous to.
+    subtitle_control: Option<Arc<dyn SubtitleControl>>,
     dummy_manager: Option<Arc<Mutex<DummyBackendManager>>>,
     /// What `ConnectionManager::GetProtocolInfo` should advertise as
     /// playable, given the backend actually in use.
@@ -80,8 +90,10 @@ fn use_gstreamer_backend(backend: GStreamerBackend) -> SelectedBackend {
         mime_types = %supported_mime_types.join(", "),
         "Detected GStreamer-supported formats"
     );
+    let backend = Arc::new(backend);
     SelectedBackend {
-        media_backend: Some(Arc::new(backend)),
+        media_backend: Some(backend.clone() as Arc<dyn MediaBackend>),
+        subtitle_control: Some(backend as Arc<dyn SubtitleControl>),
         dummy_manager: None,
         supported_mime_types,
     }
@@ -104,6 +116,7 @@ async fn start_dummy_backend() -> SelectedBackend {
             info!("Dummy media backend started successfully");
             SelectedBackend {
                 media_backend: Some(Arc::new(DummyBackend::new(manager.clone()))),
+                subtitle_control: None,
                 dummy_manager: Some(manager),
                 supported_mime_types: vec!["audio/mpeg".to_string()],
             }
@@ -112,6 +125,7 @@ async fn start_dummy_backend() -> SelectedBackend {
             warn!(error = %e, "Failed to start dummy media backend - audio features will be unavailable");
             SelectedBackend {
                 media_backend: None,
+                subtitle_control: None,
                 dummy_manager: None,
                 supported_mime_types: Vec::new(),
             }
@@ -275,6 +289,138 @@ async fn handle_shutdown_signals() {
         .expect("Failed to listen for ctrl-c");
 }
 
+/// Publishes a `LastChange` NOTIFY, same pair of calls
+/// (`server::soap::handlers::av_transport::action`'s `publish_transitioning`/
+/// `publish_transport_state`) a SOAP `Play`/`Pause`/`Stop` uses - so a menu
+/// click is indistinguishable, to any subscriber, from a control point's.
+async fn publish_menu_transitioning(av_transport: &Arc<dyn AVTransport>, events: &Arc<EventManager>) {
+    let mut event = AVTransportEventState::snapshot(InstanceId::DEFAULT, av_transport.as_ref()).await;
+    event.transport_state = TransportState::Transitioning;
+    events.broadcast(av_transport_last_change(&event));
+}
+
+async fn publish_menu_state(av_transport: &Arc<dyn AVTransport>, events: &Arc<EventManager>) {
+    let event = AVTransportEventState::snapshot(InstanceId::DEFAULT, av_transport.as_ref()).await;
+    events.broadcast(av_transport_last_change(&event));
+}
+
+/// Builds the video window menu's actions - each one calls the same
+/// `AVTransport` methods and publishes the same `LastChange` events a SOAP
+/// action would, via `runtime` (the menu's closures run synchronously, on
+/// the main thread, and can't themselves `.await`).
+fn build_playback_controls(
+    av_transport: Arc<dyn AVTransport>,
+    events: Arc<EventManager>,
+    subtitle_control: Option<Arc<dyn SubtitleControl>>,
+    runtime: tokio::runtime::Handle,
+) -> PlaybackControls {
+    let play_pause: Box<dyn Fn() + Send + Sync> = {
+        let av_transport = av_transport.clone();
+        let events = events.clone();
+        let runtime = runtime.clone();
+        Box::new(move || {
+            let av_transport = av_transport.clone();
+            let events = events.clone();
+            runtime.spawn(async move {
+                publish_menu_transitioning(&av_transport, &events).await;
+                let state = av_transport
+                    .get_state()
+                    .await
+                    .unwrap_or(TransportState::Stopped);
+                let result = if state == TransportState::Playing {
+                    av_transport.pause().await
+                } else {
+                    av_transport.play().await
+                };
+                if let Err(e) = result {
+                    warn!(error = %e, "Menu play/pause failed");
+                }
+                publish_menu_state(&av_transport, &events).await;
+            });
+        })
+    };
+
+    let stop: Box<dyn Fn() + Send + Sync> = {
+        let av_transport = av_transport.clone();
+        let events = events.clone();
+        let runtime = runtime.clone();
+        Box::new(move || {
+            let av_transport = av_transport.clone();
+            let events = events.clone();
+            runtime.spawn(async move {
+                publish_menu_transitioning(&av_transport, &events).await;
+                if let Err(e) = av_transport.stop().await {
+                    warn!(error = %e, "Menu stop failed");
+                }
+                publish_menu_state(&av_transport, &events).await;
+            });
+        })
+    };
+
+    let set_speed: Box<dyn Fn(f64) + Send + Sync> = {
+        let av_transport = av_transport.clone();
+        let events = events.clone();
+        Box::new(move |speed| {
+            let av_transport = av_transport.clone();
+            let events = events.clone();
+            runtime.spawn(async move {
+                if let Err(e) = av_transport.set_play_speed(speed).await {
+                    warn!(error = %e, speed, "Menu speed change failed");
+                }
+                publish_menu_state(&av_transport, &events).await;
+            });
+        })
+    };
+
+    let toggle_subtitles: Box<dyn Fn() -> bool + Send + Sync> = Box::new(move || {
+        subtitle_control
+            .as_ref()
+            .map(|c| c.toggle_subtitles())
+            .unwrap_or(false)
+    });
+
+    PlaybackControls {
+        play_pause,
+        stop,
+        set_speed,
+        toggle_subtitles,
+        supported_speeds: SUPPORTED_PLAY_SPEEDS.to_vec(),
+    }
+}
+
+/// Keeps the video window's menu (Play/Pause label, checked speed,
+/// subtitle checkbox) accurate regardless of what last changed the
+/// transport - a SOAP action, the menu itself, or the backend reaching
+/// end-of-stream on its own - by periodically reading the same
+/// `AVTransport` state a `GetTransportInfo` poll would see, rather than
+/// wiring every possible source into a push channel.
+fn spawn_menu_state_poller(
+    av_transport: Arc<dyn AVTransport>,
+    subtitle_control: Option<Arc<dyn SubtitleControl>>,
+    video_output: VideoOutput,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(500));
+        loop {
+            interval.tick().await;
+            let transport_state = av_transport
+                .get_state()
+                .await
+                .unwrap_or(TransportState::NoMediaPresent);
+            let speed = av_transport.get_play_speed().await.unwrap_or(1.0);
+            let subtitles_enabled = subtitle_control
+                .as_ref()
+                .map(|c| c.subtitles_enabled())
+                .unwrap_or(false);
+            video_output.send_state(MenuState {
+                transport_state,
+                speed,
+                subtitles_enabled,
+            });
+        }
+    });
+}
+
 /// Everything that isn't the video window: builds the backend, the SSDP
 /// advertiser and the HTTP/SOAP server, and runs them until a shutdown
 /// signal arrives. Split out from `main` so it can run inside a tokio
@@ -288,7 +434,7 @@ async fn run_renderer(video_output: VideoOutput) -> Result<(), Box<dyn std::erro
     // Initialize components
     let backend_choice = parse_backend_choice(&args);
     let selected = select_backend(backend_choice, || {
-        GStreamerBackend::new_with_video_output(video_output)
+        GStreamerBackend::new_with_video_output(video_output.clone())
     })
     .await;
     let renderer = create_renderer(
@@ -304,6 +450,31 @@ async fn run_renderer(video_output: VideoOutput) -> Result<(), Box<dyn std::erro
         has_media = %renderer.has_media_capabilities(),
         "Created media renderer"
     );
+
+    // Wires the video window's native menu (play/pause/stop/speed/subtitles)
+    // to this same AVTransport instance and its GENA events - a menu click
+    // updates state and notifies subscribers exactly like the matching SOAP
+    // action would.
+    match renderer.av_transport.get(InstanceId::DEFAULT) {
+        Ok(av_transport) => {
+            info!(
+                has_subtitle_control = selected.subtitle_control.is_some(),
+                "Wiring video window menu to AVTransport instance 0"
+            );
+            let controls = build_playback_controls(
+                av_transport.clone(),
+                renderer.av_transport_events.clone(),
+                selected.subtitle_control.clone(),
+                tokio::runtime::Handle::current(),
+            );
+            info!("Sending playback controls to video window");
+            video_output.send_controls(controls);
+            spawn_menu_state_poller(av_transport, selected.subtitle_control.clone(), video_output.clone());
+        }
+        Err(e) => {
+            warn!(error = %e, "No AVTransport instance 0 - video window menu will not be built");
+        }
+    }
 
     let advertiser_result = init_advertiser(&renderer).await;
     let advertiser_opt = match advertiser_result {

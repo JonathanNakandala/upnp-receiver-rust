@@ -29,6 +29,7 @@ wgpu = { workspace = true }
 bytemuck = { workspace = true }
 gstreamer-video = { workspace = true }
 gstreamer-app = { workspace = true }
+muda = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
