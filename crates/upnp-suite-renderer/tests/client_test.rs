@@ -5,6 +5,8 @@
 
 mod common;
 
+use std::time::Duration;
+
 use common::TestServer;
 use upnp_suite_client::RendererClient;
 
@@ -51,4 +53,64 @@ async fn volume_round_trips_through_soap() {
     assert!(!rendering_control.get_mute().await.unwrap());
     rendering_control.set_mute(true).await.unwrap();
     assert!(rendering_control.get_mute().await.unwrap());
+}
+
+/// Waits for the next value pushed onto `rx`, failing the test rather than
+/// hanging forever if GENA delivery (or the poll fallback) never fires.
+async fn next_change<T: Clone>(rx: &mut tokio::sync::watch::Receiver<T>) -> T {
+    tokio::time::timeout(Duration::from_secs(5), rx.changed())
+        .await
+        .expect("timed out waiting for a state change")
+        .expect("event stream closed unexpectedly");
+    rx.borrow().clone()
+}
+
+#[tokio::test]
+async fn subscribe_av_transport_delivers_state_changes_via_gena() {
+    let server = TestServer::new().await;
+    assert!(server.wait_for_ready().await);
+    let client = connect(&server).await;
+
+    let stream = client
+        .subscribe_av_transport()
+        .await
+        .expect("failed to subscribe to AVTransport events");
+    let mut rx = stream.changes();
+
+    // The mandatory initial event (SEQ 0) reflects the pre-load state.
+    let initial = next_change(&mut rx).await;
+    assert_eq!(initial.transport_state, "NO_MEDIA_PRESENT");
+
+    // Play() fails (no media loaded), but the handler still publishes a
+    // TRANSITIONING event ahead of the real post-attempt state - same as
+    // it would for a real control point subscribed over GENA.
+    let _ = client.av_transport().unwrap().play().await;
+
+    let transitioning = next_change(&mut rx).await;
+    assert_eq!(transitioning.transport_state, "TRANSITIONING");
+
+    let after = next_change(&mut rx).await;
+    assert_eq!(after.transport_state, "NO_MEDIA_PRESENT");
+}
+
+#[tokio::test]
+async fn subscribe_rendering_control_delivers_state_changes_via_gena() {
+    let server = TestServer::new().await;
+    assert!(server.wait_for_ready().await);
+    let client = connect(&server).await;
+
+    let stream = client
+        .subscribe_rendering_control()
+        .await
+        .expect("failed to subscribe to RenderingControl events");
+    let mut rx = stream.changes();
+
+    let initial = next_change(&mut rx).await;
+    assert_eq!(initial.volume, 50);
+    assert!(!initial.muted);
+
+    client.rendering_control().unwrap().set_volume(80).await.unwrap();
+
+    let after = next_change(&mut rx).await;
+    assert_eq!(after.volume, 80);
 }

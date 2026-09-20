@@ -8,11 +8,16 @@
 mod av_transport;
 mod device;
 mod error;
+mod eventing;
+mod last_change;
 mod rendering_control;
 mod soap;
+mod xml;
 
 pub use av_transport::{AVTransportClient, TransportInfo};
 pub use device::RendererClient;
 pub use error::{ClientError, SoapFault};
+pub use eventing::EventStream;
+pub use last_change::{AVTransportSnapshot, RenderingControlSnapshot};
 pub use rendering_control::RenderingControlClient;
 pub use soap::invoke_action;

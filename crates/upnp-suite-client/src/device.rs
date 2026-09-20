@@ -2,11 +2,15 @@
 //! this crate knows how to drive — the entry point every caller (the video
 //! window's menu, `upnp-suite-cli`) starts from.
 
+use std::sync::Arc;
+
 use reqwest::Url;
+use tokio::sync::OnceCell;
 use upnp_suite_core::discovery::description::{fetch_device_report, ServiceReport};
 
 use crate::av_transport::AVTransportClient;
 use crate::error::ClientError;
+use crate::eventing::NotifyListener;
 use crate::rendering_control::RenderingControlClient;
 
 const AV_TRANSPORT_PREFIX: &str = "urn:schemas-upnp-org:service:AVTransport:";
@@ -18,16 +22,21 @@ const RENDERING_CONTROL_PREFIX: &str = "urn:schemas-upnp-org:service:RenderingCo
 /// single shared connection should hold on to one instance rather than
 /// reconnecting per action.
 pub struct RendererClient {
-    http: reqwest::Client,
-    av_transport: Option<ServiceEndpoint>,
-    rendering_control: Option<ServiceEndpoint>,
+    pub(crate) http: reqwest::Client,
+    pub(crate) av_transport: Option<ServiceEndpoint>,
+    pub(crate) rendering_control: Option<ServiceEndpoint>,
+    /// The local NOTIFY listener backing every GENA subscription this
+    /// client makes - one per `RendererClient` regardless of how many
+    /// services get subscribed to, started lazily on the first
+    /// `subscribe_*` call (a caller only ever using SOAP actions never
+    /// pays for it).
+    pub(crate) notify: OnceCell<Arc<NotifyListener>>,
 }
 
-struct ServiceEndpoint {
-    service_type: String,
-    control_url: Url,
-    #[allow(dead_code)] // wired up once GENA subscription lands
-    event_sub_url: Option<Url>,
+pub(crate) struct ServiceEndpoint {
+    pub(crate) service_type: String,
+    pub(crate) control_url: Url,
+    pub(crate) event_sub_url: Option<Url>,
 }
 
 impl RendererClient {
@@ -49,7 +58,15 @@ impl RendererClient {
             http,
             av_transport,
             rendering_control,
+            notify: OnceCell::new(),
         })
+    }
+
+    /// The shared NOTIFY listener backing every GENA subscription this
+    /// client makes, started on first use.
+    pub(crate) async fn notify_listener(&self) -> Result<Arc<NotifyListener>, ClientError> {
+        let listener = self.notify.get_or_try_init(NotifyListener::start).await?;
+        Ok(Arc::clone(listener))
     }
 
     pub fn av_transport(&self) -> Result<AVTransportClient<'_>, ClientError> {
