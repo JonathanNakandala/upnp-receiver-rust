@@ -6,7 +6,7 @@
 use std::fmt;
 use std::time::Duration;
 
-use chrono::Local;
+use chrono::Utc;
 use upnp_suite_client::RendererClient;
 
 use crate::discover::{self, split_urn, Discovered};
@@ -166,5 +166,5 @@ async fn subscribe_and_print(target: &GenaTarget) {
 }
 
 fn print_snapshot(label: &str, snapshot: &impl fmt::Debug) {
-    println!("[{}] {label}: {snapshot:?}", Local::now().format("%H:%M:%S%.3f"));
+    println!("[{}] {label}: {snapshot:?}", Utc::now().format("%H:%M:%S%.3f"));
 }
