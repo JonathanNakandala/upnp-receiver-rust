@@ -18,6 +18,13 @@
       "bump-minor-pre-major": true,
       "draft": false,
       "prerelease": false
+    },
+    "crates/upnp-suite-client": {
+      "release-type": "rust",
+      "package-name": "upnp-suite-client",
+      "bump-minor-pre-major": true,
+      "draft": false,
+      "prerelease": false
     }
   }
 }

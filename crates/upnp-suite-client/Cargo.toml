@@ -1,0 +1,17 @@
+[package]
+name = "upnp-suite-client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+upnp-suite-core = { path = "../upnp-suite-core" }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+quick-xml = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }

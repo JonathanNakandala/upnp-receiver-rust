@@ -4,6 +4,7 @@ members = [
     "crates/upnp-suite-core",
     "crates/upnp-suite-renderer",
     "crates/upnp-suite-cli",
+    "crates/upnp-suite-client",
 ]
 
 [workspace.dependencies]

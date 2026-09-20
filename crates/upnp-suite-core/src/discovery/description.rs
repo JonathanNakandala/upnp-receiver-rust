@@ -49,6 +49,8 @@ struct ServiceDecl {
     service_id: String,
     #[serde(rename = "SCPDURL")]
     scpd_url: String,
+    #[serde(rename = "controlURL")]
+    control_url: String,
     #[serde(rename = "eventSubURL", default)]
     event_sub_url: String,
 }
@@ -146,6 +148,10 @@ pub struct ServiceReport {
     /// declared a non-empty one — `None` means the service doesn't support
     /// GENA subscriptions at all, regardless of what its state table says.
     pub event_sub_url: Option<String>,
+    /// The service's `controlURL`, resolved to an absolute URL against the
+    /// device description's own location — where a control point sends
+    /// this service's SOAP actions.
+    pub control_url: String,
 }
 
 /// One state variable's declared type and — where the SCPD constrains it —
@@ -224,6 +230,26 @@ async fn fetch_service_report(
             service.scpd_url, e
         ))
     })?;
+    let control_url = base.join(&service.control_url).map_err(|e| {
+        DiscoveryServiceError::ProtocolError(format!(
+            "invalid controlURL {}: {}",
+            service.control_url, e
+        ))
+    })?;
+    let event_sub_url = if service.event_sub_url.is_empty() {
+        None
+    } else {
+        Some(
+            base.join(&service.event_sub_url)
+                .map_err(|e| {
+                    DiscoveryServiceError::ProtocolError(format!(
+                        "invalid eventSubURL {}: {}",
+                        service.event_sub_url, e
+                    ))
+                })?
+                .to_string(),
+        )
+    };
 
     let body = http.get(scpd_url).send().await?.text().await?;
     let doc: ScpdDoc = quick_xml::de::from_str(&body)?;
@@ -246,7 +272,8 @@ async fn fetch_service_report(
         spec_version: (doc.spec_version.major, doc.spec_version.minor),
         actions: doc.action_list.action.into_iter().map(|a| a.name).collect(),
         state_variables,
-        event_sub_url: (!service.event_sub_url.is_empty()).then(|| service.event_sub_url.clone()),
+        event_sub_url,
+        control_url: control_url.to_string(),
     })
 }
 
