@@ -34,9 +34,8 @@ const GL_AWARE_PIPELINE: &str = "glupload ! glcolorconvert ! gldownload ! videoc
 /// hardware-decoded NV12/P010 straight into system memory through this exact
 /// bin, no `glupload`/`glcolorconvert`/`gldownload` round-trip needed.
 ///
-/// Verified empirically, not assumed: `gst-launch-1.0` with
-/// `GST_DEBUG=vtdec:5`, `playbin` and this crate's real appsink bin string
-/// against a real H.264 file logs
+/// Confirmed with `gst-launch-1.0`, `GST_DEBUG=vtdec:5`, `playbin` and this
+/// crate's real appsink bin string against a real H.264 file, which logs
 /// `vtdec ... negotiated output format video/x-raw, format=NV12 ...`
 /// immediately followed by `vtdec ... using hardware decoder` - hardware
 /// decode confirmed, zero GL elements involved. `vtdec`'s own pad template
@@ -217,13 +216,12 @@ mod tests {
         INIT.get_or_init(|| gst::init().expect("gstreamer::init should succeed"));
     }
 
-    /// Real end-to-end proof, not just the `gst-launch-1.0` check this
-    /// platform split was designed against: drives an actual `playbin`
-    /// through the exact bin [`build_video_sink`] wires into its
-    /// `video-sink` property, over a real encoded H.264 file, and confirms
-    /// [`VideoFrame::from_sample`] successfully parses real decoded samples
-    /// coming out the other end. No window/winit involved -
-    /// `build_appsink_bin` is pure GStreamer, so this runs on any thread.
+    /// Drives an actual `playbin` through the exact bin [`build_video_sink`]
+    /// wires into its `video-sink` property, over a real encoded H.264
+    /// file, and confirms [`VideoFrame::from_sample`] successfully parses
+    /// real decoded samples coming out the other end - the real production
+    /// code path, not just pipeline construction. No window/winit involved
+    /// - `build_appsink_bin` is pure GStreamer, so this runs on any thread.
     #[test]
     #[ignore = "spins up a real GStreamer decode pipeline; run with \
                 `cargo test --lib -- --ignored --nocapture appsink_bin_delivers_real_frames`"]

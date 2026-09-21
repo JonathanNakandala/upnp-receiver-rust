@@ -11,14 +11,15 @@
 //! across upload paths.
 //!
 //! Before this benchmark existed, `VideoFrame::from_sample` eagerly copied
-//! into an owned `Vec<u8>` on the GStreamer thread, ahead of this step -
-//! measured in isolation at ~4336 fps (4K, this machine, real decode), well
-//! above this benchmark's own ~535-604 fps write-upload ceiling, so that
-//! copy was never the bottleneck; removing it was a cleanup for the
-//! ownership story crossing the GStreamer thread -> render thread hop, not
-//! a throughput fix. Re-run this benchmark after a change like that to
-//! confirm the number here didn't move - if it did, something upstream of
-//! `write_texture` changed too.
+//! into an owned `Vec<u8>` on the GStreamer thread, ahead of this step.
+//! Measured in isolation, that copy was several times faster than this
+//! benchmark's own write-upload ceiling, so it was never the bottleneck;
+//! removing it was a cleanup for the ownership story crossing the
+//! GStreamer thread -> render thread hop, not a throughput fix - this
+//! benchmark's number is expected to stay roughly where it was across that
+//! change. Re-run it after a change here to check that expectation still
+//! holds; if the number moved, something upstream of `write_texture`
+//! changed too.
 //!
 //! Lives as an in-crate unit test (not `tests/`) because it needs
 //! [`super::frame_texture`]'s private items directly - those stay
@@ -155,8 +156,7 @@ fn cpu_copy_upload_path_throughput_over_ten_seconds() {
         // Block until the GPU-side copy actually completes - without this,
         // `write_texture` returning doesn't mean the work finished, so the
         // count would measure CPU call overhead instead of real transfer
-        // throughput, which stops being a fair number once a zero-copy path
-        // (no staging copy at all) is benchmarked the same way.
+        // throughput.
         device
             .poll(wgpu::PollType::wait_indefinitely())
             .expect("device poll should succeed");
