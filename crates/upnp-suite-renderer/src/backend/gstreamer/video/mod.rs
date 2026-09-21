@@ -24,6 +24,7 @@
 mod app;
 mod capability;
 mod frame;
+mod frame_pipeline;
 mod frame_texture;
 mod menu;
 mod overlay_frame;
