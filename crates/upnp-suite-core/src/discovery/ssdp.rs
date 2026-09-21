@@ -7,7 +7,8 @@ use crate::discovery::{
     SSDP_MULTICAST_ADDR,
 };
 use rand::Rng;
-use std::net::{Ipv4Addr, SocketAddr};
+use socket2::{Domain, Socket, Type};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
@@ -23,7 +24,7 @@ pub struct SsdpAdvertiser {
 
 impl SsdpAdvertiser {
     pub async fn new() -> Result<Self, DiscoveryServiceError> {
-        let socket = UdpSocket::bind("0.0.0.0:1900").await?;
+        let socket = bind_shared_multicast_socket()?;
 
         socket.set_broadcast(true)?;
         socket.set_multicast_ttl_v4(4)?;
@@ -197,6 +198,19 @@ impl SsdpAdvertiser {
             }
         }
     }
+}
+
+/// Binds UDP port 1900 with `SO_REUSEADDR` (and `SO_REUSEPORT` on unix) set
+/// before bind, since SSDP requires the port to be shared
+fn bind_shared_multicast_socket() -> Result<UdpSocket, DiscoveryServiceError> {
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
+    socket.set_reuse_address(true)?;
+    #[cfg(unix)]
+    socket.set_reuse_port(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 1900).into())?;
+
+    Ok(UdpSocket::from_std(socket.into())?)
 }
 
 /// Picks a random point in `[0, mx]` to delay a search response by, per the
