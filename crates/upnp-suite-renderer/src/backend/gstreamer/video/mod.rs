@@ -12,17 +12,19 @@
 //! cloned handle the media backend calls from wherever GStreamer calls it,
 //! which wakes the event loop [`new`] hands back to run on the main thread.
 //!
-//! Frames are uploaded as a plain RGBA8 texture and drawn with a triangle
-//! sized to an aspect-correct viewport ([`renderer`]) - no GPU interop with
-//! GStreamer's own decode output. That's deliberately the
-//! simplest correct thing rather than the fastest: a per-platform zero-copy
-//! path (e.g. importing VideoToolbox's decoded `CVPixelBuffer` straight into
-//! a Metal texture on macOS) is a worthwhile later optimization once this
-//! works end to end, not a precondition for it.
+//! Frames are uploaded as NV12/P010 luma+chroma planes and drawn with a
+//! triangle sized to an aspect-correct viewport, converting YUV to RGB in
+//! the fragment shader ([`renderer`]) - no GPU interop with GStreamer's own
+//! decode output. That's deliberately the simplest correct thing rather
+//! than the fastest: a per-platform zero-copy path (e.g. importing
+//! VideoToolbox's decoded `CVPixelBuffer` straight into a Metal texture on
+//! macOS) is a worthwhile later optimization once this works end to end,
+//! not a precondition for it.
 
 mod app;
 mod capability;
 mod frame;
+mod frame_texture;
 mod menu;
 mod renderer;
 mod sink;
@@ -33,6 +35,39 @@ pub(crate) use sink::build_video_sink;
 
 use crate::server::soap::types::av_transport::TransportState;
 use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy};
+
+/// Whether `metadata`'s DIDL-Lite hints at video content, checked as a
+/// plain substring search rather than XML parsing - it only ever decides
+/// which pipeline to start a track with, nothing depends on it being exact.
+pub(crate) fn metadata_suggests_video(metadata: Option<&str>) -> bool {
+    metadata.is_some_and(|metadata| {
+        metadata.contains(":video/") || metadata.contains("object.item.videoItem")
+    })
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::metadata_suggests_video;
+
+    #[test]
+    fn detects_video_from_res_protocol_info() {
+        let metadata = r#"<res protocolInfo="http-get:*:video/x-matroska:*">http://x</res>"#;
+        assert!(metadata_suggests_video(Some(metadata)));
+    }
+
+    #[test]
+    fn detects_video_from_upnp_class() {
+        let metadata = "<upnp:class>object.item.videoItem</upnp:class>";
+        assert!(metadata_suggests_video(Some(metadata)));
+    }
+
+    #[test]
+    fn does_not_flag_audio_metadata_as_video() {
+        let metadata = r#"<res protocolInfo="http-get:*:audio/mpeg:*">http://x</res>"#;
+        assert!(!metadata_suggests_video(Some(metadata)));
+        assert!(!metadata_suggests_video(None));
+    }
+}
 
 /// Makes explicit what winit already does by default for an unbundled
 /// binary (no Info.plist/bundle identifier): become the regular,
