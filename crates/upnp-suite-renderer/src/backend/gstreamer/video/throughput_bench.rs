@@ -1,11 +1,24 @@
-//! Headless throughput benchmark for the sink -> GPU upload step, isolated
-//! from real decode and from the display's vsync - `Renderer::render`'s
-//! `PresentMode::AutoVsync` would otherwise cap any measurement at the
-//! display's refresh rate regardless of how fast the upload itself is, and
-//! real GStreamer decode/`appsink` pacing (`sync=true`) has nothing to do
-//! with the cost being measured here. A synthetic in-memory NV12 buffer,
-//! sized like a real 4K frame, isolates exactly the transfer step this
-//! module's callers care about comparing across upload paths.
+//! Headless throughput benchmark for the sink -> GPU upload step (buffer
+//! mapping plus `write_texture`, both now happening together in
+//! `upload_pixels` - see [`super::frame`]'s doc on why there's no separate
+//! CPU-side de-stride copy anymore), isolated from real decode and from the
+//! display's vsync - `Renderer::render`'s `PresentMode::AutoVsync` would
+//! otherwise cap any measurement at the display's refresh rate regardless
+//! of how fast the upload itself is, and real GStreamer decode/`appsink`
+//! pacing (`sync=true`) has nothing to do with the cost being measured
+//! here. A synthetic NV12 sample, sized like a real 4K frame, isolates
+//! exactly the transfer step this module's callers care about comparing
+//! across upload paths.
+//!
+//! Before this benchmark existed, `VideoFrame::from_sample` eagerly copied
+//! into an owned `Vec<u8>` on the GStreamer thread, ahead of this step -
+//! measured in isolation at ~4336 fps (4K, this machine, real decode), well
+//! above this benchmark's own ~535-604 fps write-upload ceiling, so that
+//! copy was never the bottleneck; removing it was a cleanup for the
+//! ownership story crossing the GStreamer thread -> render thread hop, not
+//! a throughput fix. Re-run this benchmark after a change like that to
+//! confirm the number here didn't move - if it did, something upstream of
+//! `write_texture` changed too.
 //!
 //! Lives as an in-crate unit test (not `tests/`) because it needs
 //! [`super::frame_texture`]'s private items directly - those stay
@@ -17,12 +30,20 @@
 
 use std::time::{Duration, Instant};
 
-use super::frame::{PixelFormat, VideoFrame};
+use gstreamer as gst;
+use gstreamer_video as gst_video;
+
+use super::frame::VideoFrame;
 use super::frame_texture::{upload_pixels, FrameTexture};
 
 const BENCH_WIDTH: u32 = 3840;
 const BENCH_HEIGHT: u32 = 2160;
 const BENCH_DURATION: Duration = Duration::from_secs(10);
+
+fn ensure_gst_initialized() {
+    static INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    INIT.get_or_init(|| gst::init().expect("gstreamer::init should succeed"));
+}
 
 async fn headless_device() -> (wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::default();
@@ -41,19 +62,35 @@ async fn headless_device() -> (wgpu::Device, wgpu::Queue) {
         .expect("device request should succeed for the default adapter")
 }
 
-/// A synthetic NV12 frame the same shape [`super::frame`] produces from a
-/// real decoded sample - arbitrary pixel values, since only transfer cost is
-/// being measured here, not correctness.
+/// A synthetic NV12 sample the same shape a real appsink delivers - a real
+/// `gst::Buffer`/`gst::Sample` (so `VideoFrame::from_sample` and its later
+/// `map()`, which this benchmark exists to measure, behave exactly as they
+/// do for real decoded output), just with arbitrary pixel values and no
+/// actual decode involved, since only transfer cost is being measured here,
+/// not correctness.
 fn synthetic_frame(width: u32, height: u32) -> VideoFrame {
-    let y_len = (width * height) as usize;
-    let uv_len = (width.div_ceil(2) * height.div_ceil(2) * 2) as usize;
-    VideoFrame {
-        width,
-        height,
-        format: PixelFormat::Nv12,
-        y_plane: vec![128u8; y_len],
-        uv_plane: vec![128u8; uv_len],
+    ensure_gst_initialized();
+
+    let info = gst_video::VideoInfo::builder(gst_video::VideoFormat::Nv12, width, height)
+        .build()
+        .expect("valid NV12 VideoInfo");
+    let mut buffer =
+        gst::Buffer::with_size(info.size()).expect("buffer allocation should succeed");
+    {
+        let buffer_mut = buffer
+            .get_mut()
+            .expect("freshly created buffer should be writable");
+        let mut map = buffer_mut
+            .map_writable()
+            .expect("buffer should map writable");
+        map.as_mut_slice().fill(128u8);
     }
+    let sample = gst::Sample::builder()
+        .buffer(&buffer)
+        .caps(&info.to_caps().expect("VideoInfo should produce valid caps"))
+        .build();
+
+    VideoFrame::from_sample(&sample).expect("synthetic sample should parse as a valid frame")
 }
 
 /// Matches [`super::renderer::Renderer`]'s real bind group layout (two
