@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/JonathanNakandala/upnp-receiver-rust/compare/upnp-suite-renderer-v0.3.0...upnp-suite-renderer-v0.3.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **gstreamer:** maintain aspect ratio in fullscreen ([#14](https://github.com/JonathanNakandala/upnp-receiver-rust/issues/14)) ([943a6b9](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/943a6b9f8dbc409e02dcaf687c7a74941b7ce65d))
+
 ## [0.3.0](https://github.com/JonathanNakandala/upnp-receiver-rust/compare/upnp-suite-renderer-v0.2.0...upnp-suite-renderer-v0.3.0) (2026-09-21)
 
 
