@@ -14,6 +14,7 @@
 //! hit or a miss.
 
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -34,6 +35,7 @@ use gst_base::subclass::base_src::CreateSuccess;
 use gst_base::subclass::prelude::*;
 
 use super::cache::{chunk_index, chunk_start, ChunkCache, TrackKey, CHUNK_SIZE};
+use super::prefetch::{self, Prefetcher};
 
 /// Upper bound on a single buffer this element pushes downstream. Chunks
 /// are fetched/cached whole (`CHUNK_SIZE`), but handed to the pipeline in
@@ -47,10 +49,15 @@ const MAX_BUFFER_SIZE: usize = 128 * 1024;
 /// this can't live inside the element itself. Injected via
 /// [`CacheHttpSrc::set_shared`], normally called from `playbin`'s
 /// `source-setup` signal.
+///
+/// `prefetcher` lives here rather than per-instance for the same reason the
+/// cache does: its throughput estimate is worth keeping warm across a
+/// pipeline rebuild instead of resetting to "unknown" every time.
 #[derive(Clone)]
 pub struct Shared {
     pub cache: Arc<Mutex<ChunkCache>>,
     pub client: reqwest::Client,
+    pub prefetcher: Arc<Prefetcher>,
 }
 
 impl Shared {
@@ -63,6 +70,7 @@ impl Shared {
         Self {
             cache: Arc::new(Mutex::new(ChunkCache::new(STANDALONE_CACHE_BUDGET_BYTES))),
             client: reqwest::Client::new(),
+            prefetcher: Arc::new(Prefetcher::new()),
         }
     }
 }
@@ -111,6 +119,13 @@ pub struct CacheHttpSrc {
     state: Mutex<State>,
     shared: Mutex<Option<Shared>>,
     canceller: Mutex<Canceller>,
+    /// Bumped on every `do_seek()` - a prefetch fetch in flight from before
+    /// a seek checks this against the snapshot it captured before writing
+    /// its result into the cache, so a seek that makes it moot just gets
+    /// dropped instead of polluting the cache with data nobody's near
+    /// anymore. Heap-allocated (not a plain field) so a spawned prefetch
+    /// task can hold its own clone independent of this element's lifetime.
+    generation: Arc<AtomicU64>,
 }
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
@@ -123,8 +138,10 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
 
 /// A couple of worker threads is plenty - every fetch here is one bounded
 /// (`CHUNK_SIZE`) ranged GET, not a long-lived streamed response, so there's
-/// never more than a handful of these in flight at once.
-static RUNTIME: LazyLock<runtime::Runtime> = LazyLock::new(|| {
+/// never more than a handful in flight at once even with prefetching (see
+/// `prefetch.rs`, which also spawns onto this same runtime rather than
+/// starting a second one).
+pub(super) static RUNTIME: LazyLock<runtime::Runtime> = LazyLock::new(|| {
     runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(2)
@@ -132,20 +149,20 @@ static RUNTIME: LazyLock<runtime::Runtime> = LazyLock::new(|| {
         .unwrap()
 });
 
-struct FetchedChunk {
-    data: Bytes,
+pub(super) struct FetchedChunk {
+    pub(super) data: Bytes,
     /// Total content length, if the server told us (`Content-Range`'s
     /// `/total` on a 206, or `Content-Length` on a 200 that ignored our
     /// range entirely).
-    total_size: Option<u64>,
+    pub(super) total_size: Option<u64>,
     /// A 206 response to our ranged request, or an explicit
     /// `Accept-Ranges: bytes` on a 200 - a server that neither honors nor
     /// advertises ranges gets treated as non-seekable, same as any other
     /// HTTP source would.
-    seekable: bool,
+    pub(super) seekable: bool,
 }
 
-async fn fetch_chunk(
+pub(super) async fn fetch_chunk(
     client: &reqwest::Client,
     uri: &Url,
     index: u64,
@@ -427,7 +444,7 @@ impl CacheHttpSrc {
             cached
         } else {
             let fetched = self.wait(fetch_chunk(&shared.client, &uri, index))?;
-            shared.cache.lock().unwrap().insert(track, index, fetched.data.clone());
+            shared.cache.lock().unwrap().insert(track.clone(), index, fetched.data.clone());
 
             // The first fetch is also how total size/seekability get
             // discovered - fold that back into State once we have it.
@@ -442,6 +459,24 @@ impl CacheHttpSrc {
 
             fetched.data
         };
+
+        // Best-effort read-ahead: doesn't block this call, doesn't affect
+        // what it returns - see `prefetch.rs`.
+        let current_size = match *self.state.lock().unwrap() {
+            State::Started { size, .. } => size,
+            State::Stopped => None,
+        };
+        shared.prefetcher.trigger(
+            prefetch::PrefetchSource {
+                cache: &shared.cache,
+                client: &shared.client,
+                track: &track,
+                uri: &uri,
+                generation: &self.generation,
+            },
+            index,
+            current_size,
+        );
 
         let start = chunk_start(index);
         let offset_in_chunk = (position - start).min(chunk.len() as u64) as usize;
@@ -634,6 +669,9 @@ impl BaseSrcImpl for CacheHttpSrc {
         };
         info!(from = *position, to = *start, "upnpcachehttpsrc: do_seek()");
         *position = *start;
+        // Supersedes any prefetch already in flight for the old position -
+        // see the `generation` field doc.
+        self.generation.fetch_add(1, Ordering::Relaxed);
         true
     }
 }
