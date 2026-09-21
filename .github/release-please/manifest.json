@@ -1,5 +1,5 @@
 {
-  "crates/upnp-suite-renderer": "0.2.0",
+  "crates/upnp-suite-renderer": "0.3.0",
   "crates/upnp-suite-cli": "0.2.0",
   "crates/upnp-suite-client": "0.1.0"
 }
