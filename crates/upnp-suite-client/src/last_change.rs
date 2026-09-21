@@ -40,6 +40,11 @@ pub struct AVTransportSnapshot {
 pub struct RenderingControlSnapshot {
     pub volume: u16,
     pub muted: bool,
+    /// 0-100, 50 = neutral/no adjustment. Unlike `volume`/`muted`, these
+    /// carry no `channel` attribute on the wire - see
+    /// `RenderingControlClient::set_brightness`'s doc for why.
+    pub brightness: u16,
+    pub contrast: u16,
 }
 
 pub fn parse_av_transport_last_change(
@@ -74,8 +79,21 @@ pub fn parse_rendering_control_last_change(
         .get("Mute")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
+    let brightness = fields
+        .get("Brightness")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50);
+    let contrast = fields
+        .get("Contrast")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50);
 
-    Ok(RenderingControlSnapshot { volume, muted })
+    Ok(RenderingControlSnapshot {
+        volume,
+        muted,
+        brightness,
+        contrast,
+    })
 }
 
 fn non_empty(value: Option<&String>) -> Option<String> {
@@ -207,6 +225,8 @@ mod tests {
             r#"<Volume channel="Master" val="42"/>"#,
             r#"<VolumeDB channel="Master" val="-20"/>"#,
             r#"<Mute channel="Master" val="1"/>"#,
+            r#"<Brightness val="80"/>"#,
+            r#"<Contrast val="20"/>"#,
             r#"</InstanceID>"#,
             r#"</Event>"#
         ));
@@ -214,6 +234,27 @@ mod tests {
         let snapshot = parse_rendering_control_last_change(&body).unwrap();
         assert_eq!(snapshot.volume, 42);
         assert!(snapshot.muted);
+        assert_eq!(snapshot.brightness, 80);
+        assert_eq!(snapshot.contrast, 20);
+    }
+
+    #[test]
+    fn rendering_control_last_change_defaults_brightness_and_contrast_when_absent() {
+        // A control point talking to an older, pre-Brightness/Contrast
+        // build of this renderer (or any RenderingControl device that
+        // never implemented them) still needs a usable snapshot.
+        let body = notify_body(concat!(
+            r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">"#,
+            r#"<InstanceID val="0">"#,
+            r#"<Volume channel="Master" val="42"/>"#,
+            r#"<Mute channel="Master" val="0"/>"#,
+            r#"</InstanceID>"#,
+            r#"</Event>"#
+        ));
+
+        let snapshot = parse_rendering_control_last_change(&body).unwrap();
+        assert_eq!(snapshot.brightness, 50);
+        assert_eq!(snapshot.contrast, 50);
     }
 
     #[test]

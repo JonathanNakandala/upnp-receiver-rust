@@ -5,9 +5,18 @@
 //! polled directly here via `GetPositionInfo`.
 //!
 //! Also accepts playback controls: space toggles play/pause, `s` stops,
-//! `+`/`-` step volume, and `m` toggles mute — issued as SOAP actions
-//! against the selected device and reflected back once its GENA NOTIFY
-//! (or the next position poll) catches up.
+//! `+`/`-` step volume, `m` toggles mute, and - only when the current
+//! track's DIDL-Lite metadata looks like video (see
+//! [`upnp_suite_client::suggests_video`]) - `b`/`B` step brightness and
+//! `c`/`C` step contrast. Issued as SOAP actions against the selected
+//! device and reflected back once its GENA NOTIFY (or the next position
+//! poll) catches up.
+//!
+//! Brightness/Contrast are gated on content type in this dashboard, not by
+//! the renderer itself: `SetBrightness`/`SetContrast` succeed against any
+//! track UPnP-side (the spec doesn't tie them to a media type), it's just
+//! that adjusting a video picture setting for audio-only playback has no
+//! visible effect to show for it here.
 
 use std::time::Duration;
 
@@ -26,6 +35,7 @@ use crate::discover;
 const AV_TRANSPORT_PREFIX: &str = "urn:schemas-upnp-org:service:AVTransport:";
 const POSITION_POLL: Duration = Duration::from_millis(1000);
 const VOLUME_STEP: u16 = 5;
+const PICTURE_STEP: u16 = 5;
 
 pub async fn run(wait: Duration) {
     let devices = match discover::scan(wait).await {
@@ -140,8 +150,15 @@ pub async fn run(wait: Duration) {
                         }
 
                         let is_playing = transport_rx.borrow().transport_state == "PLAYING";
+                        let is_video = upnp_suite_client::suggests_video(
+                            transport_rx.borrow().current_metadata.as_deref(),
+                        );
                         let current_volume = rendering_rx.as_ref().map(|rx| rx.borrow().volume);
                         let current_muted = rendering_rx.as_ref().map(|rx| rx.borrow().muted);
+                        let current_brightness =
+                            rendering_rx.as_ref().map(|rx| rx.borrow().brightness);
+                        let current_contrast =
+                            rendering_rx.as_ref().map(|rx| rx.borrow().contrast);
 
                         match key.code {
                             KeyCode::Char(' ') => {
@@ -178,6 +195,40 @@ pub async fn run(wait: Duration) {
                                     }
                                 }
                             }
+                            KeyCode::Char('b') if is_video => {
+                                if let (Some(rc), Some(brightness)) = (&rc, current_brightness) {
+                                    let new_brightness = brightness.saturating_sub(PICTURE_STEP);
+                                    if let Err(err) = rc.set_brightness(new_brightness).await {
+                                        eprintln!("Set brightness failed: {err}");
+                                    }
+                                }
+                            }
+                            KeyCode::Char('B') if is_video => {
+                                if let (Some(rc), Some(brightness)) = (&rc, current_brightness) {
+                                    let new_brightness =
+                                        brightness.saturating_add(PICTURE_STEP).min(100);
+                                    if let Err(err) = rc.set_brightness(new_brightness).await {
+                                        eprintln!("Set brightness failed: {err}");
+                                    }
+                                }
+                            }
+                            KeyCode::Char('c') if is_video => {
+                                if let (Some(rc), Some(contrast)) = (&rc, current_contrast) {
+                                    let new_contrast = contrast.saturating_sub(PICTURE_STEP);
+                                    if let Err(err) = rc.set_contrast(new_contrast).await {
+                                        eprintln!("Set contrast failed: {err}");
+                                    }
+                                }
+                            }
+                            KeyCode::Char('C') if is_video => {
+                                if let (Some(rc), Some(contrast)) = (&rc, current_contrast) {
+                                    let new_contrast =
+                                        contrast.saturating_add(PICTURE_STEP).min(100);
+                                    if let Err(err) = rc.set_contrast(new_contrast).await {
+                                        eprintln!("Set contrast failed: {err}");
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -198,11 +249,14 @@ fn render(
     rendering: Option<&RenderingControlSnapshot>,
     position: &PositionInfo,
 ) {
+    let is_video = upnp_suite_client::suggests_video(transport.current_metadata.as_deref());
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Length(7),
+            Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Min(0),
@@ -219,11 +273,14 @@ fn render(
     frame.render_widget(transport_panel(transport), layout[1]);
     frame.render_widget(position_gauge(position), layout[2]);
     frame.render_widget(volume_panel(rendering), layout[3]);
+    frame.render_widget(picture_panel(rendering, is_video), layout[4]);
 
-    frame.render_widget(
-        Paragraph::new("space play/pause · s stop · +/- volume · m mute · q / Esc / Ctrl-C quit").dim(),
-        layout[4],
-    );
+    let help = if is_video {
+        "space play/pause · s stop · +/- volume · m mute · b/B brightness · c/C contrast · q / Esc / Ctrl-C quit"
+    } else {
+        "space play/pause · s stop · +/- volume · m mute · q / Esc / Ctrl-C quit"
+    };
+    frame.render_widget(Paragraph::new(help).dim(), layout[5]);
 }
 
 fn transport_panel(transport: &AVTransportSnapshot) -> Paragraph<'static> {
@@ -282,6 +339,29 @@ fn volume_panel(rendering: Option<&RenderingControlSnapshot>) -> Paragraph<'stat
     };
 
     Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("Volume"))
+}
+
+/// Brightness/Contrast are UPnP state regardless of content type (see this
+/// module's doc), so this always shows the current values when available -
+/// `is_video` only decides the *reason* shown when they can't be adjusted
+/// from here, not whether the panel appears at all.
+fn picture_panel(rendering: Option<&RenderingControlSnapshot>, is_video: bool) -> Paragraph<'static> {
+    let text = match rendering {
+        Some(snapshot) => {
+            let values = format!(
+                "Brightness: {} · Contrast: {}",
+                snapshot.brightness, snapshot.contrast
+            );
+            if is_video {
+                values
+            } else {
+                format!("{values} (current track isn't video - b/B/c/C disabled)")
+            }
+        }
+        None => "RenderingControl not available on this device".to_string(),
+    };
+
+    Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("Picture"))
 }
 
 /// Parses UPnP's `H+:MM:SS` position/duration strings into total seconds;
