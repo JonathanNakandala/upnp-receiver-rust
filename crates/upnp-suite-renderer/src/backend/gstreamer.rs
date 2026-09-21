@@ -7,6 +7,7 @@
 pub mod backend;
 pub mod cache_src;
 pub mod codecs;
+mod decoder_watchdog;
 pub mod video;
 
 pub use backend::{GStreamerBackend, PlaybinVersion, SubtitleControl};
