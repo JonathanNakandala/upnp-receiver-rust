@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0](https://github.com/JonathanNakandala/upnp-receiver-rust/compare/upnp-suite-renderer-v0.3.1...upnp-suite-renderer-v0.4.0) (2026-09-21)
+
+
+### Features
+
+* **gsstreamer:** auto close and open windows when playing video ([cf84a88](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/cf84a8886cd02ab56b0dac746471447b1d29bb32))
+* **gstreamer:** adaptive prefetching and seek cancel to cache ([0193ce1](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/0193ce1a9731992577aa789747b9eb0eec86785d))
+* **gstreamer:** handle 10bit video and YUV-&gt;RGB on GPU ([2ad4e46](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/2ad4e46523627ce20ab884c77234a507a9ad4961))
+* **gstreamer:** in-memory lru cache replacing entire video download ([67f0d8f](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/67f0d8f77e933179e41ec816a45edd15b1b9e0f8))
+* **gstreamer:** removed glupload, glcolorconvert, gldownload stages ([0a39e29](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/0a39e29c400808a6615e24d2c1d70295c9c688e2))
+
+
+### Bug Fixes
+
+* **gstreamer:** use run_on_gst_thread mechanism for recovery ([40fa918](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/40fa91896fadb0be9ae6b95aed74fee98addf404))
+* **gstreamer:** use separate compositor for subtitles ([fa6accb](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/fa6accb219439bff388e19abd9ec6abb26bf1f10))
+* **gstreamer:** video/audio pipeline switching and add decoder-stall recovery ([#19](https://github.com/JonathanNakandala/upnp-receiver-rust/issues/19)) ([8f5640c](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/8f5640cbd2f599676a1bd9483db6f22e9f2cc048))
+
 ## [0.3.1](https://github.com/JonathanNakandala/upnp-receiver-rust/compare/upnp-suite-renderer-v0.3.0...upnp-suite-renderer-v0.3.1) (2026-09-21)
 
 
