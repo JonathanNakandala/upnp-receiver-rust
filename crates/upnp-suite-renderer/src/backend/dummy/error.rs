@@ -20,6 +20,9 @@ pub enum DummyProcessError {
     #[error("No active connection to media process")]
     NoConnection,
 
+    #[error("No media loaded")]
+    NoMediaLoaded,
+
     #[error("Process error: {0}")]
     Process(String),
 

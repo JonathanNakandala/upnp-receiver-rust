@@ -26,6 +26,7 @@ pub enum MediaResponse {
     Pong,
     Shutdown,
     Error { message: String },
+    NoMediaLoaded,
     Position { milliseconds: u64 },
     Duration { milliseconds: Option<u64> },
     State { state: TransportState },
