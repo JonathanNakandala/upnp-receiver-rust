@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tracing::{debug, error, info, trace, warn};
 
-use super::cache_src::{self, ChunkCache};
+use super::cache_src::{self, ChunkCache, Prefetcher};
 use super::video::{self, VideoOutput};
 use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
 use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
@@ -126,6 +126,7 @@ struct BackendHandles {
     // can't live inside the element/pipeline itself.
     media_cache: Arc<Mutex<ChunkCache>>,
     http_client: reqwest::Client,
+    prefetcher: Arc<Prefetcher>,
     state: Arc<Mutex<PlayerState>>,
     state_tx: watch::Sender<TransportState>,
     track_tx: watch::Sender<TrackInfo>,
@@ -160,6 +161,7 @@ impl Pipeline {
         let shared = cache_src::Shared {
             cache: handles.media_cache.clone(),
             client: handles.http_client.clone(),
+            prefetcher: handles.prefetcher.clone(),
         };
         playbin.connect("source-setup", false, move |args| {
             let source = args[1].get::<gst::Element>().expect("source-setup's argument is the new source element");
@@ -217,6 +219,7 @@ pub struct GStreamerBackend {
     // can't live inside the element/pipeline itself.
     media_cache: Arc<Mutex<ChunkCache>>,
     http_client: reqwest::Client,
+    prefetcher: Arc<Prefetcher>,
     watchdog: tokio::task::JoinHandle<()>,
     state: Arc<Mutex<PlayerState>>,
     // Fires on transitions GStreamer makes on its own — end-of-stream or a
@@ -278,6 +281,7 @@ impl GStreamerBackend {
             video_frame_counter: Arc::new(AtomicU64::new(0)),
             media_cache: Arc::new(Mutex::new(ChunkCache::new(cache_budget_bytes))),
             http_client: reqwest::Client::new(),
+            prefetcher: Arc::new(Prefetcher::new()),
             state: Arc::new(Mutex::new(PlayerState::default())),
             state_tx: watch::channel(TransportState::NoMediaPresent).0,
             track_tx: watch::channel(TrackInfo::default()).0,
@@ -294,6 +298,7 @@ impl GStreamerBackend {
             video_frame_counter: handles.video_frame_counter,
             media_cache: handles.media_cache,
             http_client: handles.http_client,
+            prefetcher: handles.prefetcher,
             watchdog,
             state: handles.state,
             state_tx: handles.state_tx,
@@ -356,6 +361,7 @@ impl GStreamerBackend {
             video_frame_counter: self.video_frame_counter.clone(),
             media_cache: self.media_cache.clone(),
             http_client: self.http_client.clone(),
+            prefetcher: self.prefetcher.clone(),
             state: self.state.clone(),
             state_tx: self.state_tx.clone(),
             track_tx: self.track_tx.clone(),

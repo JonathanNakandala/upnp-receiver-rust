@@ -10,6 +10,7 @@
 
 mod cache;
 mod imp;
+mod prefetch;
 
 use gstreamer as gst;
 use gstreamer_base as gst_base;
@@ -20,6 +21,7 @@ use gst::prelude::*;
 
 pub use cache::ChunkCache;
 pub use imp::Shared;
+pub use prefetch::Prefetcher;
 
 glib::wrapper! {
     pub struct CacheHttpSrc(ObjectSubclass<imp::CacheHttpSrc>) @extends gst_base::PushSrc, gst_base::BaseSrc, gst::Element, gst::Object, @implements gst::URIHandler;
