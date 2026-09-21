@@ -161,6 +161,9 @@ pub enum SoapProtocolError {
 
     #[error("Invalid InstanceID")]
     InvalidInstanceId,
+
+    #[error("Invalid channel: {0}")]
+    InvalidChannel(String),
 }
 
 impl From<UnknownInstance> for SoapProtocolError {
@@ -220,6 +223,10 @@ impl SoapProtocolError {
             SoapProtocolError::InvalidInstanceId => UPnPErrorCode {
                 code: 718,
                 description: "Invalid InstanceID",
+            },
+            SoapProtocolError::InvalidChannel(_) => UPnPErrorCode {
+                code: 703,
+                description: "Invalid Channel",
             },
         }
     }

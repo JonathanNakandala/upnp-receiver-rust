@@ -4,8 +4,9 @@ use crate::server::soap::types::soap_action::ParsedSoapAction;
 use crate::server::soap::types::UPnPService;
 
 use crate::server::soap::types::rendering_control::{
-    GetMuteRequest, GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest,
-    ListPresetsRequest, RenderingControlAction, SelectPresetRequest, SetMuteRequest,
+    GetBrightnessRequest, GetContrastRequest, GetMuteRequest, GetVolumeDBRangeRequest,
+    GetVolumeDBRequest, GetVolumeRequest, ListPresetsRequest, RenderingControlAction,
+    SelectPresetRequest, SetBrightnessRequest, SetContrastRequest, SetMuteRequest,
     SetVolumeDBRequest, SetVolumeRequest,
 };
 
@@ -77,6 +78,26 @@ impl UPnPService for RenderingControlService {
                 let request =
                     extract_and_parse_soap_body::<GetVolumeDBRangeRequest>(content, action_name)?;
                 Ok(RenderingControlAction::GetVolumeDBRange(request))
+            }
+            "SetBrightness" => {
+                let request =
+                    extract_and_parse_soap_body::<SetBrightnessRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SetBrightness(request))
+            }
+            "GetBrightness" => {
+                let request =
+                    extract_and_parse_soap_body::<GetBrightnessRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetBrightness(request))
+            }
+            "SetContrast" => {
+                let request =
+                    extract_and_parse_soap_body::<SetContrastRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SetContrast(request))
+            }
+            "GetContrast" => {
+                let request =
+                    extract_and_parse_soap_body::<GetContrastRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetContrast(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",

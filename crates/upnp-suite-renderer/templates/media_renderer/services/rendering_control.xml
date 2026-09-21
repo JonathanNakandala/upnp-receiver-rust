@@ -180,6 +180,66 @@
                 </argument>
             </argumentList>
         </action>
+        <action>
+            <name>SetBrightness</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>DesiredBrightness</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>Brightness</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>GetBrightness</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>CurrentBrightness</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>Brightness</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>SetContrast</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>DesiredContrast</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>Contrast</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>GetContrast</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>CurrentContrast</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>Contrast</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
     </actionList>
     <serviceStateTable>
         <!-- Evented as a bundled LastChange NOTIFY (GENA), not individually —
@@ -216,6 +276,27 @@
         <stateVariable sendEvents="no">
             <name>PresetNameList</name>
             <dataType>string</dataType>
+        </stateVariable>
+        <!-- 0-100, 50 = neutral/no adjustment - see
+             services::rendering_control::validate_percent. Vendor-defined
+             range per spec; 0-100 chosen for consistency with Volume. -->
+        <stateVariable sendEvents="no">
+            <name>Brightness</name>
+            <dataType>ui2</dataType>
+            <allowedValueRange>
+                <minimum>0</minimum>
+                <maximum>100</maximum>
+                <step>1</step>
+            </allowedValueRange>
+        </stateVariable>
+        <stateVariable sendEvents="no">
+            <name>Contrast</name>
+            <dataType>ui2</dataType>
+            <allowedValueRange>
+                <minimum>0</minimum>
+                <maximum>100</maximum>
+                <step>1</step>
+            </allowedValueRange>
         </stateVariable>
         <stateVariable sendEvents="no">
             <name>A_ARG_TYPE_PresetName</name>

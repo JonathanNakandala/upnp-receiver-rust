@@ -13,6 +13,10 @@ pub enum RenderingControlAction {
     SetVolumeDB(SetVolumeDBRequest),
     GetVolumeDB(GetVolumeDBRequest),
     GetVolumeDBRange(GetVolumeDBRangeRequest),
+    SetBrightness(SetBrightnessRequest),
+    GetBrightness(GetBrightnessRequest),
+    SetContrast(SetContrastRequest),
+    GetContrast(GetContrastRequest),
 }
 
 impl RenderingControlAction {
@@ -29,6 +33,10 @@ impl RenderingControlAction {
             Self::SetVolumeDB(r) => r.instance_id,
             Self::GetVolumeDB(r) => r.instance_id,
             Self::GetVolumeDBRange(r) => r.instance_id,
+            Self::SetBrightness(r) => r.instance_id,
+            Self::GetBrightness(r) => r.instance_id,
+            Self::SetContrast(r) => r.instance_id,
+            Self::GetContrast(r) => r.instance_id,
         };
         InstanceId::new(raw)
     }
@@ -108,6 +116,39 @@ pub struct GetVolumeDBRangeRequest {
     pub channel: String,
 }
 
+// Brightness/Contrast take no Channel argument (Table 32/34/36/38 in the
+// RenderingControl spec) - unlike Volume/Mute/VolumeDB, they're a display
+// setting, not per audio-channel.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetBrightnessRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_brightness: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetBrightnessRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetContrastRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_contrast: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetContrastRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
 // Add response types
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -157,6 +198,26 @@ pub struct GetVolumeDBRangeResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetBrightnessResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetBrightnessResponse {
+    pub current_brightness: u16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetContrastResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetContrastResponse {
+    pub current_contrast: u16,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum RenderingControlResponse {
     ListPresets(ListPresetsResponse),
@@ -168,4 +229,8 @@ pub enum RenderingControlResponse {
     VolumeDB(GetVolumeDBResponse),
     SetVolumeDB(SetVolumeDBResponse),
     VolumeDBRange(GetVolumeDBRangeResponse),
+    SetBrightness(SetBrightnessResponse),
+    Brightness(GetBrightnessResponse),
+    SetContrast(SetContrastResponse),
+    Contrast(GetContrastResponse),
 }

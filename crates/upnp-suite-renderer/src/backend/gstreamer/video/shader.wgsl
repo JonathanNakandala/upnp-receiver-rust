@@ -28,6 +28,22 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 @group(0) @binding(1) var uv_texture: texture_2d<f32>;
 @group(0) @binding(2) var frame_sampler: sampler;
 
+// UPnP RenderingControl's Brightness/Contrast (see `renderer.rs`'s
+// `RenderParams` - `contrast_factor` and `brightness_offset` are precomputed
+// there from the 0-100 UPnP scale, not raw UPnP values, so this shader
+// doesn't need to know that scale). Applied last, after YUV -> RGB, and
+// deliberately the very last operation in this shader - see this crate's
+// RenderingControl design notes on why: if HDR/wide-gamut output is ever
+// added, whatever tone-maps it down to this same display-referred RGB must
+// run *before* this adjustment, never after, or this pivot-at-0.5 math
+// (tuned for gamma-encoded SDR output) stops meaning what a control point
+// expects "more contrast" to mean.
+struct RenderParams {
+    contrast_factor: f32,
+    brightness_offset: f32,
+}
+@group(1) @binding(0) var<uniform> render_params: RenderParams;
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let y_sample = textureSample(y_texture, frame_sampler, in.uv).r;
@@ -47,5 +63,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let g = 1.164384 * y - 0.213249 * u - 0.532909 * v;
     let b = 1.164384 * y + 2.112402 * u;
 
-    return vec4<f32>(clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    let adjusted = (vec3<f32>(r, g, b) - 0.5) * render_params.contrast_factor
+        + 0.5 + render_params.brightness_offset;
+    return vec4<f32>(clamp(adjusted, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }

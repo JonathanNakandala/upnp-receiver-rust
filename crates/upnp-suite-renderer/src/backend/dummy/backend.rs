@@ -24,6 +24,11 @@ pub struct DummyBackend {
     // RenderingControl works identically against either backend.
     volume: Mutex<u8>,
     muted: Mutex<bool>,
+    // No video output to apply these to either — same reasoning as
+    // `volume`/`muted`, just remembered for API completeness. 50 = neutral,
+    // matching `GStreamerBackend`'s default.
+    brightness: Mutex<u16>,
+    contrast: Mutex<u16>,
 }
 
 impl DummyBackend {
@@ -35,6 +40,8 @@ impl DummyBackend {
             play_mode: Mutex::new(PlayMode::Normal),
             volume: Mutex::new(100),
             muted: Mutex::new(false),
+            brightness: Mutex::new(50),
+            contrast: Mutex::new(50),
         }
     }
 
@@ -188,6 +195,24 @@ impl MediaBackend for DummyBackend {
 
     async fn get_mute(&self) -> Result<bool, MediaBackendError> {
         Ok(*self.muted.lock().await)
+    }
+
+    async fn set_brightness(&self, brightness: u16) -> Result<(), MediaBackendError> {
+        *self.brightness.lock().await = brightness;
+        Ok(())
+    }
+
+    async fn get_brightness(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.brightness.lock().await)
+    }
+
+    async fn set_contrast(&self, contrast: u16) -> Result<(), MediaBackendError> {
+        *self.contrast.lock().await = contrast;
+        Ok(())
+    }
+
+    async fn get_contrast(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.contrast.lock().await)
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {

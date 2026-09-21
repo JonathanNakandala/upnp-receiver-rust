@@ -61,7 +61,15 @@ pub async fn handle_rendering_control_events(
                 .expect("default RenderingControl instance is never removed");
             let volume = control.get_volume().await.unwrap_or(0);
             let muted = control.get_mute().await.unwrap_or(false);
-            last_change::rendering_control_last_change(InstanceId::DEFAULT, volume, muted)
+            let brightness = control.get_brightness().await.unwrap_or(50);
+            let contrast = control.get_contrast().await.unwrap_or(50);
+            last_change::rendering_control_last_change(
+                InstanceId::DEFAULT,
+                volume,
+                muted,
+                brightness,
+                contrast,
+            )
         }
     };
 

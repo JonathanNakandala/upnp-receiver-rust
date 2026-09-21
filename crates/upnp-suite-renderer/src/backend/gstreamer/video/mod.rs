@@ -120,6 +120,31 @@ enum VideoEvent {
     /// like the user clicking its close button does; the next video frame
     /// reopens it the same way too.
     Hide,
+    /// Sent whenever RenderingControl's Brightness/Contrast state changes -
+    /// see [`VideoOutput::send_render_params`].
+    RenderParams(RenderParams),
+}
+
+/// UPnP RenderingControl's `Brightness`/`Contrast` state variables, both on
+/// this renderer's own 0-100 scale (50 = neutral/no adjustment - see
+/// `services::rendering_control` for where that scale is chosen and
+/// validated). Precomputed into the shader-ready form
+/// (`shader.wgsl`'s `RenderParams`) by [`renderer::Renderer::set_render_params`],
+/// not here - this struct is the UPnP-facing value, unaware of the shader's
+/// internal `contrast_factor`/`brightness_offset` representation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RenderParams {
+    pub brightness: u16,
+    pub contrast: u16,
+}
+
+impl Default for RenderParams {
+    fn default() -> Self {
+        Self {
+            brightness: 50,
+            contrast: 50,
+        }
+    }
 }
 
 /// What the video window's native menu displays - not pushed reactively,
@@ -201,6 +226,18 @@ impl VideoOutput {
     /// [`VideoEvent::Hide`] for when this is called.
     pub fn hide(&self) {
         let _ = self.proxy.send_event(VideoEvent::Hide);
+    }
+
+    /// Called synchronously from the SOAP handler's `SetBrightness`/`SetContrast`
+    /// path (via `MediaBackend`) right after the new value is stored - unlike
+    /// [`VideoOutput::send_state`], nothing polls RenderingControl state on a
+    /// timer, so this is the only thing that ever pushes a change through.
+    /// Safe to call before any video window has opened - [`app::App`]
+    /// remembers the latest value and applies it when a window eventually
+    /// does open, the same way it would apply state that arrived while a
+    /// window already existed.
+    pub fn send_render_params(&self, params: RenderParams) {
+        let _ = self.proxy.send_event(VideoEvent::RenderParams(params));
     }
 }
 

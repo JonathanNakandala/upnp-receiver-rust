@@ -62,6 +62,17 @@ pub trait MediaBackend: Send + Sync {
     async fn set_mute(&self, muted: bool) -> Result<(), MediaBackendError>;
     async fn get_mute(&self) -> Result<bool, MediaBackendError>;
 
+    /// UPnP RenderingControl's `Brightness`/`Contrast` - 0-100, 50 =
+    /// neutral/no adjustment (see `services::rendering_control` for range
+    /// validation). Applies to the video picture only; a backend with no
+    /// video output of its own has nothing to apply it to and just
+    /// remembers the value, the same way it would for `Volume` with no real
+    /// mixer behind it.
+    async fn set_brightness(&self, brightness: u16) -> Result<(), MediaBackendError>;
+    async fn get_brightness(&self) -> Result<u16, MediaBackendError>;
+    async fn set_contrast(&self, contrast: u16) -> Result<(), MediaBackendError>;
+    async fn get_contrast(&self) -> Result<u16, MediaBackendError>;
+
     // Media info
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError>;
     async fn get_metadata(&self) -> Result<Option<String>, MediaBackendError>;

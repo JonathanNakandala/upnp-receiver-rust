@@ -177,11 +177,19 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
 }
 
 /// Builds the `LastChange` inner XML for a RenderingControl state change
-/// (volume and/or mute) and wraps it in the GENA `propertyset` envelope.
-/// `VolumeDB` is derived from `volume` (see
+/// (volume, mute, brightness and/or contrast) and wraps it in the GENA
+/// `propertyset` envelope. `VolumeDB` is derived from `volume` (see
 /// [`crate::services::rendering_control::volume_to_db`]) rather than passed
 /// in separately, so it can never disagree with `Volume` in the same event.
-pub fn rendering_control_last_change(instance_id: InstanceId, volume: u16, muted: bool) -> String {
+/// `Brightness`/`Contrast` carry no `channel` attribute (unlike
+/// `Volume`/`Mute`) - see `SetBrightnessRequest`'s doc for why.
+pub fn rendering_control_last_change(
+    instance_id: InstanceId,
+    volume: u16,
+    muted: bool,
+    brightness: u16,
+    contrast: u16,
+) -> String {
     let inner = format!(
         concat!(
             r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">"#,
@@ -189,6 +197,8 @@ pub fn rendering_control_last_change(instance_id: InstanceId, volume: u16, muted
             r#"<Volume channel="Master" val="{volume}"/>"#,
             r#"<VolumeDB channel="Master" val="{volume_db}"/>"#,
             r#"<Mute channel="Master" val="{muted}"/>"#,
+            r#"<Brightness val="{brightness}"/>"#,
+            r#"<Contrast val="{contrast}"/>"#,
             r#"</InstanceID>"#,
             r#"</Event>"#
         ),
@@ -196,6 +206,8 @@ pub fn rendering_control_last_change(instance_id: InstanceId, volume: u16, muted
         volume = volume,
         volume_db = crate::services::rendering_control::volume_to_db(volume),
         muted = if muted { "1" } else { "0" },
+        brightness = brightness,
+        contrast = contrast,
     );
 
     wrap_property_set(&inner)
@@ -338,7 +350,7 @@ mod tests {
 
     #[test]
     fn rendering_control_event_reports_volume_and_mute() {
-        let body = rendering_control_last_change(InstanceId::DEFAULT, 42, true);
+        let body = rendering_control_last_change(InstanceId::DEFAULT, 42, true, 50, 50);
 
         assert!(body.contains("urn:schemas-upnp-org:metadata-1-0/RCS/"));
         assert!(body.contains("Volume channel=&quot;Master&quot; val=&quot;42&quot;"));
@@ -352,14 +364,21 @@ mod tests {
 
     #[test]
     fn rendering_control_event_reports_unmuted_as_zero() {
-        let body = rendering_control_last_change(InstanceId::DEFAULT, 10, false);
+        let body = rendering_control_last_change(InstanceId::DEFAULT, 10, false, 50, 50);
         assert!(body.contains("Mute channel=&quot;Master&quot; val=&quot;0&quot;"));
     }
 
     #[test]
     fn rendering_control_event_reports_the_resolved_instance_id() {
-        let body = rendering_control_last_change(InstanceId::new(3), 10, false);
+        let body = rendering_control_last_change(InstanceId::new(3), 10, false, 50, 50);
         assert!(body.contains("InstanceID val=&quot;3&quot;"));
+    }
+
+    #[test]
+    fn rendering_control_event_reports_brightness_and_contrast() {
+        let body = rendering_control_last_change(InstanceId::DEFAULT, 10, false, 80, 20);
+        assert!(body.contains("Brightness val=&quot;80&quot;"));
+        assert!(body.contains("Contrast val=&quot;20&quot;"));
     }
 
     #[test]

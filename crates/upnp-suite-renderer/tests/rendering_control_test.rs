@@ -221,3 +221,111 @@ async fn test_set_volume_with_unknown_instance_id_is_rejected() {
     assert_eq!(status, 400, "Response body: {}", body);
     assert!(body.contains("<errorCode>718</errorCode>"), "Response body: {}", body);
 }
+
+#[test(tokio::test)]
+async fn test_get_volume_with_non_master_channel_is_rejected() {
+    let (_server, client) = setup().await;
+
+    // "Master" is the only channel the SCPD's A_ARG_TYPE_Channel
+    // allowedValueList advertises - anything else should be rejected, not
+    // silently applied to the master channel.
+    let resp = client.get_volume_with_channel("LF").await;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 400, "Response body: {}", body);
+    assert!(
+        body.contains("<errorCode>703</errorCode>"),
+        "Expected UPnP error 703 (Invalid Channel): {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_get_brightness_default() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_brightness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentBrightness>50</CurrentBrightness>"),
+        "Unexpected body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_brightness_changes_get_brightness() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_brightness(80).await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_brightness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentBrightness>80</CurrentBrightness>"),
+        "Brightness change was not reflected: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_brightness_rejects_out_of_range() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_brightness(150).await;
+    assert_response(resp, 500).await;
+
+    let resp = client.get_brightness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentBrightness>50</CurrentBrightness>"),
+        "Brightness should not have changed after invalid SetBrightness: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_get_contrast_default() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_contrast().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentContrast>50</CurrentContrast>"),
+        "Unexpected body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_contrast_changes_get_contrast() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_contrast(20).await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_contrast().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentContrast>20</CurrentContrast>"),
+        "Contrast change was not reflected: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_contrast_rejects_out_of_range() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_contrast(150).await;
+    assert_response(resp, 500).await;
+
+    let resp = client.get_contrast().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentContrast>50</CurrentContrast>"),
+        "Contrast should not have changed after invalid SetContrast: {}",
+        body
+    );
+}

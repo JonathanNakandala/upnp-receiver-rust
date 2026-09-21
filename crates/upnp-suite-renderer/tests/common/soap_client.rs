@@ -716,6 +716,152 @@ impl SoapClient {
             .unwrap()
     }
 
+    /// Same as [`Self::get_volume`] but with a caller-supplied `Channel` —
+    /// exists only to exercise the `InvalidChannel` (703) rejection path
+    /// for anything other than `"Master"`, the only channel this renderer
+    /// recognizes.
+    pub async fn get_volume_with_channel(&self, channel: &str) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                        <Channel>{}</Channel>
+                    </u:GetVolume>
+                </s:Body>
+            </s:Envelope>"#,
+            channel
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetVolume\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_brightness(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetBrightness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                    </u:GetBrightness>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetBrightness\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn set_brightness(&self, brightness: u16) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetBrightness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                        <DesiredBrightness>{}</DesiredBrightness>
+                    </u:SetBrightness>
+                </s:Body>
+            </s:Envelope>"#,
+            brightness
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetBrightness\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_contrast(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetContrast xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                    </u:GetContrast>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetContrast\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn set_contrast(&self, contrast: u16) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetContrast xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                        <DesiredContrast>{}</DesiredContrast>
+                    </u:SetContrast>
+                </s:Body>
+            </s:Envelope>"#,
+            contrast
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetContrast\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
     /// Self-closing zero-argument form, matching how real clients (e.g.
     /// BubbleUPnP) actually send it on the wire.
     pub async fn get_protocol_info(&self) -> reqwest::Response {
