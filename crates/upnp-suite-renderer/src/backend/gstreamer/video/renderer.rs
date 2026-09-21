@@ -1,9 +1,12 @@
 //! Draws the latest decoded frame into a window's wgpu surface.
 //!
-//! There's no scene graph and no scaling/letterboxing: the video is stretched
-//! over a single full-viewport triangle, and the window itself is kept sized
-//! to the video's native resolution (see [`super::app`]) so "stretch to fill"
-//! and "display at native size" mean the same thing in practice.
+//! There's no scene graph: the video is drawn over a single triangle sized
+//! to a viewport that preserves the frame's aspect ratio within the surface
+//! (letterboxed/pillarboxed with black bars otherwise), and the window
+//! itself is kept sized to the video's native resolution (see
+//! [`super::app`]) so ordinarily that viewport fills the whole surface -
+//! aspect correction only becomes visible once the surface's aspect ratio
+//! diverges from the video's, e.g. after toggling fullscreen.
 
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -100,6 +103,30 @@ fn upload_pixels(queue: &wgpu::Queue, texture: &wgpu::Texture, frame: &VideoFram
             depth_or_array_layers: 1,
         },
     );
+}
+
+/// Largest rect of `video_aspect` centered within a `surface_width` x
+/// `surface_height` surface, as `(x, y, width, height)` - letterboxed
+/// (bars top/bottom) if the surface is relatively taller than the video,
+/// pillarboxed (bars left/right) if relatively wider.
+fn letterboxed_viewport(
+    video_width: u32,
+    video_height: u32,
+    surface_width: u32,
+    surface_height: u32,
+) -> (f32, f32, f32, f32) {
+    let video_aspect = video_width as f32 / video_height as f32;
+    let surface_aspect = surface_width as f32 / surface_height as f32;
+
+    let (width, height) = if video_aspect > surface_aspect {
+        (surface_width as f32, surface_width as f32 / video_aspect)
+    } else {
+        (surface_height as f32 * video_aspect, surface_height as f32)
+    };
+
+    let x = (surface_width as f32 - width) / 2.0;
+    let y = (surface_height as f32 - height) / 2.0;
+    (x, y, width, height)
 }
 
 impl Renderer {
@@ -323,6 +350,18 @@ impl Renderer {
 
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.texture.bind_group, &[]);
+            // Shrink the viewport to the video's aspect ratio so the frame
+            // isn't stretched when the window/surface has a different one
+            // (e.g. after toggling fullscreen) - the rest of the
+            // already-black-cleared attachment shows through as letterbox
+            // bars.
+            let (x, y, width, height) = letterboxed_viewport(
+                self.texture.size.width,
+                self.texture.size.height,
+                self.config.width,
+                self.config.height,
+            );
+            pass.set_viewport(x, y, width, height, 0.0, 1.0);
             // A single triangle that covers the whole viewport (positions
             // computed in the vertex shader from `vertex_index`) - cheaper
             // than a textured quad and just as correct for a full-screen
