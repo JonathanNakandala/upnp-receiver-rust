@@ -183,7 +183,12 @@ impl Pipeline {
             video::build_video_sink(video_sink_output, handles.video_frame_counter.clone())?,
         );
 
-        let bus_watcher = spawn_bus_watcher(playbin.clone(), handles.state.clone(), handles.state_tx.clone());
+        let bus_watcher = spawn_bus_watcher(
+            playbin.clone(),
+            handles.state.clone(),
+            handles.state_tx.clone(),
+            handles.video_output.clone(),
+        );
         connect_about_to_finish(&playbin, handles.state.clone(), handles.track_tx.clone());
 
         Ok(Self {
@@ -386,6 +391,16 @@ impl GStreamerBackend {
             "Switching GStreamer pipeline"
         );
 
+        // Switching to audio-only: nothing to show anymore, so close the
+        // window rather than leave the last video frame frozen on screen -
+        // it reopens on its own the next time a video frame actually
+        // arrives.
+        if desired == PlaybinVersion::V1 {
+            if let Some(video_output) = &self.video_output {
+                video_output.hide();
+            }
+        }
+
         let volume: f64 = pipeline.playbin.property("volume");
         let mute: bool = pipeline.playbin.property("mute");
 
@@ -557,7 +572,13 @@ async fn run_decoder_watchdog(pipeline: Arc<Mutex<Pipeline>>, handles: BackendHa
                 "Video decoder still stalled after repeated automatic recovery; stopping playback"
             );
             let playbin = pipeline.lock().unwrap().playbin.clone();
-            stop_after_unprompted_end(&playbin, &handles.state, &handles.state_tx, TransportStatus::ErrorOccurred);
+            stop_after_unprompted_end(
+                &playbin,
+                &handles.state,
+                &handles.state_tx,
+                &handles.video_output,
+                TransportStatus::ErrorOccurred,
+            );
             continue;
         }
         consecutive_recoveries += 1;
@@ -679,6 +700,7 @@ fn spawn_bus_watcher(
     playbin: gst::Element,
     state: Arc<Mutex<PlayerState>>,
     state_tx: watch::Sender<TransportState>,
+    video_output: Option<VideoOutput>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let Some(bus) = playbin.bus() else {
@@ -703,7 +725,7 @@ fn spawn_bus_watcher(
                 match msg.view() {
                     gst::MessageView::Eos(_) => {
                         info!("GStreamer reported end-of-stream, stopping");
-                        stop_after_unprompted_end(&playbin, &state, &state_tx, TransportStatus::OK);
+                        stop_after_unprompted_end(&playbin, &state, &state_tx, &video_output, TransportStatus::OK);
                     }
                     gst::MessageView::Error(err) => {
                         error!(
@@ -715,6 +737,7 @@ fn spawn_bus_watcher(
                             &playbin,
                             &state,
                             &state_tx,
+                            &video_output,
                             TransportStatus::ErrorOccurred,
                         );
                     }
@@ -788,14 +811,16 @@ fn apply_stream_selection(playbin: &gst::Element, state: &Arc<Mutex<PlayerState>
 
 /// Shared cleanup for both bus-watcher cases: drop the pipeline back to
 /// Ready (same as a caller-driven `stop()`), update the state/status we
-/// report to `GetTransportInfo`, and push the state out to anyone
-/// subscribed via [`MediaBackend::state_changes`]. `status` distinguishes
+/// report to `GetTransportInfo`, push the state out to anyone subscribed
+/// via [`MediaBackend::state_changes`], and close the video window (nothing
+/// to show once playback has stopped on its own). `status` distinguishes
 /// the two callers: a clean end-of-stream is still `TransportStatus::OK`
 /// (playback simply finished), a pipeline error is `ErrorOccurred`.
 fn stop_after_unprompted_end(
     playbin: &gst::Element,
     state: &Arc<Mutex<PlayerState>>,
     state_tx: &watch::Sender<TransportState>,
+    video_output: &Option<VideoOutput>,
     status: TransportStatus,
 ) {
     let _ = playbin.set_state(gst::State::Ready);
@@ -812,6 +837,10 @@ fn stop_after_unprompted_end(
     };
 
     let _ = state_tx.send(new_state);
+
+    if let Some(video_output) = video_output {
+        video_output.hide();
+    }
 }
 
 /// Connects `playbin`'s `about-to-finish` signal, which is how GStreamer
@@ -1066,6 +1095,12 @@ impl MediaBackend for GStreamerBackend {
             TransportState::NoMediaPresent
         };
         state.speed = 1.0;
+        drop(state);
+
+        if let Some(video_output) = &self.video_output {
+            video_output.hide();
+        }
+
         Ok(())
     }
 

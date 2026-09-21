@@ -61,6 +61,12 @@ enum VideoEvent {
     /// of what changed them (a SOAP action, this same menu, or the backend
     /// reaching end-of-stream on its own).
     State(MenuState),
+    /// Sent whenever there's nothing to show - an explicit Stop, playback
+    /// reaching Stopped/NoMediaPresent on its own (EOS or an error), or the
+    /// pipeline switching to an audio-only track. Closes the window exactly
+    /// like the user clicking its close button does; the next video frame
+    /// reopens it the same way too.
+    Hide,
 }
 
 /// What the video window's native menu displays - not pushed reactively,
@@ -122,6 +128,12 @@ impl VideoOutput {
 
     pub fn send_state(&self, state: MenuState) {
         let _ = self.proxy.send_event(VideoEvent::State(state));
+    }
+
+    /// Closes the video window, if one is currently open - see
+    /// [`VideoEvent::Hide`] for when this is called.
+    pub fn hide(&self) {
+        let _ = self.proxy.send_event(VideoEvent::Hide);
     }
 }
 

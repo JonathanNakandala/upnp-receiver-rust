@@ -25,9 +25,10 @@ const MENU_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// There's only ever one video window: this renderer drives a single
 /// playback pipeline, so there's only ever one thing to show. The window is
 /// created on the first frame (so it can be sized to the video's actual
-/// resolution, per the module docs) and torn down if the user closes it -
-/// closing it doesn't stop playback or exit the renderer process, it just
-/// stops displaying; the next frame reopens it.
+/// resolution, per the module docs) and torn down - by the user closing it,
+/// or by `VideoEvent::Hide` when the backend has nothing to show (stopped,
+/// switched to audio) - without stopping playback or exiting the process;
+/// the next video frame reopens it either way.
 #[derive(Default)]
 pub(super) struct App {
     window: Option<Arc<Window>>,
@@ -55,6 +56,7 @@ impl ApplicationHandler<VideoEvent> for App {
                 self.controls = Some(controls);
             }
             VideoEvent::State(state) => self.apply_state(&state),
+            VideoEvent::Hide => self.close_window(),
         }
     }
 
@@ -67,11 +69,7 @@ impl ApplicationHandler<VideoEvent> for App {
         }
 
         match event {
-            WindowEvent::CloseRequested => {
-                info!("Video window closed; will reopen on the next video frame");
-                self.window = None;
-                self.renderer = None;
-            }
+            WindowEvent::CloseRequested => self.close_window(),
             WindowEvent::Resized(size) => {
                 if let Some(renderer) = &mut self.renderer {
                     renderer.resize(size);
@@ -123,6 +121,18 @@ impl App {
         if let Some(menu) = &self.menu {
             menu.update(state);
         }
+    }
+
+    /// Drops the window/renderer, which is what actually closes the OS
+    /// window - shared by the user clicking its close button and
+    /// `VideoEvent::Hide` (nothing to show right now). Either way, the next
+    /// video frame reopens it via `handle_frame`.
+    fn close_window(&mut self) {
+        if self.window.is_some() {
+            info!("Closing video window");
+        }
+        self.window = None;
+        self.renderer = None;
     }
 
     fn handle_menu_event(&mut self, event: &muda::MenuEvent) {
