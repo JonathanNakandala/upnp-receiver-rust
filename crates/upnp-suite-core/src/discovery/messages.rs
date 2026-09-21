@@ -80,8 +80,13 @@ impl SsdpMessage {
         Self::MSearch { search_target, mx }
     }
 
+    /// Per UPnP Device Architecture §1.1.2, the `uuid:<device-UUID>` search
+    /// target/notification type is the one case where USN is just the UUID
+    /// itself, not `<uuid>::<type>` — there's no second type to compose with.
     fn format_usn(uuid: &str, target_type: &str) -> String {
-        if target_type == "upnp:rootdevice" {
+        if target_type == uuid {
+            uuid.to_string()
+        } else if target_type == "upnp:rootdevice" {
             format!("{}::upnp:rootdevice", uuid)
         } else {
             format!("{}::{}", uuid, target_type)
@@ -112,6 +117,22 @@ impl std::fmt::Display for SsdpMessage {
                     SSDP_HOST,
                     header.format_common_headers(),
                     Self::format_usn(&uuid, "upnp:rootdevice")
+                ));
+
+                // Device UUID notification — required alongside the root
+                // device and device type notifications (UPnP Device
+                // Architecture §1.2.2's "3 + k" discovery message count).
+                messages.push(format!(
+                    "NOTIFY * HTTP/1.1\r\n\
+                     HOST: {}\r\n\
+                     {}\
+                     NTS: ssdp:alive\r\n\
+                     NT: {}\r\n\
+                     USN: {}\r\n\r\n",
+                    SSDP_HOST,
+                    header.format_common_headers(),
+                    uuid,
+                    Self::format_usn(&uuid, &uuid)
                 ));
 
                 // Device type notification
@@ -211,6 +232,18 @@ impl SsdpMessage {
                     Self::format_usn(&uuid, "upnp:rootdevice")
                 ));
 
+                // Device UUID byebye
+                messages.push(format!(
+                    "NOTIFY * HTTP/1.1\r\n\
+                     HOST: {}\r\n\
+                     NT: {}\r\n\
+                     NTS: ssdp:byebye\r\n\
+                     USN: {}\r\n\r\n",
+                    SSDP_HOST,
+                    uuid,
+                    Self::format_usn(&uuid, &uuid)
+                ));
+
                 // Device type byebye
                 messages.push(format!(
                     "NOTIFY * HTTP/1.1\r\n\
@@ -271,6 +304,10 @@ mod tests {
         assert!(output.contains("CACHE-CONTROL: max-age=1800"));
         assert!(output.contains("NT: upnp:rootdevice"));
         assert!(output.contains("USN: uuid:2f402f80-da50-11e1-9b23-001788608f88::upnp:rootdevice"));
+        assert!(output.contains("NT: uuid:2f402f80-da50-11e1-9b23-001788608f88"));
+        // The bare uuid notification's USN must be just the uuid, not
+        // `<uuid>::<uuid>` — this is the one NT/USN pair with no second type.
+        assert!(output.contains("USN: uuid:2f402f80-da50-11e1-9b23-001788608f88\r\n"));
         assert!(output.contains("DATE:"));
     }
 
@@ -302,5 +339,6 @@ mod tests {
         assert!(output.contains("NOTIFY * HTTP/1.1"));
         assert!(output.contains("NTS: ssdp:byebye"));
         assert!(output.contains("upnp:rootdevice"));
+        assert!(output.contains("NT: uuid:2f402f80-da50-11e1-9b23-001788608f88"));
     }
 }

@@ -12,6 +12,7 @@ use super::messages::SsdpHeader;
 pub enum SearchTarget {
     All,
     RootDevice,
+    Uuid(String),
     Service(String),
     Device(String),
 }
@@ -21,6 +22,7 @@ impl SearchTarget {
         match search_target {
             "ssdp:all" => Self::All,
             "upnp:rootdevice" => Self::RootDevice,
+            target if target.starts_with("uuid:") => Self::Uuid(target.to_string()),
             target if target.contains(":service:") => Self::Service(target.to_string()),
             target if target.contains(":device:") => Self::Device(target.to_string()),
             target if !target.starts_with("urn:") => {
@@ -68,6 +70,7 @@ impl SearchHandler {
         match target {
             SearchTarget::All => self.handle_all(services),
             SearchTarget::RootDevice => self.handle_root_device(services),
+            SearchTarget::Uuid(uuid) => self.handle_uuid(services, &uuid),
             SearchTarget::Service(service) => self.handle_service(services, &service),
             SearchTarget::Device(device) => self.handle_device(services, &device),
         }
@@ -86,6 +89,9 @@ impl SearchHandler {
 
             // Root device response
             responses.push(self.create_response("upnp:rootdevice", &info));
+
+            // Device uuid response
+            responses.push(self.create_response(&format!("uuid:{}", info.unique_id), &info));
 
             // Device type response
             responses.push(self.create_response(&info.device_type, &info));
@@ -109,6 +115,27 @@ impl SearchHandler {
         for service in services {
             let info = service.service_info()?;
             responses.push(self.create_response("upnp:rootdevice", &info));
+        }
+
+        Ok(responses)
+    }
+
+    fn handle_uuid(
+        &self,
+        services: &[Box<dyn SsdpService>],
+        search_target: &str,
+    ) -> Result<Vec<SsdpMessage>, DiscoveryServiceError> {
+        debug!(target = %search_target, "Processing uuid search");
+        let mut responses = Vec::new();
+
+        for service in services {
+            let info = service.service_info()?;
+            let uuid = format!("uuid:{}", info.unique_id);
+            if uuid.eq_ignore_ascii_case(search_target) {
+                debug!(target = %search_target, "Found matching device uuid");
+                responses.push(self.create_response(&uuid, &info));
+                break;
+            }
         }
 
         Ok(responses)
@@ -216,6 +243,24 @@ mod tests {
         ));
     }
 
+    struct FakeService(ServiceInfo);
+
+    impl SsdpService for FakeService {
+        fn service_info(&self) -> Result<ServiceInfo, DiscoveryServiceError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    fn fake_service(unique_id: uuid::Uuid) -> Box<dyn SsdpService> {
+        Box::new(FakeService(ServiceInfo {
+            device_type: "urn:schemas-upnp-org:device:MediaRenderer:1".to_string(),
+            unique_id,
+            location: "http://192.168.1.1:8080/description.xml".to_string(),
+            server: crate::discovery::service::Server::Default,
+            services: vec!["urn:schemas-upnp-org:service:AVTransport:1".to_string()],
+        }))
+    }
+
     #[test]
     fn test_search_target_parsing() {
         assert!(matches!(
@@ -227,6 +272,14 @@ mod tests {
             SearchTarget::from_str("upnp:rootdevice"),
             SearchTarget::RootDevice
         ));
+
+        if let SearchTarget::Uuid(uuid) =
+            SearchTarget::from_str("uuid:2f402f80-da50-11e1-9b23-001788608f88")
+        {
+            assert_eq!(uuid, "uuid:2f402f80-da50-11e1-9b23-001788608f88");
+        } else {
+            panic!("Expected Uuid variant");
+        }
 
         if let SearchTarget::Service(service) = SearchTarget::from_str("ConnectionManager:1") {
             assert_eq!(service, "urn:schemas-upnp-org:service:ConnectionManager:1");
@@ -241,5 +294,47 @@ mod tests {
         } else {
             panic!("Expected Device variant");
         }
+    }
+
+    #[test]
+    fn responds_to_matching_uuid_search() {
+        let unique_id = uuid::Uuid::parse_str("2f402f80-da50-11e1-9b23-001788608f88").unwrap();
+        let services = vec![fake_service(unique_id)];
+        let handler = SearchHandler::new(30);
+
+        let target = SearchTarget::from_str("uuid:2f402f80-da50-11e1-9b23-001788608f88");
+        let responses = handler.handle_target(target, &services).unwrap();
+
+        assert_eq!(responses.len(), 1);
+        let rendered = responses[0].to_string();
+        assert!(rendered.contains("ST: uuid:2f402f80-da50-11e1-9b23-001788608f88"));
+        assert!(rendered.contains("USN: uuid:2f402f80-da50-11e1-9b23-001788608f88\r\n"));
+    }
+
+    #[test]
+    fn ignores_non_matching_uuid_search() {
+        let unique_id = uuid::Uuid::parse_str("2f402f80-da50-11e1-9b23-001788608f88").unwrap();
+        let services = vec![fake_service(unique_id)];
+        let handler = SearchHandler::new(30);
+
+        let target = SearchTarget::from_str("uuid:00000000-0000-0000-0000-000000000000");
+        let responses = handler.handle_target(target, &services).unwrap();
+
+        assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn ssdp_all_includes_uuid_response() {
+        let unique_id = uuid::Uuid::parse_str("2f402f80-da50-11e1-9b23-001788608f88").unwrap();
+        let services = vec![fake_service(unique_id)];
+        let handler = SearchHandler::new(30);
+
+        let responses = handler
+            .handle_target(SearchTarget::All, &services)
+            .unwrap();
+
+        assert!(responses
+            .iter()
+            .any(|r| r.to_string().contains("ST: uuid:2f402f80-da50-11e1-9b23-001788608f88")));
     }
 }
