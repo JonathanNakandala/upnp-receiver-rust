@@ -212,6 +212,16 @@ async fn recover_stuck_video_pipeline(
             .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, position)
             .map_err(|e| MediaBackendError::GStreamer(format!("Post-recovery seek failed: {e}")))?;
         playbin.set_state(gst::State::Playing).map_err(state_change_error)?;
+
+        // Same reasoning as `GStreamerBackend::seek`'s call to this: this
+        // rebuild-and-reseek is itself a seek as far as the fresh
+        // `subtitleoverlay` instance is concerned, so whatever was drawn
+        // from the *old* pipeline needs clearing rather than sitting
+        // frozen on screen indefinitely (this path doesn't go through
+        // `seek()` itself, so that call never otherwise runs here).
+        if let Some(video_output) = &handles.video_output {
+            video_output.clear_subtitle_overlay();
+        }
         Ok(())
     })
     .await

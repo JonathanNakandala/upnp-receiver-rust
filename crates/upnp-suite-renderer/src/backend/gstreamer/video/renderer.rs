@@ -15,6 +15,8 @@ use winit::window::Window;
 
 use super::frame::{PixelFormat, VideoFrame};
 use super::frame_texture::{upload_pixels, FrameTexture};
+use super::overlay_frame::OverlayFrame;
+use super::overlay_texture::{self, OverlayTexture};
 
 pub(super) struct Renderer {
     surface: wgpu::Surface<'static>,
@@ -28,6 +30,19 @@ pub(super) struct Renderer {
     /// Whether this adapter supports the 16-bit-normalized texture formats
     /// `PixelFormat::P010` needs (`wgpu::Features::TEXTURE_FORMAT_16BIT_NORM`).
     supports_10bit: bool,
+    overlay_pipeline: wgpu::RenderPipeline,
+    overlay_bind_group_layout: wgpu::BindGroupLayout,
+    /// `None` until the first subtitle frame ever arrives - there may never
+    /// be one (no subtitle track, or none selected), in which case
+    /// [`Renderer::render`] just never draws a second pass.
+    overlay_texture: Option<OverlayTexture>,
+    /// Mirrors `PlayerState::subtitles_enabled` (`backend.rs`), pushed
+    /// through on every [`super::MenuState`] update - deselecting the
+    /// subtitle stream (`apply_stream_selection`) only stops *new* overlay
+    /// frames from arriving, it doesn't clear whatever was drawn last, so
+    /// [`Renderer::render`] checks this rather than just "is there a
+    /// texture" to decide whether to draw the overlay pass at all.
+    subtitles_enabled: bool,
 }
 
 /// Largest rect of `video_aspect` centered within a `surface_width` x
@@ -218,6 +233,71 @@ impl Renderer {
         );
         upload_pixels(&queue, &texture, frame);
 
+        let overlay_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("subtitle-overlay-bind-group-layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
+        let overlay_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("subtitle-overlay-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("overlay_shader.wgsl").into()),
+        });
+
+        let overlay_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("subtitle-overlay-pipeline-layout"),
+                bind_group_layouts: &[Some(&overlay_bind_group_layout)],
+                immediate_size: 0,
+            });
+
+        let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("subtitle-overlay-pipeline"),
+            layout: Some(&overlay_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &overlay_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &overlay_shader,
+                entry_point: Some("fs_main"),
+                // Alpha-blended "over" compositing on top of whatever the
+                // video draw call already wrote - the video pass itself
+                // stays opaque (`None` blend state, its default), only this
+                // second pass blends.
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
         Ok(Self {
             surface,
             device,
@@ -228,6 +308,10 @@ impl Renderer {
             sampler,
             texture,
             supports_10bit,
+            overlay_pipeline,
+            overlay_bind_group_layout,
+            overlay_texture: None,
+            subtitles_enabled: true,
         })
     }
 
@@ -275,6 +359,50 @@ impl Renderer {
             );
         }
         upload_pixels(&self.queue, &self.texture, frame);
+    }
+
+    /// Uploads a freshly rendered subtitle overlay canvas, recreating the
+    /// GPU texture first if its size changed (it won't, in practice - the
+    /// canvas is a fixed size, see `subtitle_sink`'s module docs - but a
+    /// mid-playback GStreamer version/config change is cheap to stay
+    /// correct against regardless).
+    pub(super) fn update_overlay_frame(&mut self, frame: &OverlayFrame) {
+        let size = PhysicalSize::new(frame.width, frame.height);
+        let needs_new_texture = match &self.overlay_texture {
+            Some(texture) => texture.size != size,
+            None => true,
+        };
+        if needs_new_texture {
+            self.overlay_texture = Some(OverlayTexture::new(
+                &self.device,
+                &self.overlay_bind_group_layout,
+                &self.sampler,
+                frame.width,
+                frame.height,
+            ));
+        }
+        overlay_texture::upload_pixels(&self.queue, self.overlay_texture.as_ref().unwrap(), frame);
+    }
+
+    /// Mirrors `PlayerState::subtitles_enabled` - see the field doc on why
+    /// [`Renderer::render`] needs this instead of just checking whether an
+    /// overlay texture exists.
+    pub(super) fn set_subtitles_enabled(&mut self, enabled: bool) {
+        self.subtitles_enabled = enabled;
+    }
+
+    /// Drops whatever was last drawn as the subtitle overlay - called right
+    /// after a seek. `subtitleoverlay`/`assrender` has been observed (empirically,
+    /// not just in this app) to not correctly resync which subtitle cue is
+    /// active after a flushing seek: it keeps rendering whatever was on
+    /// screen before the seek, sometimes for several seconds, rather than
+    /// either the correct new cue or nothing. There's no fix on this side
+    /// for *that* - it's upstream `assrender` behavior - but showing nothing
+    /// until the next genuinely new cue arrives is a lot less wrong than
+    /// showing stale, mismatched text, so this trades a brief gap for never
+    /// showing something false.
+    pub(super) fn clear_subtitle_overlay(&mut self) {
+        self.overlay_texture = None;
     }
 
     /// Draws the latest uploaded frame and presents it. Logs and returns on
@@ -348,6 +476,21 @@ impl Renderer {
             // than a textured quad and just as correct for a full-screen
             // blit.
             pass.draw(0..3, 0..1);
+
+            // Second draw call, same pass: the subtitle overlay (if any),
+            // alpha-blended on top of the video just drawn above, at the
+            // same aspect-corrected viewport so it lines up with the video
+            // regardless of window size/fullscreen - not a second,
+            // separate render pass, since there's no need to pay for
+            // another load/store of the color attachment just to add one
+            // more draw call to it.
+            if self.subtitles_enabled {
+                if let Some(overlay_texture) = &self.overlay_texture {
+                    pass.set_pipeline(&self.overlay_pipeline);
+                    pass.set_bind_group(0, &overlay_texture.bind_group, &[]);
+                    pass.draw(0..3, 0..1);
+                }
+            }
         }
 
         self.queue.submit(Some(encoder.finish()));

@@ -13,6 +13,7 @@ use winit::window::{Fullscreen, Window, WindowId};
 
 use super::frame::VideoFrame;
 use super::menu::{DispatchResult, PlaybackMenu};
+use super::overlay_frame::OverlayFrame;
 use super::renderer::Renderer;
 use super::{MenuState, PlaybackControls, VideoEvent};
 
@@ -47,6 +48,12 @@ impl ApplicationHandler<VideoEvent> for App {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: VideoEvent) {
         match event {
             VideoEvent::Frame(frame) => self.handle_frame(event_loop, &frame),
+            VideoEvent::SubtitleFrame(frame) => self.handle_subtitle_frame(&frame),
+            VideoEvent::ClearSubtitleOverlay => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.clear_subtitle_overlay();
+                }
+            }
             VideoEvent::Controls(controls) => {
                 info!(
                     supported_speeds = ?controls.supported_speeds,
@@ -117,9 +124,25 @@ impl App {
         window.request_redraw();
     }
 
+    /// Drops the subtitle frame if the window hasn't opened yet (no video
+    /// frame has arrived at all) - same reasoning as a subtitle-only stream
+    /// making no sense without a video track behind it.
+    fn handle_subtitle_frame(&mut self, frame: &OverlayFrame) {
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+        renderer.update_overlay_frame(frame);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
     fn apply_state(&mut self, state: &MenuState) {
         if let Some(menu) = &self.menu {
             menu.update(state);
+        }
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_subtitles_enabled(state.subtitles_enabled);
         }
     }
 
