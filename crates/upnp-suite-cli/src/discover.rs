@@ -287,9 +287,9 @@ fn wrap_csv(items: &[String], width: usize) -> String {
 }
 
 pub struct Palette {
-    bold: &'static str,
-    dim: &'static str,
-    reset: &'static str,
+    pub(crate) bold: &'static str,
+    pub(crate) dim: &'static str,
+    pub(crate) reset: &'static str,
 }
 
 impl Palette {

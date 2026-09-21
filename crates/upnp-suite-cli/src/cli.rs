@@ -25,6 +25,12 @@ pub enum Command {
         #[arg(short, long)]
         vars: bool,
     },
+    /// Discover devices, pick one, and print its full service/action/
+    /// evented-variable/allowed-values capabilities report.
+    Capabilities {
+        #[arg(default_value_t = DEFAULT_WAIT_SECS)]
+        wait_secs: u64,
+    },
     /// Discover devices, pick a GENA-eventable service, subscribe, and
     /// print NOTIFYs (or poll fallbacks) to the terminal as they arrive.
     Gena {

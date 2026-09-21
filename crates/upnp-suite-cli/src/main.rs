@@ -1,9 +1,10 @@
 //! Standalone UPnP control-point CLI.
 //!
 //! With no arguments, shows an interactive menu (see [`menu`]) offering:
-//! SSDP device/service discovery (the original behavior), subscribing to a
-//! device's GENA events and printing them as they arrive, and a live
-//! transport/position/volume dashboard for a selected device.
+//! SSDP device/service discovery (the original behavior), a per-device
+//! capabilities report, subscribing to a device's GENA events and printing
+//! them as they arrive, and a live transport/position/volume dashboard for
+//! a selected device.
 //!
 //! Any of those can also be run directly as a subcommand — see
 //! `upnp-discover --help`.
@@ -11,6 +12,7 @@
 //! Progress/errors go through `tracing` (the same timestamp-free
 //! `TextFormatter` the renderer binary uses).
 
+mod capabilities;
 mod cli;
 mod dashboard;
 mod discover;
@@ -48,6 +50,9 @@ async fn main() {
                     std::process::exit(1);
                 }
             }
+        }
+        Some(Command::Capabilities { wait_secs }) => {
+            capabilities::run(Duration::from_secs(wait_secs)).await
         }
         Some(Command::Gena { wait_secs }) => gena::run(Duration::from_secs(wait_secs)).await,
         Some(Command::Dashboard { wait_secs }) => dashboard::run(Duration::from_secs(wait_secs)).await,
