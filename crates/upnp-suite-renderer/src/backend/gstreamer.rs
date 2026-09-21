@@ -12,4 +12,4 @@ pub mod video;
 
 pub use backend::{GStreamerBackend, PlaybinVersion, SubtitleControl};
 pub use codecs::supported_mime_types;
-pub use video::{MenuState, PlaybackControls, VideoOutput};
+pub use video::{MenuState, PlaybackControls, RenderParams, VideoOutput};

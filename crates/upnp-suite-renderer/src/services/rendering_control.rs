@@ -8,6 +8,8 @@ use tracing::{debug, error};
 pub struct RenderingState {
     volume: u16,
     mute: bool,
+    brightness: u16,
+    contrast: u16,
 }
 
 impl Default for RenderingState {
@@ -15,8 +17,21 @@ impl Default for RenderingState {
         Self {
             volume: 50, // Default to 50% volume
             mute: false,
+            brightness: 50, // 50 = neutral/no adjustment
+            contrast: 50,
         }
     }
+}
+
+/// Shared 0-100 range check for `Brightness`/`Contrast` - both use the same
+/// linear percent scale as `Volume`, with 50 as the neutral midpoint.
+pub fn validate_percent(value: u16, name: &str) -> Result<(), ServiceError> {
+    if value > 100 {
+        return Err(ServiceError::InvalidValue(format!(
+            "{name} must be between 0 and 100, got {value}"
+        )));
+    }
+    Ok(())
 }
 
 // UPnP's `VolumeDB` has no spec-mandated scale, and implementations vary
@@ -57,6 +72,16 @@ pub trait RenderingControl: Send + Sync {
     async fn get_volume(&self) -> Result<u16, ServiceError>;
     async fn set_mute(&self, mute: bool) -> Result<(), ServiceError>;
     async fn get_mute(&self) -> Result<bool, ServiceError>;
+
+    /// UPnP's `Brightness`/`Contrast` - 0-100, 50 = neutral/no adjustment
+    /// (see [`validate_percent`]). No default impl, unlike `get_volume_db`
+    /// above: these aren't derived from another state variable, each
+    /// implementor tracks (and, for a real video backend, applies) its own
+    /// value.
+    async fn set_brightness(&self, brightness: u16) -> Result<(), ServiceError>;
+    async fn get_brightness(&self) -> Result<u16, ServiceError>;
+    async fn set_contrast(&self, contrast: u16) -> Result<(), ServiceError>;
+    async fn get_contrast(&self) -> Result<u16, ServiceError>;
 
     /// UPnP's `GetVolumeDB` — derived from `get_volume` rather than tracked
     /// separately, so it can never drift from `Volume`/whatever the backend
@@ -140,6 +165,28 @@ impl RenderingControl for RenderingControlImpl {
     async fn get_mute(&self) -> Result<bool, ServiceError> {
         let state = self.state.read().await;
         Ok(state.mute)
+    }
+
+    async fn set_brightness(&self, brightness: u16) -> Result<(), ServiceError> {
+        validate_percent(brightness, "Brightness")?;
+        debug!(brightness = brightness, "Setting brightness");
+        self.state.write().await.brightness = brightness;
+        Ok(())
+    }
+
+    async fn get_brightness(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.brightness)
+    }
+
+    async fn set_contrast(&self, contrast: u16) -> Result<(), ServiceError> {
+        validate_percent(contrast, "Contrast")?;
+        debug!(contrast = contrast, "Setting contrast");
+        self.state.write().await.contrast = contrast;
+        Ok(())
+    }
+
+    async fn get_contrast(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.contrast)
     }
 }
 
@@ -232,5 +279,29 @@ mod tests {
     fn volume_db_range_is_static() {
         let control = RenderingControlImpl::new();
         assert_eq!(control.volume_db_range(), (VOLUME_DB_MIN, VOLUME_DB_MAX));
+    }
+
+    #[tokio::test]
+    async fn test_brightness_control() {
+        let control = RenderingControlImpl::new();
+
+        assert_eq!(control.get_brightness().await.unwrap(), 50);
+
+        control.set_brightness(80).await.unwrap();
+        assert_eq!(control.get_brightness().await.unwrap(), 80);
+
+        assert!(control.set_brightness(101).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_contrast_control() {
+        let control = RenderingControlImpl::new();
+
+        assert_eq!(control.get_contrast().await.unwrap(), 50);
+
+        control.set_contrast(20).await.unwrap();
+        assert_eq!(control.get_contrast().await.unwrap(), 20);
+
+        assert!(control.set_contrast(101).await.is_err());
     }
 }

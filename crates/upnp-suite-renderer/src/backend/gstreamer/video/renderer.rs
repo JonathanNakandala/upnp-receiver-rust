@@ -9,6 +9,7 @@
 //! diverges from the video's, e.g. after toggling fullscreen.
 
 use std::sync::Arc;
+use bytemuck::{Pod, Zeroable};
 use tracing::{info, warn};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -17,6 +18,34 @@ use super::frame::{PixelFormat, VideoFrame};
 use super::frame_pipeline::{select_upload_path, FrameUploadPath};
 use super::overlay_frame::OverlayFrame;
 use super::overlay_texture::{self, OverlayTexture};
+use super::RenderParams;
+
+/// `shader.wgsl`'s `RenderParams` uniform, precomputed from the UPnP-facing
+/// 0-100 [`RenderParams`] scale so the shader itself stays agnostic of that
+/// scale - see the shader's doc on why this is the very last operation in
+/// `fs_main` and what that constrains if HDR output is ever added. Padded
+/// to 16 bytes: not strictly required for a 2-`f32` uniform struct on every
+/// backend, but matching common uniform buffer alignment expectations costs
+/// nothing here.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct RenderParamsUniform {
+    contrast_factor: f32,
+    brightness_offset: f32,
+    _padding: [f32; 2],
+}
+
+impl From<RenderParams> for RenderParamsUniform {
+    fn from(params: RenderParams) -> Self {
+        Self {
+            // 50 (neutral) -> 1.0x. 0 -> 0x (flat gray). 100 -> 2.0x.
+            contrast_factor: params.contrast as f32 / 50.0,
+            // 50 (neutral) -> 0.0 offset. 0 -> -1.0, 100 -> +1.0.
+            brightness_offset: (params.brightness as f32 / 100.0 - 0.5) * 2.0,
+            _padding: [0.0; 2],
+        }
+    }
+}
 
 pub(super) struct Renderer {
     surface: wgpu::Surface<'static>,
@@ -33,6 +62,10 @@ pub(super) struct Renderer {
     /// Whether this adapter supports the 16-bit-normalized texture formats
     /// `PixelFormat::P010` needs (`wgpu::Features::TEXTURE_FORMAT_16BIT_NORM`).
     supports_10bit: bool,
+    /// Backs `shader.wgsl`'s `@group(1)` `RenderParams` uniform - see
+    /// [`Renderer::set_render_params`].
+    render_params_buffer: wgpu::Buffer,
+    render_params_bind_group: wgpu::BindGroup,
     overlay_pipeline: wgpu::RenderPipeline,
     overlay_bind_group_layout: wgpu::BindGroupLayout,
     /// `None` until the first subtitle frame ever arrives - there may never
@@ -76,6 +109,7 @@ impl Renderer {
     pub(super) async fn new(
         window: Arc<Window>,
         frame: &VideoFrame,
+        render_params: RenderParams,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let size = window.inner_size();
         let instance = wgpu::Instance::default();
@@ -187,9 +221,43 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
+        let render_params_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("render-params-bind-group-layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let render_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("render-params-buffer"),
+            size: std::mem::size_of::<RenderParamsUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(
+            &render_params_buffer,
+            0,
+            bytemuck::bytes_of(&RenderParamsUniform::from(render_params)),
+        );
+        let render_params_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("render-params-bind-group"),
+            layout: &render_params_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: render_params_buffer.as_entire_binding(),
+            }],
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("video-frame-pipeline-layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
+            bind_group_layouts: &[Some(&bind_group_layout), Some(&render_params_bind_group_layout)],
             immediate_size: 0,
         });
 
@@ -304,6 +372,8 @@ impl Renderer {
             sampler,
             texture,
             supports_10bit,
+            render_params_buffer,
+            render_params_bind_group,
             overlay_pipeline,
             overlay_bind_group_layout,
             overlay_texture: None,
@@ -320,6 +390,18 @@ impl Renderer {
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
+    }
+
+    /// Pushes a new Brightness/Contrast value to the shader - see
+    /// `shader.wgsl`'s `RenderParams` and [`RenderParamsUniform`]. Doesn't
+    /// force a redraw itself; the caller (`app.rs`) does that, same as
+    /// every other `update_*`/`set_*` method here.
+    pub(super) fn set_render_params(&mut self, params: RenderParams) {
+        self.queue.write_buffer(
+            &self.render_params_buffer,
+            0,
+            bytemuck::bytes_of(&RenderParamsUniform::from(params)),
+        );
     }
 
     /// Uploads `frame`'s pixels, recreating the GPU texture first if its
@@ -441,6 +523,7 @@ impl Renderer {
 
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, self.texture.bind_group(), &[]);
+            pass.set_bind_group(1, &self.render_params_bind_group, &[]);
             // Shrink the viewport to the video's aspect ratio so the frame
             // isn't stretched when the window/surface has a different one
             // (e.g. after toggling fullscreen) - the rest of the

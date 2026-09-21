@@ -74,6 +74,15 @@ pub(super) struct PlayerState {
     // for each new track, since there's nothing UPnP-visible carrying a
     // per-track "no subtitles" preference forward.
     subtitles_enabled: bool,
+    // UPnP RenderingControl's `Brightness`/`Contrast`, 0-100 (50 = neutral -
+    // see `services::rendering_control`). Unlike `Volume`/`Mute`, there's no
+    // GStreamer element property backing these - `set_brightness`/
+    // `set_contrast` push a `RenderParams` to `video_output` right after
+    // updating these, so this is the source of truth `get_brightness`/
+    // `get_contrast` read back, and what a newly opened video window is
+    // seeded with (see `video::RenderParams`'s doc).
+    brightness: u16,
+    contrast: u16,
 }
 
 impl Default for PlayerState {
@@ -88,6 +97,8 @@ impl Default for PlayerState {
             play_mode: PlayMode::Normal,
             stream_collection: None,
             subtitles_enabled: true,
+            brightness: 50,
+            contrast: 50,
         }
     }
 }
@@ -436,6 +447,21 @@ impl GStreamerBackend {
     /// `ensure_playbin_version` swap never blocks on them.
     fn playbin(&self) -> gst::Element {
         self.pipeline.lock().unwrap().playbin.clone()
+    }
+
+    /// Pushes the current `brightness`/`contrast` to the video window, if
+    /// one exists - see `video::RenderParams`'s doc for why this has to be
+    /// pushed explicitly rather than picked up on a timer. A no-op when
+    /// there's no `video_output` at all (audio-only backend construction).
+    fn push_render_params(&self) {
+        let Some(video_output) = &self.video_output else {
+            return;
+        };
+        let state = self.state.lock().unwrap();
+        video_output.send_render_params(video::RenderParams {
+            brightness: state.brightness,
+            contrast: state.contrast,
+        });
     }
 }
 
@@ -1038,6 +1064,26 @@ impl MediaBackend for GStreamerBackend {
 
     async fn get_mute(&self) -> Result<bool, MediaBackendError> {
         Ok(self.playbin().property("mute"))
+    }
+
+    async fn set_brightness(&self, brightness: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().brightness = brightness;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_brightness(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().brightness)
+    }
+
+    async fn set_contrast(&self, contrast: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().contrast = contrast;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_contrast(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().contrast)
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {

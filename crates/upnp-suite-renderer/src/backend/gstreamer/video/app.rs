@@ -15,7 +15,7 @@ use super::frame::VideoFrame;
 use super::menu::{DispatchResult, PlaybackMenu};
 use super::overlay_frame::OverlayFrame;
 use super::renderer::Renderer;
-use super::{MenuState, PlaybackControls, VideoEvent};
+use super::{MenuState, PlaybackControls, RenderParams, VideoEvent};
 
 /// How often to drain `muda::MenuEvent::receiver()` and refresh the menu
 /// via [`ControlFlow::WaitUntil`] - a menu click needs to be picked up
@@ -37,6 +37,12 @@ pub(super) struct App {
     menu: Option<PlaybackMenu>,
     controls: Option<PlaybackControls>,
     fullscreen: bool,
+    /// The latest Brightness/Contrast, regardless of whether a renderer
+    /// currently exists to apply it to - unlike `MenuState`, nothing resends
+    /// this periodically (see `VideoOutput::send_render_params`'s doc), so
+    /// it has to be remembered here rather than just forwarded, the same
+    /// way `open_window` needs *some* value to hand a brand new `Renderer`.
+    render_params: RenderParams,
 }
 
 impl ApplicationHandler<VideoEvent> for App {
@@ -64,6 +70,7 @@ impl ApplicationHandler<VideoEvent> for App {
             }
             VideoEvent::State(state) => self.apply_state(&state),
             VideoEvent::Hide => self.close_window(),
+            VideoEvent::RenderParams(params) => self.apply_render_params(params),
         }
     }
 
@@ -146,6 +153,21 @@ impl App {
         }
     }
 
+    /// Remembers `params` regardless of whether a window is currently open
+    /// (see the field doc on `render_params`), and pushes it to the
+    /// renderer immediately if one exists - there's no periodic resend to
+    /// fall back on the way `apply_state` has, so a live window needs this
+    /// applied and redrawn right here.
+    fn apply_render_params(&mut self, params: RenderParams) {
+        self.render_params = params;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_render_params(params);
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+        }
+    }
+
     /// Drops the window/renderer, which is what actually closes the OS
     /// window - shared by the user clicking its close button and
     /// `VideoEvent::Hide` (nothing to show right now). Either way, the next
@@ -198,7 +220,11 @@ impl App {
             .with_inner_size(PhysicalSize::new(frame.width, frame.height))
             .with_resizable(false);
         let window = Arc::new(event_loop.create_window(attrs)?);
-        let renderer = futures::executor::block_on(Renderer::new(window.clone(), frame))?;
+        let renderer = futures::executor::block_on(Renderer::new(
+            window.clone(),
+            frame,
+            self.render_params,
+        ))?;
 
         self.window = Some(window);
         self.renderer = Some(renderer);

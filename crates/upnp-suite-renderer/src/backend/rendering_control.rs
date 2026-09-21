@@ -1,5 +1,5 @@
 use crate::services::error::{ConnectionError, ServiceError};
-use crate::services::rendering_control::RenderingControl;
+use crate::services::rendering_control::{validate_percent, RenderingControl};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -64,5 +64,35 @@ impl RenderingControl for MediaBackendRenderingControl {
 
     async fn get_mute(&self) -> Result<bool, ServiceError> {
         self.backend.get_mute().await.map_err(Self::convert_error)
+    }
+
+    async fn set_brightness(&self, brightness: u16) -> Result<(), ServiceError> {
+        validate_percent(brightness, "Brightness")?;
+        self.backend
+            .set_brightness(brightness)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_brightness(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_brightness()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_contrast(&self, contrast: u16) -> Result<(), ServiceError> {
+        validate_percent(contrast, "Contrast")?;
+        self.backend
+            .set_contrast(contrast)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_contrast(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_contrast()
+            .await
+            .map_err(Self::convert_error)
     }
 }
