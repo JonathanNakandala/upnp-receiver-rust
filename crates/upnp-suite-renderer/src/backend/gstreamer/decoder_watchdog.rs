@@ -211,7 +211,23 @@ async fn recover_stuck_video_pipeline(
         playbin
             .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, position)
             .map_err(|e| MediaBackendError::GStreamer(format!("Post-recovery seek failed: {e}")))?;
-        playbin.set_state(gst::State::Playing).map_err(state_change_error)?;
+
+        // Consult the authoritative transport state fresh, right before
+        // deciding whether to resume - not what it was when recovery
+        // started. This rebuild takes real time (a fresh `vtdec` session,
+        // preroll, the seek above), long enough for a concurrent
+        // `pause()`/`stop()` to land while it's in flight - and that call
+        // must win: forcing `Playing` unconditionally here, regardless of
+        // what the player was actually just told to do, left
+        // `GetTransportInfo` reporting whatever that concurrent call set
+        // (e.g. `PausedPlayback`) while the rebuilt pipeline played on
+        // underneath it regardless - the exact desync this closes. The
+        // pipeline is already sitting in `Paused` from the seek above, so
+        // "do nothing" is the correct action whenever the answer isn't
+        // `Playing`.
+        if handles.state.lock().unwrap().transport_state == TransportState::Playing {
+            playbin.set_state(gst::State::Playing).map_err(state_change_error)?;
+        }
 
         // Same reasoning as `GStreamerBackend::seek`'s call to this: this
         // rebuild-and-reseek is itself a seek as far as the fresh

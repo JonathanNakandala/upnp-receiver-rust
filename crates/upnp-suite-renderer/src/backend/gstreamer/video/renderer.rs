@@ -9,12 +9,12 @@
 //! diverges from the video's, e.g. after toggling fullscreen.
 
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 use super::frame::{PixelFormat, VideoFrame};
-use super::frame_texture::{upload_pixels, FrameTexture};
+use super::frame_pipeline::{select_upload_path, FrameUploadPath};
 use super::overlay_frame::OverlayFrame;
 use super::overlay_texture::{self, OverlayTexture};
 
@@ -26,7 +26,10 @@ pub(super) struct Renderer {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    texture: FrameTexture,
+    /// The active sink -> GPU transfer implementation - see
+    /// [`super::frame_pipeline`] for why this is behind a trait object
+    /// rather than a bare [`super::frame_texture::FrameTexture`].
+    texture: Box<dyn FrameUploadPath>,
     /// Whether this adapter supports the 16-bit-normalized texture formats
     /// `PixelFormat::P010` needs (`wgpu::Features::TEXTURE_FORMAT_16BIT_NORM`).
     supports_10bit: bool,
@@ -223,15 +226,8 @@ impl Renderer {
                  support; texture creation below will fail"
             );
         }
-        let texture = FrameTexture::new(
-            &device,
-            &bind_group_layout,
-            &sampler,
-            frame.width,
-            frame.height,
-            frame.format,
-        );
-        upload_pixels(&queue, &texture, frame);
+        let mut texture = select_upload_path();
+        texture.ensure_uploaded(&device, &queue, &bind_group_layout, &sampler, frame);
 
         let overlay_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -338,27 +334,13 @@ impl Renderer {
             return;
         }
 
-        let size = PhysicalSize::new(frame.width, frame.height);
-        if self.texture.size != size || self.texture.format != frame.format {
-            debug!(
-                old_width = self.texture.size.width,
-                old_height = self.texture.size.height,
-                new_width = frame.width,
-                new_height = frame.height,
-                old_format = ?self.texture.format,
-                new_format = ?frame.format,
-                "Video resolution or format changed; recreating GPU texture"
-            );
-            self.texture = FrameTexture::new(
-                &self.device,
-                &self.bind_group_layout,
-                &self.sampler,
-                frame.width,
-                frame.height,
-                frame.format,
-            );
-        }
-        upload_pixels(&self.queue, &self.texture, frame);
+        self.texture.ensure_uploaded(
+            &self.device,
+            &self.queue,
+            &self.bind_group_layout,
+            &self.sampler,
+            frame,
+        );
     }
 
     /// Uploads a freshly rendered subtitle overlay canvas, recreating the
@@ -458,15 +440,15 @@ impl Renderer {
             });
 
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.texture.bind_group, &[]);
+            pass.set_bind_group(0, self.texture.bind_group(), &[]);
             // Shrink the viewport to the video's aspect ratio so the frame
             // isn't stretched when the window/surface has a different one
             // (e.g. after toggling fullscreen) - the rest of the
             // already-black-cleared attachment shows through as letterbox
             // bars.
             let (x, y, width, height) = letterboxed_viewport(
-                self.texture.size.width,
-                self.texture.size.height,
+                self.texture.size().width,
+                self.texture.size().height,
                 self.config.width,
                 self.config.height,
             );
