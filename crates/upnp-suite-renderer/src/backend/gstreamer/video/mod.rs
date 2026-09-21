@@ -12,9 +12,9 @@
 //! cloned handle the media backend calls from wherever GStreamer calls it,
 //! which wakes the event loop [`new`] hands back to run on the main thread.
 //!
-//! Frames are uploaded as a plain RGBA8 texture and drawn with a fixed
-//! full-viewport quad ([`renderer`]) - no scaling, no letterboxing, no GPU
-//! interop with GStreamer's own decode output. That's deliberately the
+//! Frames are uploaded as a plain RGBA8 texture and drawn with a triangle
+//! sized to an aspect-correct viewport ([`renderer`]) - no GPU interop with
+//! GStreamer's own decode output. That's deliberately the
 //! simplest correct thing rather than the fastest: a per-platform zero-copy
 //! path (e.g. importing VideoToolbox's decoded `CVPixelBuffer` straight into
 //! a Metal texture on macOS) is a worthwhile later optimization once this
