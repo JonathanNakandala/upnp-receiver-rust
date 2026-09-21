@@ -31,6 +31,8 @@ mod overlay_texture;
 mod renderer;
 mod sink;
 mod subtitle_sink;
+#[cfg(test)]
+mod throughput_bench;
 
 pub use frame::VideoFrame;
 pub(crate) use capability::can_render;
