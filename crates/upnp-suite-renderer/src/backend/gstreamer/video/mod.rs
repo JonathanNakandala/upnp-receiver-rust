@@ -15,11 +15,16 @@
 //! Frames are uploaded as NV12/P010 luma+chroma planes and drawn with a
 //! triangle sized to an aspect-correct viewport, converting YUV to RGB in
 //! the fragment shader ([`renderer`]) - no GPU interop with GStreamer's own
-//! decode output. That's deliberately the simplest correct thing rather
-//! than the fastest: a per-platform zero-copy path (e.g. importing
+//! decode output, planes go through [`frame_pipeline::CpuCopyUploadPath`]'s
+//! CPU-side upload instead. A per-platform zero-copy path (e.g. importing
 //! VideoToolbox's decoded `CVPixelBuffer` straight into a Metal texture on
-//! macOS) is a worthwhile later optimization once this works end to end,
-//! not a precondition for it.
+//! macOS, which `wgpu` itself does support) was investigated and is not
+//! currently possible: no public or private-but-linkable API in GStreamer's
+//! macOS GL/`applemedia` plugins exposes the `IOSurface`/`CVPixelBuffer`
+//! behind a decoded sample (checked headers and exported symbols across the
+//! actual plugin binaries, not just assumed). The only route there would be
+//! a from-scratch VideoToolbox decoder replacing `vtdec` entirely - a much
+//! larger, standalone project, not attempted.
 
 mod app;
 mod capability;

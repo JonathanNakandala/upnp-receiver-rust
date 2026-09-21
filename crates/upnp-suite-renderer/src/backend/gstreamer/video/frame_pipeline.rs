@@ -6,10 +6,13 @@
 //! [`select_upload_path`] always falls back to it rather than ever failing
 //! playback over a faster path not panning out.
 //!
-//! Two platform-native, zero-copy paths are the reason this trait exists
-//! rather than just keeping [`super::frame_texture::FrameTexture`] inline in
-//! `Renderer` - see this crate's `metal_upload_path` module (macOS, once
-//! added) and the Vulkan note on [`select_upload_path`] below.
+//! This trait exists, rather than keeping [`super::frame_texture::FrameTexture`]
+//! inline in `Renderer`, for a platform-native zero-copy path to plug into
+//! later without touching `Renderer` again - see the Vulkan note on
+//! [`select_upload_path`] below. A macOS Metal path was investigated first
+//! and found not currently possible (see [`super`]'s module doc for why);
+//! Vulkan (Linux/Windows/Android, DMA-BUF import) is unverified but
+//! plausible, just unbuilt - no such hardware available to check it against.
 
 use tracing::debug;
 use winit::dpi::PhysicalSize;
@@ -114,14 +117,16 @@ impl FrameUploadPath for CpuCopyUploadPath {
 /// adapter lacks 10-bit texture support).
 ///
 /// # Platform paths
-/// - macOS: a Metal path (`MTLTexture` imported straight from the
-///   decoder's `IOSurface`, skipping the CPU round-trip entirely) belongs
-///   here, tried before falling back to [`CpuCopyUploadPath`].
-/// - Linux/Windows/Android: a Vulkan path (DMA-BUF import) is the intended
+/// - macOS: no native path here - a Metal `IOSurface` import was
+///   investigated and found not possible with the GStreamer APIs
+///   available (see [`super`]'s module doc), so this always resolves to
+///   [`CpuCopyUploadPath`].
+/// - Linux/Windows/Android: a Vulkan path (DMA-BUF import) is a plausible
 ///   future addition - deliberately not implemented here, since it can't be
 ///   built or verified without that hardware. This function is the one
-///   place it plugs in, mirroring the macOS branch, so adding it later
-///   doesn't require touching [`super::renderer::Renderer`] again.
+///   place it would plug in, mirroring the shape a macOS branch would have
+///   taken, so adding it later doesn't require touching
+///   [`super::renderer::Renderer`] again.
 pub(super) fn select_upload_path() -> Box<dyn FrameUploadPath> {
     Box::new(CpuCopyUploadPath::default())
 }

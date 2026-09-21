@@ -258,10 +258,12 @@ pub struct GStreamerBackend {
     // Every blocking `set_state`/`seek` call for this backend's pipeline
     // runs on the single dedicated OS thread behind this channel (see
     // `run_on_gst_thread`) rather than Tokio's blocking-task pool, which
-    // hands each call to a different, arbitrary pool thread - GL/Metal-
-    // backed elements (`glupload`/`gldownload` in the video pipeline,
-    // sharing a GL context with the window's own wgpu renderer) can
-    // require consistent thread affinity that a rotating pool can't give.
+    // hands each call to a different, arbitrary pool thread - on
+    // non-macOS, GL-backed elements (`glupload`/`gldownload` in the video
+    // pipeline, sharing a GL context with the window's own wgpu renderer -
+    // macOS doesn't use these, see `video::sink`'s `PLAIN_PIPELINE` doc)
+    // can require consistent thread affinity that a rotating pool can't
+    // give.
     gst_thread_tx: mpsc::Sender<GstJob>,
 }
 
@@ -760,13 +762,14 @@ type GstJob = Box<dyn FnOnce() + Send + 'static>;
 /// `tokio::task::spawn_blocking` was tried first, but it hands each call to
 /// whichever of many pool threads happens to be free - fine for GStreamer's
 /// own general thread-safety guarantees, but not necessarily for the video
-/// pipeline's GL/Metal-backed elements (`glupload`/`gldownload`, sharing a
-/// GL context with the window's own wgpu renderer), which can require
-/// consistent thread affinity for GL context operations. A persistent
-/// dedicated thread - the same one, every call, for this backend's whole
-/// lifetime - avoids that entirely. Jobs run strictly in submission order;
-/// the thread exits once every `Sender` (i.e. the owning `GStreamerBackend`)
-/// is dropped.
+/// pipeline's GL-backed elements on non-macOS (`glupload`/`gldownload`,
+/// sharing a GL context with the window's own wgpu renderer - macOS's
+/// pipeline doesn't use these, see `video::sink`'s `PLAIN_PIPELINE` doc),
+/// which can require consistent thread affinity for GL context operations.
+/// A persistent dedicated thread - the same one, every call, for this
+/// backend's whole lifetime - avoids that entirely. Jobs run strictly in
+/// submission order; the thread exits once every `Sender` (i.e. the owning
+/// `GStreamerBackend`) is dropped.
 fn spawn_gst_thread() -> mpsc::Sender<GstJob> {
     let (tx, rx) = mpsc::channel::<GstJob>();
     std::thread::Builder::new()
