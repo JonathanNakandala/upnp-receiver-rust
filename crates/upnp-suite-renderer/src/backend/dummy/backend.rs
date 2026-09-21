@@ -19,6 +19,11 @@ pub struct DummyBackend {
     // Same reasoning as `next`: no end-of-stream signal of its own to hook
     // a repeat loop into, so this is just remembered and reported back.
     play_mode: Mutex<PlayMode>,
+    // No real mixer to drive — just remembered state, the same way
+    // `GStreamerBackend` mirrors `playbin`'s `volume`/`mute` properties, so
+    // RenderingControl works identically against either backend.
+    volume: Mutex<u8>,
+    muted: Mutex<bool>,
 }
 
 impl DummyBackend {
@@ -28,6 +33,8 @@ impl DummyBackend {
             next: Mutex::new(None),
             speed: Mutex::new(1.0),
             play_mode: Mutex::new(PlayMode::Normal),
+            volume: Mutex::new(100),
+            muted: Mutex::new(false),
         }
     }
 
@@ -37,6 +44,7 @@ impl DummyBackend {
             DummyProcessError::NoConnection => {
                 MediaBackendError::Connection("No connection to media process".to_string())
             }
+            DummyProcessError::NoMediaLoaded => MediaBackendError::NoMediaLoaded,
             DummyProcessError::MaxRestartAttempts(attempts) => MediaBackendError::ProcessError(
                 format!("Max restart attempts ({}) reached", attempts),
             ),
@@ -165,29 +173,21 @@ impl MediaBackend for DummyBackend {
     }
 
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {
-        Err(MediaBackendError::Unsupported(format!(
-            "Volume control not yet implemented. Requested volume level: {}",
-            volume
-        )))
+        *self.volume.lock().await = volume;
+        Ok(())
     }
 
     async fn get_volume(&self) -> Result<u8, MediaBackendError> {
-        Err(MediaBackendError::Unsupported(
-            "Volume control not yet implemented".to_string(),
-        ))
+        Ok(*self.volume.lock().await)
     }
 
     async fn set_mute(&self, muted: bool) -> Result<(), MediaBackendError> {
-        Err(MediaBackendError::Unsupported(format!(
-            "Mute control not yet implemented. Requested mute state: {}",
-            muted
-        )))
+        *self.muted.lock().await = muted;
+        Ok(())
     }
 
     async fn get_mute(&self) -> Result<bool, MediaBackendError> {
-        Err(MediaBackendError::Unsupported(
-            "Mute control not yet implemented".to_string(),
-        ))
+        Ok(*self.muted.lock().await)
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {

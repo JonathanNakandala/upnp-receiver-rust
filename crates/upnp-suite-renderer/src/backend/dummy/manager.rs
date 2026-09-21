@@ -396,21 +396,27 @@ impl DummyBackendManager {
 
     pub async fn load_uri(&mut self, uri: &str, metadata: Option<String>) -> Result<()> {
         if let Some(conn) = &mut self.connection {
-            send_command(
+            match send_command(
                 conn,
                 MediaCommand::Load {
                     uri: uri.to_string(),
                     metadata: metadata.clone(),
                 },
             )
-            .await?;
-
-            self.current_uri = Some(uri.to_string());
-            self.current_metadata = metadata;
-            self.is_playing = false;
-            self.playback_state = TransportState::Stopped;
-
-            Ok(())
+            .await?
+            {
+                MediaResponse::Ok => {
+                    self.current_uri = Some(uri.to_string());
+                    self.current_metadata = metadata;
+                    self.is_playing = false;
+                    self.playback_state = TransportState::Stopped;
+                    Ok(())
+                }
+                MediaResponse::Error { message } => Err(DummyProcessError::CommandFailed(message)),
+                _ => Err(DummyProcessError::UnexpectedResponse(
+                    "when loading media".into(),
+                )),
+            }
         } else {
             Err(DummyProcessError::NoConnection)
         }
@@ -424,11 +430,16 @@ impl DummyBackendManager {
     }
     pub async fn play(&mut self) -> Result<()> {
         if let Some(conn) = &mut self.connection {
-            send_command(conn, MediaCommand::Play).await?;
-            self.is_playing = true;
-            self.playback_state = TransportState::Playing;
-
-            Ok(())
+            match send_command(conn, MediaCommand::Play).await? {
+                MediaResponse::Ok => {
+                    self.is_playing = true;
+                    self.playback_state = TransportState::Playing;
+                    Ok(())
+                }
+                MediaResponse::NoMediaLoaded => Err(DummyProcessError::NoMediaLoaded),
+                MediaResponse::Error { message } => Err(DummyProcessError::CommandFailed(message)),
+                _ => Err(DummyProcessError::UnexpectedResponse("when playing".into())),
+            }
         } else {
             Err(DummyProcessError::NoConnection)
         }
@@ -436,11 +447,15 @@ impl DummyBackendManager {
 
     pub async fn pause(&mut self) -> Result<()> {
         if let Some(conn) = &mut self.connection {
-            send_command(conn, MediaCommand::Pause).await?;
-            self.is_playing = false;
-            self.playback_state = TransportState::PausedPlayback;
-
-            Ok(())
+            match send_command(conn, MediaCommand::Pause).await? {
+                MediaResponse::Ok => {
+                    self.is_playing = false;
+                    self.playback_state = TransportState::PausedPlayback;
+                    Ok(())
+                }
+                MediaResponse::Error { message } => Err(DummyProcessError::CommandFailed(message)),
+                _ => Err(DummyProcessError::UnexpectedResponse("when pausing".into())),
+            }
         } else {
             Err(DummyProcessError::NoConnection)
         }
@@ -448,11 +463,15 @@ impl DummyBackendManager {
 
     pub async fn stop(&mut self) -> Result<()> {
         if let Some(conn) = &mut self.connection {
-            send_command(conn, MediaCommand::Stop).await?;
-            self.is_playing = false;
-            self.playback_state = TransportState::Stopped;
-
-            Ok(())
+            match send_command(conn, MediaCommand::Stop).await? {
+                MediaResponse::Ok => {
+                    self.is_playing = false;
+                    self.playback_state = TransportState::Stopped;
+                    Ok(())
+                }
+                MediaResponse::Error { message } => Err(DummyProcessError::CommandFailed(message)),
+                _ => Err(DummyProcessError::UnexpectedResponse("when stopping".into())),
+            }
         } else {
             Err(DummyProcessError::NoConnection)
         }
@@ -460,14 +479,18 @@ impl DummyBackendManager {
 
     pub async fn seek(&mut self, position_ms: u64) -> Result<()> {
         if let Some(conn) = &mut self.connection {
-            send_command(
+            match send_command(
                 conn,
                 MediaCommand::Seek {
                     position: position_ms,
                 },
             )
-            .await?;
-            Ok(())
+            .await?
+            {
+                MediaResponse::Ok => Ok(()),
+                MediaResponse::Error { message } => Err(DummyProcessError::CommandFailed(message)),
+                _ => Err(DummyProcessError::UnexpectedResponse("when seeking".into())),
+            }
         } else {
             Err(DummyProcessError::NoConnection)
         }

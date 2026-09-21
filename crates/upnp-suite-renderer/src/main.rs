@@ -13,10 +13,12 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use upnp_suite_client::RendererClient;
 use upnp_suite_core::discovery::{service::MediaRendererConfig, SsdpAdvertiser};
 use upnp_suite_core::logging::{LogStyle, TextFormatter};
-mod backend;
-mod ip;
-mod server;
-mod services;
+// The bin depends on this crate's own lib target rather than redeclaring
+// `mod backend; mod server; mod services;` locally — that used to compile
+// the whole tree a second time under the bin crate root, where `pub` items
+// only reachable from integration tests (which link the lib target) looked
+// like dead code.
+use upnp_suite_renderer::{backend, server, services};
 
 const RENDERER_SERVER_HEADER: &str = concat!("Rust/", env!("CARGO_PKG_VERSION"), " UPnP/1.0");
 

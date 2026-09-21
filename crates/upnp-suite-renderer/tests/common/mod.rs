@@ -1,3 +1,11 @@
+//! Shared across all the `upnp-suite-renderer` integration test binaries.
+//! Each binary is its own crate and only exercises a subset of this
+//! module's surface, so `#[allow(dead_code, unused_imports)]` here
+//! suppresses false-positive "never used" warnings for helpers a *sibling*
+//! binary does use — everything here has at least one real caller
+//! somewhere in `tests/`.
+#![allow(dead_code, unused_imports)]
+
 extern crate upnp_suite_renderer;
 pub mod mock_subscriber;
 pub mod soap_client;
@@ -12,7 +20,9 @@ use upnp_suite_renderer::services::MediaRenderer;
 use upnp_suite_renderer::{HttpServer, MediaRendererConfig};
 pub struct TestServer {
     pub address: SocketAddr,
-    shutdown_tx: oneshot::Sender<()>,
+    // `Option` so `Drop` can `.take()` it — `oneshot::Sender::send` takes
+    // `self` by value, and `Drop::drop` only gives `&mut self`.
+    shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
 impl TestServer {
@@ -72,7 +82,7 @@ impl TestServer {
 
         Self {
             address: addr,
-            shutdown_tx,
+            shutdown_tx: Some(shutdown_tx),
         }
     }
 
@@ -92,5 +102,16 @@ impl TestServer {
         }
         tracing::warn!("Server failed to become ready");
         false
+    }
+}
+
+impl Drop for TestServer {
+    // Each test spins up a real bound TCP listener and Axum server; without
+    // this they'd all outlive their test and keep running for the rest of
+    // the test binary's process, tying up ports across dozens of tests.
+    fn drop(&mut self) {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
     }
 }

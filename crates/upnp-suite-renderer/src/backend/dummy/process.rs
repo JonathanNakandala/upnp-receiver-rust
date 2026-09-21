@@ -161,9 +161,7 @@ async fn process_command(
         MediaCommand::Shutdown => MediaResponse::Shutdown,
         MediaCommand::Play => {
             if state.uri.is_none() {
-                MediaResponse::Error {
-                    message: "No media loaded".to_string(),
-                }
+                MediaResponse::NoMediaLoaded
             } else {
                 state.state = TransportState::Playing;
                 *should_update_position = true;
