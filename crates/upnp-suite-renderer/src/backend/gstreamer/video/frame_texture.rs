@@ -5,6 +5,7 @@
 //! texture bookkeeping for each thing actually drawn - video frame here,
 //! and eventually a subtitle overlay - gets its own file.
 
+use tracing::warn;
 use winit::dpi::PhysicalSize;
 
 use super::frame::{PixelFormat, VideoFrame};
@@ -99,11 +100,26 @@ impl FrameTexture {
     }
 }
 
+/// Maps `frame`'s buffer and hands its planes straight to `queue.write_texture`,
+/// with no CPU-side de-stride copy: `bytes_per_row` below is GStreamer's own
+/// reported stride, not `frame.width * bytes_per_sample`, and `write_texture`
+/// accepts a padded/strided source layout natively. Logs and drops the
+/// frame (rather than panicking or propagating an error, one bad frame
+/// isn't worth interrupting playback over, same philosophy as
+/// `VideoFrame::from_sample`) if mapping ever fails, which shouldn't happen
+/// for a real appsink-produced sample.
 pub(super) fn upload_pixels(queue: &wgpu::Queue, texture: &FrameTexture, frame: &VideoFrame) {
-    let bytes_per_sample = frame.format.bytes_per_sample();
+    let Some(mapped) = frame.map() else {
+        warn!("Video frame's buffer failed to map for upload; dropping this frame");
+        return;
+    };
     let uv_width = frame.width.div_ceil(2);
     let uv_height = frame.height.div_ceil(2);
 
+    let Some((y_data, y_stride)) = mapped.plane(0) else {
+        warn!("Video frame is missing its Y plane; dropping this frame");
+        return;
+    };
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture: &texture.y_texture,
@@ -111,10 +127,10 @@ pub(super) fn upload_pixels(queue: &wgpu::Queue, texture: &FrameTexture, frame: 
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        &frame.y_plane,
+        y_data,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(frame.width * bytes_per_sample),
+            bytes_per_row: Some(y_stride),
             rows_per_image: Some(frame.height),
         },
         wgpu::Extent3d {
@@ -124,6 +140,10 @@ pub(super) fn upload_pixels(queue: &wgpu::Queue, texture: &FrameTexture, frame: 
         },
     );
 
+    let Some((uv_data, uv_stride)) = mapped.plane(1) else {
+        warn!("Video frame is missing its UV plane; dropping this frame");
+        return;
+    };
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture: &texture.uv_texture,
@@ -131,11 +151,10 @@ pub(super) fn upload_pixels(queue: &wgpu::Queue, texture: &FrameTexture, frame: 
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        &frame.uv_plane,
+        uv_data,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            // Two interleaved channels, `bytes_per_sample` each.
-            bytes_per_row: Some(uv_width * 2 * bytes_per_sample),
+            bytes_per_row: Some(uv_stride),
             rows_per_image: Some(uv_height),
         },
         wgpu::Extent3d {

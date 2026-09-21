@@ -30,34 +30,38 @@ impl PixelFormat {
     }
 }
 
-/// One decoded video frame as the two planes GStreamer produced it in - no
-/// RGB conversion, so [`super::renderer::Renderer`] uploads both planes
-/// straight to the GPU and does YUV -> RGB in the fragment shader instead of
-/// paying for a CPU-side `videoconvert` on every frame.
+/// One decoded video frame - a cheap handle (a refcounted [`gst::Sample`]
+/// clone, no pixel data touched yet) rather than an owned copy of its
+/// planes. [`super::frame_texture::upload_pixels`] maps the sample's buffer
+/// directly at upload time and hands GStreamer's own strided plane data
+/// straight to `wgpu` (which accepts an arbitrary source stride via
+/// `bytes_per_row` natively), so no CPU-side de-stride copy happens at all,
+/// which used to cost real CPU time for no benefit - see `throughput_bench`'s
+/// module doc for the before/after numbers. [`super::renderer::Renderer`]
+/// still does the YUV -> RGB conversion in the fragment shader, not here.
 #[derive(Clone)]
 pub struct VideoFrame {
     pub width: u32,
     pub height: u32,
     pub format: PixelFormat,
-    /// Tightly packed (no row padding), full-resolution luma plane.
-    pub y_plane: Vec<u8>,
-    /// Tightly packed, interleaved chroma plane at half width and half
-    /// height (rounded up) of the luma plane.
-    pub uv_plane: Vec<u8>,
+    sample: gst::Sample,
 }
 
 impl VideoFrame {
-    /// Extracts and de-strides a frame from an appsink `pull-sample` result.
+    /// Reads a frame's format/dimensions from `sample`'s caps and keeps a
+    /// cheap clone of the sample itself (a refcount bump - [`gst::Sample`]
+    /// and the buffer it holds are `Send + Sync`, safe to carry across the
+    /// GStreamer streaming thread -> winit main thread hop this crosses).
+    /// The buffer itself is never mapped here - see [`VideoFrame::map`].
+    ///
     /// The appsink built in [`super::sink`] only ever negotiates NV12 or
-    /// P010_10LE caps, so this should always succeed on a real sample; `None`
-    /// covers the sample/caps/mapping/format failing regardless, which
+    /// P010_10LE caps, so this should always succeed on a real sample;
+    /// `None` covers the sample/caps/format failing regardless, which
     /// callers just drop rather than propagate - one bad frame isn't worth
     /// interrupting playback over.
     pub(super) fn from_sample(sample: &gst::Sample) -> Option<Self> {
-        let buffer = sample.buffer()?;
         let caps = sample.caps()?;
         let info = gst_video::VideoInfo::from_caps(caps).ok()?;
-        let frame = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info).ok()?;
 
         let format = match info.format() {
             gst_video::VideoFormat::Nv12 => PixelFormat::Nv12,
@@ -65,48 +69,41 @@ impl VideoFrame {
             _ => return None,
         };
 
-        let width = frame.width();
-        let height = frame.height();
-        let bytes_per_sample = format.bytes_per_sample();
-        // Chroma plane row byte-width equals the luma plane's: half as many
-        // sample pairs, each pair carrying both U and V, at the same byte
-        // width per sample.
-        let row_bytes = (width * bytes_per_sample) as usize;
-        let chroma_height = height.div_ceil(2) as usize;
-
-        let y_plane = destride_plane(&frame, 0, row_bytes, height as usize)?;
-        let uv_plane = destride_plane(&frame, 1, row_bytes, chroma_height)?;
-
         Some(Self {
-            width,
-            height,
+            width: info.width(),
+            height: info.height(),
             format,
-            y_plane,
-            uv_plane,
+            sample: sample.clone(),
         })
+    }
+
+    /// Maps this frame's buffer read-only, for a caller (the render thread,
+    /// via `upload_pixels`) to read its planes' real bytes and strides
+    /// directly - held only as long as the returned [`MappedVideoFrame`]
+    /// lives, then unmapped.
+    pub(super) fn map(&self) -> Option<MappedVideoFrame<'_>> {
+        let buffer = self.sample.buffer()?;
+        let caps = self.sample.caps()?;
+        let info = gst_video::VideoInfo::from_caps(caps).ok()?;
+        let frame = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info).ok()?;
+        Some(MappedVideoFrame { frame })
     }
 }
 
-/// Copies one plane out of `frame`, dropping any row-alignment padding
-/// GStreamer's stride can carry beyond `row_bytes` - the wgpu upload assumes
-/// a tightly-packed buffer.
-fn destride_plane(
-    frame: &gst_video::VideoFrameRef<&gst::BufferRef>,
-    plane: u32,
-    row_bytes: usize,
-    rows: usize,
-) -> Option<Vec<u8>> {
-    let stride = frame.plane_stride().get(plane as usize).copied()? as usize;
-    let data = frame.plane_data(plane).ok()?;
+/// A [`VideoFrame`]'s buffer, mapped read-only - gives direct access to
+/// GStreamer's own plane bytes and strides, exactly as decoded, with no
+/// intermediate copy.
+pub(super) struct MappedVideoFrame<'a> {
+    frame: gst_video::VideoFrameRef<&'a gst::BufferRef>,
+}
 
-    if stride == row_bytes {
-        Some(data.to_vec())
-    } else {
-        let mut out = Vec::with_capacity(row_bytes * rows);
-        for row in 0..rows {
-            let start = row * stride;
-            out.extend_from_slice(&data[start..start + row_bytes]);
-        }
-        Some(out)
+impl MappedVideoFrame<'_> {
+    /// `plane` 0 is luma (Y), `plane` 1 is interleaved chroma (UV) - see
+    /// [`VideoFrame`]'s doc. Both `None`s only if `plane` is out of range,
+    /// which never happens for the NV12/P010 frames this renderer handles.
+    pub(super) fn plane(&self, plane: u32) -> Option<(&[u8], u32)> {
+        let stride = self.frame.plane_stride().get(plane as usize).copied()?;
+        let data = self.frame.plane_data(plane).ok()?;
+        Some((data, stride as u32))
     }
 }
