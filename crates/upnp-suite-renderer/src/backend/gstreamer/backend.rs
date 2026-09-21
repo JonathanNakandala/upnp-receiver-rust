@@ -4,6 +4,7 @@
 use async_trait::async_trait;
 use gstreamer as gst;
 use gstreamer::prelude::*;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
@@ -113,6 +114,7 @@ impl Pipeline {
     fn build(
         version: PlaybinVersion,
         video_output: Option<VideoOutput>,
+        video_frame_counter: Arc<AtomicU64>,
         state: Arc<Mutex<PlayerState>>,
         state_tx: watch::Sender<TransportState>,
         track_tx: watch::Sender<TrackInfo>,
@@ -127,7 +129,19 @@ impl Pipeline {
         info!(playbin = element_name, "Building GStreamer playback pipeline");
 
         use_download_buffering(&playbin);
-        playbin.set_property("video-sink", video::build_video_sink(video_output)?);
+        // Only a V3 (video) pipeline gets the real GL-accelerated video-sink -
+        // a V1 (audio) one always gets `fakesink`, even when `video_output`
+        // is available, so an audio track never spins up a second, idle GL
+        // context/appsink chain alongside whatever the video pipeline it's
+        // being swapped with is using.
+        let video_sink_output = match version {
+            PlaybinVersion::V3 => video_output,
+            PlaybinVersion::V1 => None,
+        };
+        playbin.set_property(
+            "video-sink",
+            video::build_video_sink(video_sink_output, video_frame_counter)?,
+        );
 
         let bus_watcher = spawn_bus_watcher(playbin.clone(), state.clone(), state_tx);
         connect_about_to_finish(&playbin, state, track_tx);
@@ -146,10 +160,21 @@ impl Pipeline {
 }
 
 pub struct GStreamerBackend {
-    pipeline: Mutex<Pipeline>,
+    // `Arc` so the decoder-stall watchdog (`run_decoder_watchdog`) can hold
+    // its own handle and rebuild the pipeline in place without needing
+    // `&GStreamerBackend` - it's spawned from inside `Self::build`, before
+    // any `Arc<Self>`/`&Self` exists to give it.
+    pipeline: Arc<Mutex<Pipeline>>,
     // Kept so a pipeline rebuild (see `ensure_playbin_version`) wires the
     // new element's `video-sink` up the same way the first one was.
     video_output: Option<VideoOutput>,
+    // Bumped by the video-sink's appsink callback on every frame actually
+    // delivered to the window - see `run_decoder_watchdog`, which watches
+    // this stall (while playing a video track) as the sign of a wedged
+    // hardware decoder session (observed after a backward seek) and
+    // rebuilds the pipeline to recover.
+    video_frame_counter: Arc<AtomicU64>,
+    watchdog: tokio::task::JoinHandle<()>,
     state: Arc<Mutex<PlayerState>>,
     // Fires on transitions GStreamer makes on its own — end-of-stream or a
     // pipeline error — as opposed to ones a `play`/`pause`/`stop` call
@@ -197,23 +222,35 @@ impl GStreamerBackend {
     ) -> Result<Self, MediaBackendError> {
         ensure_initialized()?;
 
-        let playbin_version = required_version(video_output.is_some(), playbin_version);
-
         let state = Arc::new(Mutex::new(PlayerState::default()));
         let (state_tx, _) = watch::channel(TransportState::NoMediaPresent);
         let (track_tx, _) = watch::channel(TrackInfo::default());
+        let video_frame_counter = Arc::new(AtomicU64::new(0));
 
         let pipeline = Pipeline::build(
             playbin_version,
             video_output.clone(),
+            video_frame_counter.clone(),
             state.clone(),
             state_tx.clone(),
             track_tx.clone(),
         )?;
+        let pipeline = Arc::new(Mutex::new(pipeline));
+
+        let watchdog = tokio::spawn(run_decoder_watchdog(
+            pipeline.clone(),
+            state.clone(),
+            state_tx.clone(),
+            track_tx.clone(),
+            video_output.clone(),
+            video_frame_counter.clone(),
+        ));
 
         Ok(Self {
-            pipeline: Mutex::new(pipeline),
+            pipeline,
             video_output,
+            video_frame_counter,
+            watchdog,
             state,
             state_tx,
             track_tx,
@@ -268,12 +305,12 @@ impl GStreamerBackend {
     }
 
     /// Rebuilds the pipeline with `desired`'s element if it isn't already
-    /// running it, carrying volume and mute over to the replacement. A
-    /// backend built with video output stays on `playbin3` regardless of
-    /// `desired` - see [`PlaybinVersion::V3`].
+    /// running it, carrying volume and mute over to the replacement. `desired`
+    /// is purely a per-track decision (`load_media` picks it from the new
+    /// track's metadata) - a backend built with a video output plays audio
+    /// tracks on `playbin` too, since `playbin3` has no benefit for audio and
+    /// noticeably laggier seeking than `playbin`.
     fn ensure_playbin_version(&self, desired: PlaybinVersion) -> Result<(), MediaBackendError> {
-        let desired = required_version(self.video_output.is_some(), desired);
-
         let mut pipeline = self.pipeline.lock().unwrap();
         if pipeline.version == desired {
             return Ok(());
@@ -291,6 +328,7 @@ impl GStreamerBackend {
         let replacement = Pipeline::build(
             desired,
             self.video_output.clone(),
+            self.video_frame_counter.clone(),
             self.state.clone(),
             self.state_tx.clone(),
             self.track_tx.clone(),
@@ -337,16 +375,6 @@ impl SubtitleControl for GStreamerBackend {
     }
 }
 
-/// Video needs `playbin3` unconditionally; audio uses whichever version was
-/// requested.
-fn required_version(has_video_output: bool, requested: PlaybinVersion) -> PlaybinVersion {
-    if has_video_output {
-        PlaybinVersion::V3
-    } else {
-        requested
-    }
-}
-
 /// Swaps the `buffering` flag for `download`. Everything this renderer
 /// plays is a finite, seekable, on-demand file, never a live stream, so
 /// `download` is the better fit: it caches to a local temp file as it
@@ -388,12 +416,197 @@ impl Drop for GStreamerBackend {
     fn drop(&mut self) {
         // Best-effort: `abort()` only requests cancellation (it takes effect
         // next time the task is polled/yields), but nothing here depends on
-        // the watcher having stopped by the time this returns.
-        let pipeline = self.pipeline.get_mut().unwrap();
+        // either task having stopped by the time this returns.
+        self.watchdog.abort();
+        // Locked rather than `get_mut` - the watchdog task holds its own
+        // clone of this `Arc`, so it's not necessarily the sole owner here.
+        let pipeline = self.pipeline.lock().unwrap();
         pipeline.bus_watcher.abort();
         // Best-effort: release the audio device and any decoder resources.
         let _ = pipeline.playbin.set_state(gst::State::Null);
     }
+}
+
+/// How often [`run_decoder_watchdog`] checks whether a video frame has
+/// arrived since its last check.
+const DECODER_STALL_CHECK_INTERVAL: Duration = Duration::from_millis(500);
+/// Consecutive stalled checks (no new frame while a video track is playing)
+/// before the decoder is treated as wedged rather than just between
+/// frames - about 2 seconds at [`DECODER_STALL_CHECK_INTERVAL`], generous
+/// enough that ordinary frame pacing never trips it.
+const DECODER_STALL_CHECKS_BEFORE_RECOVERY: u32 = 4;
+/// How long to hold off re-checking after a recovery rebuild - covers the
+/// new pipeline's own preroll, which briefly looks like a stall too.
+const DECODER_RECOVERY_GRACE_PERIOD: Duration = Duration::from_secs(3);
+/// Give up auto-recovering after this many rebuilds in a row for the same
+/// stall - if it's still stuck after this many attempts, rebuilding again
+/// isn't going to help, so this stops spinning and leaves it stopped for
+/// the next explicit `SetAVTransportURI`/`Play` to sort out.
+const DECODER_MAX_CONSECUTIVE_RECOVERIES: u32 = 3;
+
+/// Watches for a wedged hardware video decoder and rebuilds the pipeline to
+/// recover, in place, at the position it got stuck.
+///
+/// Apple's VideoToolbox decoder (`vtdec`) has been observed to leave its
+/// hardware decode session corrupted after a *backward* flushing seek: from
+/// that point on every frame comes back flagged as an error
+/// (`GstVideoDecoder`'s "Got frame N with an error flag", logged under the
+/// `videodecoder` category) and no further frames ever reach the appsink -
+/// the picture just freezes, silently, with no bus error to react to.
+/// There's nothing to fix on this side of that bug, so recovery is
+/// pragmatic: notice the video-sink has gone quiet while a video track is
+/// supposed to be playing, and rebuild the pipeline (which recreates
+/// `vtdec`'s session from scratch) at the same position, same as
+/// `ensure_playbin_version` already does for an audio/video switch - just
+/// forced rather than gated on the [`PlaybinVersion`] actually changing.
+async fn run_decoder_watchdog(
+    pipeline: Arc<Mutex<Pipeline>>,
+    state: Arc<Mutex<PlayerState>>,
+    state_tx: watch::Sender<TransportState>,
+    track_tx: watch::Sender<TrackInfo>,
+    video_output: Option<VideoOutput>,
+    video_frame_counter: Arc<AtomicU64>,
+) {
+    let mut interval = tokio::time::interval(DECODER_STALL_CHECK_INTERVAL);
+    let mut last_seen = video_frame_counter.load(Ordering::Relaxed);
+    let mut stalled_checks: u32 = 0;
+    let mut consecutive_recoveries: u32 = 0;
+
+    loop {
+        interval.tick().await;
+
+        let watching_video = {
+            let playing = state.lock().unwrap().transport_state == TransportState::Playing;
+            pipeline.lock().unwrap().version == PlaybinVersion::V3 && playing
+        };
+        if !watching_video {
+            last_seen = video_frame_counter.load(Ordering::Relaxed);
+            stalled_checks = 0;
+            consecutive_recoveries = 0;
+            continue;
+        }
+
+        let current = video_frame_counter.load(Ordering::Relaxed);
+        if current != last_seen {
+            last_seen = current;
+            stalled_checks = 0;
+            consecutive_recoveries = 0;
+            continue;
+        }
+
+        stalled_checks += 1;
+        if stalled_checks < DECODER_STALL_CHECKS_BEFORE_RECOVERY {
+            continue;
+        }
+        stalled_checks = 0;
+
+        // Still stuck after every rebuild attempt already used - rebuilding
+        // again isn't going to help, so stop for real instead of leaving
+        // `GetTransportInfo` claiming `Playing` forever over a frozen
+        // picture. This is the same cleanup an unprompted EOS/pipeline
+        // error already does, so it surfaces to a subscribed control point
+        // the same way. `stalled_checks`/`consecutive_recoveries` reset
+        // themselves on the next tick once `transport_state` is no longer
+        // `Playing` (the `!watching_video` branch above).
+        if consecutive_recoveries >= DECODER_MAX_CONSECUTIVE_RECOVERIES {
+            error!(
+                attempts = consecutive_recoveries,
+                "Video decoder still stalled after repeated automatic recovery; stopping playback"
+            );
+            let playbin = pipeline.lock().unwrap().playbin.clone();
+            stop_after_unprompted_end(&playbin, &state, &state_tx, TransportStatus::ErrorOccurred);
+            continue;
+        }
+        consecutive_recoveries += 1;
+
+        warn!(
+            attempt = consecutive_recoveries,
+            stalled_for = ?(DECODER_STALL_CHECK_INTERVAL * DECODER_STALL_CHECKS_BEFORE_RECOVERY),
+            "Video decoder appears stuck; rebuilding the pipeline to recover"
+        );
+
+        if let Err(err) = recover_stuck_video_pipeline(
+            &pipeline,
+            &state,
+            &state_tx,
+            &track_tx,
+            &video_output,
+            &video_frame_counter,
+        ) {
+            error!(error = %err, "Failed to recover from a stuck video decoder");
+        }
+
+        last_seen = video_frame_counter.load(Ordering::Relaxed);
+        tokio::time::sleep(DECODER_RECOVERY_GRACE_PERIOD).await;
+    }
+}
+
+/// Rebuilds the current pipeline in place at the same [`PlaybinVersion`],
+/// resuming at the position and (optimistic) `Playing` state it was stuck
+/// at - see [`run_decoder_watchdog`] for why this is needed at all.
+fn recover_stuck_video_pipeline(
+    pipeline: &Arc<Mutex<Pipeline>>,
+    state: &Arc<Mutex<PlayerState>>,
+    state_tx: &watch::Sender<TransportState>,
+    track_tx: &watch::Sender<TrackInfo>,
+    video_output: &Option<VideoOutput>,
+    video_frame_counter: &Arc<AtomicU64>,
+) -> Result<(), MediaBackendError> {
+    let uri = state.lock().unwrap().uri.clone().ok_or_else(|| {
+        MediaBackendError::GStreamer("No URI to resume after decoder recovery".to_string())
+    })?;
+
+    let (position, volume, mute) = {
+        let pipeline = pipeline.lock().unwrap();
+        let position = pipeline
+            .playbin
+            .query_position::<gst::ClockTime>()
+            .unwrap_or(gst::ClockTime::ZERO);
+        (
+            position,
+            pipeline.playbin.property::<f64>("volume"),
+            pipeline.playbin.property::<bool>("mute"),
+        )
+    };
+
+    let replacement = Pipeline::build(
+        PlaybinVersion::V3,
+        video_output.clone(),
+        video_frame_counter.clone(),
+        state.clone(),
+        state_tx.clone(),
+        track_tx.clone(),
+    )?;
+    replacement.playbin.set_property("volume", volume);
+    replacement.playbin.set_property("mute", mute);
+
+    // Swap the replacement in before touching its state/URI/seek, same as
+    // `ensure_playbin_version` - whatever happens below, there's only ever
+    // one tracked pipeline, and the old (stuck) one is never left running
+    // - unlike leaving it in `replacement` and only swapping in on success,
+    // which would leak this element (and its `bus_watcher` task) on any
+    // error from here on.
+    let playbin = {
+        let mut pipeline = pipeline.lock().unwrap();
+        let old = std::mem::replace(&mut *pipeline, replacement);
+        old.shutdown();
+        pipeline.playbin.clone()
+    };
+
+    playbin.set_property("uri", &uri);
+    playbin.set_state(gst::State::Paused).map_err(state_change_error)?;
+    // `set_state` only requests the transition - block for it to actually
+    // finish (pads created, caps negotiated) before seeking. Seeking any
+    // earlier has no linked pads to seek through yet and fails outright,
+    // which is what caused the pad-mismatch warning flood the first version
+    // of this recovery path produced.
+    let (result, _, _) = playbin.state(gst::ClockTime::from_seconds(5));
+    result.map_err(state_change_error)?;
+    playbin
+        .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, position)
+        .map_err(|e| MediaBackendError::GStreamer(format!("Post-recovery seek failed: {e}")))?;
+    playbin.set_state(gst::State::Playing).map_err(state_change_error)?;
+    Ok(())
 }
 
 /// Watches the bus for the messages that mean playback stopped without

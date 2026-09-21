@@ -1,5 +1,8 @@
 //! Builds the element `playbin`'s `video-sink` property is set to.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
@@ -41,8 +44,13 @@ fn appsink_pipeline_description(pipeline: &str) -> String {
 /// real, not just detected) but nothing is ever displayed - what a backend
 /// built with [`GStreamerBackend::new`](super::super::backend::GStreamerBackend::new)
 /// gets, e.g. the unit tests in `backend.rs`, none of which touch a display.
+///
+/// `frame_counter` is bumped on every frame actually delivered to the window -
+/// the decoder-stall watchdog (`backend.rs`) compares it against a previous
+/// reading to tell a genuinely stuck decoder from one that's merely paused.
 pub(crate) fn build_video_sink(
     output: Option<VideoOutput>,
+    frame_counter: Arc<AtomicU64>,
 ) -> Result<gst::Element, MediaBackendError> {
     let Some(output) = output else {
         debug!("No video output configured; video-sink is fakesink (video decodes but is never displayed)");
@@ -72,7 +80,10 @@ pub(crate) fn build_video_sink(
                 })?;
 
                 match VideoFrame::from_sample(&sample) {
-                    Some(frame) => output.send_frame(frame),
+                    Some(frame) => {
+                        frame_counter.fetch_add(1, Ordering::Relaxed);
+                        output.send_frame(frame);
+                    }
                     None => warn!(
                         "Video appsink produced a sample this renderer couldn't read as an RGBA frame"
                     ),
