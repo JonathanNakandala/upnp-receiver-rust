@@ -107,6 +107,60 @@ impl<'a> RenderingControlClient<'a> {
         Ok(())
     }
 
+    /// UPnP's `Brightness`/`Contrast` - 0-100, 50 = neutral/no adjustment.
+    /// No `Channel` argument, unlike `GetVolume`/`GetMute` above - these are
+    /// a display setting, not per audio-channel (see the RenderingControl
+    /// spec's argument tables for `GetBrightness`/`SetBrightness`).
+    pub async fn get_brightness(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke("GetBrightness", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+
+        fields
+            .get("CurrentBrightness")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse("response missing CurrentBrightness".into())
+            })
+    }
+
+    pub async fn set_brightness(&self, brightness: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetBrightness",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredBrightness", &brightness.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_contrast(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke("GetContrast", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+
+        fields
+            .get("CurrentContrast")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse("response missing CurrentContrast".into())
+            })
+    }
+
+    pub async fn set_contrast(&self, contrast: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetContrast",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredContrast", &contrast.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_volume_db_range(&self) -> Result<VolumeDbRange, ClientError> {
         let fields = self
             .invoke(
