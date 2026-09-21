@@ -216,25 +216,13 @@ mod tests {
         INIT.get_or_init(|| gst::init().expect("gstreamer::init should succeed"));
     }
 
-    /// Drives an actual `playbin` through the exact bin [`build_video_sink`]
-    /// wires into its `video-sink` property, over a real encoded H.264
-    /// file, and confirms [`VideoFrame::from_sample`] successfully parses
-    /// real decoded samples coming out the other end - the real production
-    /// code path, not just pipeline construction. No window/winit involved
-    /// - `build_appsink_bin` is pure GStreamer, so this runs on any thread.
-    #[test]
-    #[ignore = "spins up a real GStreamer decode pipeline; run with \
-                `cargo test --lib -- --ignored --nocapture appsink_bin_delivers_real_frames`"]
-    fn appsink_bin_delivers_real_frames() {
-        ensure_gst_initialized();
-
-        let path = std::env::temp_dir().join(format!(
-            "upnp_receiver_sink_test_{}.mp4",
-            std::process::id()
-        ));
+    /// Encodes `num_buffers` frames of `pattern=ball` test video at
+    /// `width`x`height`/`framerate` to a real H.264 file at `path`, entirely
+    /// via GStreamer - no checked-in fixture, real encode/decode round trip.
+    fn encode_test_clip(path: &Path, num_buffers: u32, width: u32, height: u32, framerate: u32) {
         let encode_description = format!(
-            "videotestsrc num-buffers=60 pattern=ball ! \
-             video/x-raw,width=640,height=360,framerate=30/1 ! videoconvert ! \
+            "videotestsrc num-buffers={num_buffers} pattern=ball ! \
+             video/x-raw,width={width},height={height},framerate={framerate}/1 ! videoconvert ! \
              x264enc speed-preset=ultrafast ! h264parse ! mp4mux ! filesink location={}",
             path.display()
         );
@@ -253,6 +241,25 @@ mod tests {
             }
         }
         encoder.set_state(gst::State::Null).unwrap();
+    }
+
+    /// Drives an actual `playbin` through the exact bin [`build_video_sink`]
+    /// wires into its `video-sink` property, over a real encoded H.264
+    /// file, and confirms [`VideoFrame::from_sample`] successfully parses
+    /// real decoded samples coming out the other end - the real production
+    /// code path, not just pipeline construction. No window/winit involved
+    /// - `build_appsink_bin` is pure GStreamer, so this runs on any thread.
+    #[test]
+    #[ignore = "spins up a real GStreamer decode pipeline; run with \
+                `cargo test --lib -- --ignored --nocapture appsink_bin_delivers_real_frames`"]
+    fn appsink_bin_delivers_real_frames() {
+        ensure_gst_initialized();
+
+        let path = std::env::temp_dir().join(format!(
+            "upnp_receiver_sink_test_{}.mp4",
+            std::process::id()
+        ));
+        encode_test_clip(&path, 60, 640, 360, 30);
 
         let (bin, gl_accelerated) = build_appsink_bin().expect("appsink bin should build");
         #[cfg(target_os = "macos")]
@@ -343,27 +350,7 @@ mod tests {
             "upnp_receiver_sink_bench_{}.mp4",
             std::process::id()
         ));
-        let encode_description = format!(
-            "videotestsrc num-buffers=300 pattern=ball ! \
-             video/x-raw,width=1920,height=1080,framerate=60/1 ! videoconvert ! \
-             x264enc speed-preset=ultrafast ! h264parse ! mp4mux ! filesink location={}",
-            path.display()
-        );
-        let encoder = gst::parse::launch(&encode_description)
-            .unwrap()
-            .downcast::<gst::Pipeline>()
-            .unwrap();
-        encoder.set_state(gst::State::Playing).unwrap();
-        for msg in encoder.bus().unwrap().iter_timed(gst::ClockTime::NONE) {
-            match msg.view() {
-                gst::MessageView::Eos(_) => break,
-                gst::MessageView::Error(e) => {
-                    panic!("fixture encode failed: {} ({:?})", e.error(), e.debug())
-                }
-                _ => {}
-            }
-        }
-        encoder.set_state(gst::State::Null).unwrap();
+        encode_test_clip(&path, 300, 1920, 1080, 60);
 
         const GL_CHAIN: &str = "glupload ! glcolorconvert ! gldownload ! videoconvert ! appsink";
         // Order controlled for a same-process warm-up bias (decoder buffer
@@ -382,6 +369,153 @@ mod tests {
         println!("GL round-trip:  {gl_elapsed:?} to decode {gl_frames} frames at 1920x1080");
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Splits real `vtdec` wall-clock time into decode-alone versus the
+    /// hand-off/copy/parse work this crate's own sink pipeline adds on top -
+    /// the question left open after removing [`GL_AWARE_PIPELINE`]: is
+    /// actual VideoToolbox decode compute already the dominant cost (in
+    /// which case a from-scratch decoder bypassing `vtdec` to close the
+    /// remaining copies - see `video::mod`'s doc - wouldn't move the needle
+    /// much), or is a meaningful fraction of the real wall-clock number
+    /// still the copy/hand-off around it (in which case it would)?
+    ///
+    /// Three real pipelines over the same file:
+    /// 1. `capsfilter ! fakesink` - forces the same NV12/P010 negotiation as
+    ///    production without ever mapping/reading a buffer (`fakesink`
+    ///    doesn't by default), so this is decode-alone plus whatever `vtdec`
+    ///    does internally to produce that negotiated output - as close to a
+    ///    decode-only number as this crate can get without instrumenting
+    ///    `vtdec` itself, which is opaque.
+    /// 2. Bare `appsink` (no `videoconvert`) - adds this crate's own
+    ///    `pull_sample` + [`VideoFrame::from_sample`] parse on top of (1).
+    /// 3. [`PLAIN_PIPELINE`] (production) - adds `videoconvert` on top of
+    ///    (2), which the comment audit after removing the GL chain flagged
+    ///    as "likely free but not proven" - this puts a real number on that
+    ///    too.
+    ///
+    /// Not a regression gate, same "compare, don't gate" idiom as
+    /// [`compares_plain_and_gl_pipeline_decode_throughput`]. Unlike that
+    /// test, this one runs several interleaved, averaged trials rather than
+    /// one warm measurement per shape: an earlier single-shot version of
+    /// this benchmark showed ~300-410ms run-to-run variance on a ~300-400ms
+    /// total, noise bigger than the ~10-30ms deltas being measured, so a
+    /// single sample per shape can't be trusted here the way it could for
+    /// [`compares_plain_and_gl_pipeline_decode_throughput`]'s much larger
+    /// (~70-140ms) GL-chain delta. Interleaved (round-robin across the three
+    /// shapes each round, not all of one shape then all of another) so a
+    /// drift over the test's runtime - thermal, scheduler, whatever - hits
+    /// all three shapes evenly instead of biasing whichever ran last.
+    ///
+    /// Run with `cargo test --lib -- --ignored --nocapture decode_vs_copy`.
+    #[test]
+    #[ignore = "spins up three real GStreamer decode pipelines, repeatedly; run with \
+                `cargo test --lib -- --ignored --nocapture decode_vs_copy`"]
+    fn decode_vs_copy_cost_breakdown() {
+        ensure_gst_initialized();
+
+        let path = std::env::temp_dir().join(format!(
+            "upnp_receiver_sink_decode_vs_copy_{}.mp4",
+            std::process::id()
+        ));
+        // 900 frames (15s @ 60fps) rather than the 300 other benchmarks in
+        // this file use - a longer per-trial window so momentary noise
+        // (disk cache, scheduler jitter) averages out more within a single
+        // trial, on top of averaging across trials below.
+        encode_test_clip(&path, 900, 1920, 1080, 60);
+
+        const WARMUP_ROUNDS: usize = 1;
+        const MEASURED_ROUNDS: usize = 5;
+
+        let mut decode_only_times = Vec::with_capacity(MEASURED_ROUNDS);
+        let mut no_convert_times = Vec::with_capacity(MEASURED_ROUNDS);
+        let mut with_convert_times = Vec::with_capacity(MEASURED_ROUNDS);
+
+        for round in 0..(WARMUP_ROUNDS + MEASURED_ROUNDS) {
+            let decode_only = decode_only_wall_clock(&path);
+            let (no_convert, _) = decode_wall_clock(&path, "appsink");
+            let (with_convert, _) = decode_wall_clock(&path, PLAIN_PIPELINE);
+
+            if round >= WARMUP_ROUNDS {
+                decode_only_times.push(decode_only);
+                no_convert_times.push(no_convert);
+                with_convert_times.push(with_convert);
+            }
+        }
+
+        report_trials("decode only (fakesink, never mapped)      ", &decode_only_times);
+        report_trials("decode + hand-off + parse (no videoconvert)", &no_convert_times);
+        report_trials("decode + hand-off + videoconvert + parse   ", &with_convert_times);
+
+        let decode_only_avg = average(&decode_only_times);
+        let no_convert_avg = average(&no_convert_times);
+        let with_convert_avg = average(&with_convert_times);
+
+        println!(
+            "hand-off + parse overhead over decode alone (avg): {:?}",
+            no_convert_avg.saturating_sub(decode_only_avg)
+        );
+        println!(
+            "videoconvert's own overhead on top of that (avg):  {:?}",
+            with_convert_avg.saturating_sub(no_convert_avg)
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    fn average(durations: &[Duration]) -> Duration {
+        durations.iter().sum::<Duration>() / durations.len() as u32
+    }
+
+    /// Prints `label`'s average plus min/max spread across `durations` -
+    /// the spread matters as much as the average here: if it's bigger than
+    /// a delta between two shapes, that delta isn't a reliable signal (see
+    /// [`decode_vs_copy_cost_breakdown`]'s doc for why this benchmark
+    /// reports trials this way instead of a single number).
+    fn report_trials(label: &str, durations: &[Duration]) {
+        let min = durations.iter().min().expect("at least one trial");
+        let max = durations.iter().max().expect("at least one trial");
+        println!(
+            "{label}: avg {:?} (min {min:?}, max {max:?}, n={})",
+            average(durations),
+            durations.len()
+        );
+    }
+
+    /// Plays `path` through `capsfilter ! fakesink`, forcing the same
+    /// NV12/P010 negotiation the real appsink bins request without ever
+    /// mapping a buffer - `fakesink` doesn't read buffer contents by
+    /// default - and returns the wall-clock time to reach EOS. See
+    /// [`decode_vs_copy_cost_breakdown`]'s doc for what this isolates.
+    fn decode_only_wall_clock(path: &Path) -> Duration {
+        let description =
+            "capsfilter caps=video/x-raw,format={NV12,P010_10LE} ! fakesink sync=false";
+        let bin = gst::parse::bin_from_description(description, true)
+            .expect("benchmark pipeline should build");
+
+        let playbin = gst::ElementFactory::make("playbin3")
+            .build()
+            .or_else(|_| gst::ElementFactory::make("playbin").build())
+            .expect("playbin should be available");
+        playbin.set_property("uri", format!("file://{}", path.display()));
+        playbin.set_property("video-sink", &bin);
+
+        let start = Instant::now();
+        playbin.set_state(gst::State::Playing).unwrap();
+        let bus = playbin.bus().unwrap();
+        for msg in bus.iter_timed(gst::ClockTime::from_seconds(30)) {
+            match msg.view() {
+                gst::MessageView::Eos(_) => break,
+                gst::MessageView::Error(e) => {
+                    panic!("decode failed: {} ({:?})", e.error(), e.debug())
+                }
+                _ => {}
+            }
+        }
+        let elapsed = start.elapsed();
+        playbin.set_state(gst::State::Null).unwrap();
+
+        elapsed
     }
 
     /// Plays `path` through a standalone appsink bin built from `pipeline`
