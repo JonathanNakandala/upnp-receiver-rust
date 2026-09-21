@@ -17,26 +17,39 @@ const APPSINK_NAME: &str = "upnp-receiver-video-appsink";
 /// `glupload ! glcolorconvert ! gldownload` normalizes *any* decoder output,
 /// including a hardware decoder's GL/IOSurface-backed frames (what macOS's
 /// VideoToolbox, `vtdec`, used for H.264/H.265, produces by default), down
-/// to plain system-memory raw video before the RGBA conversion appsink
-/// needs. A bare `videoconvert` can't read GL-memory caps at all, so without
-/// this a hardware-decoded stream fails to negotiate and the pipeline
-/// errors out, while a software-decoded one (already in system memory)
-/// would have worked fine - the inconsistency this is here to close.
+/// to plain system-memory raw video in one of the two formats the appsink
+/// caps below allow. A bare `videoconvert` can't read GL-memory caps at all,
+/// so without this a hardware-decoded stream fails to negotiate and the
+/// pipeline errors out, while a software-decoded one (already in system
+/// memory) would have worked fine - the inconsistency this is here to close.
+/// `glcolorconvert` also does the actual format conversion when the decoder
+/// hands back something other than NV12/P010 (it converts to whichever of
+/// the two the appsink caps end up negotiating), so this stays a GPU-side
+/// step even though the two target formats are otherwise passed through
+/// untouched.
 const GL_AWARE_PIPELINE: &str = "glupload ! glcolorconvert ! gldownload ! videoconvert ! appsink";
 /// Used if this machine's GStreamer has no OpenGL plugin at all (some
 /// minimal/headless installs don't) - software-decoded video still works
 /// here, just not GL-memory-backed hardware decode output.
 const PLAIN_PIPELINE: &str = "videoconvert ! appsink";
 
+/// NV12 (8-bit) or P010_10LE (10-bit) - both are the raw 4:2:0 format most
+/// decoders (hardware or software) already produce, so requesting either
+/// instead of RGBA avoids forcing a CPU-side colorspace conversion on every
+/// frame: [`super::renderer::Renderer`] does the YUV -> RGB conversion in
+/// the fragment shader instead. Offering both lets negotiation pick
+/// whichever matches the source's actual bit depth - an 8-bit source
+/// shouldn't pay for 10-bit's larger planes, and a 10-bit/HDR source
+/// shouldn't be truncated down to 8-bit and band.
 fn appsink_pipeline_description(pipeline: &str) -> String {
     format!(
-        "{pipeline} name={APPSINK_NAME} emit-signals=true sync=true max-buffers=1 drop=true caps=video/x-raw,format=RGBA"
+        "{pipeline} name={APPSINK_NAME} emit-signals=true sync=true max-buffers=1 drop=true caps=video/x-raw,format={{NV12,P010_10LE}}"
     )
 }
 
 /// With `output`, an appsink-terminated bin that pushes every decoded frame
-/// (converted to plain RGBA8) to the video window via
-/// [`VideoOutput::send_frame`]. `max-buffers=1, drop=true` means the appsink
+/// (as NV12 or P010_10LE, whichever negotiation picked) to the video window
+/// via [`VideoOutput::send_frame`]. `max-buffers=1, drop=true` means the appsink
 /// only ever holds the latest frame - this is a live display, not a queue,
 /// so a slow renderer should skip frames rather than build a backlog.
 ///
@@ -85,7 +98,7 @@ pub(crate) fn build_video_sink(
                         output.send_frame(frame);
                     }
                     None => warn!(
-                        "Video appsink produced a sample this renderer couldn't read as an RGBA frame"
+                        "Video appsink produced a sample this renderer couldn't read as an NV12/P010 frame"
                     ),
                 }
 
