@@ -5,6 +5,7 @@
 //! back to [`dummy`](super::dummy).
 
 pub mod backend;
+pub mod cache_src;
 pub mod codecs;
 pub mod video;
 

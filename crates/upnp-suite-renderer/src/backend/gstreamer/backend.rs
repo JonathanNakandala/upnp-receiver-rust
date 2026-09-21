@@ -10,9 +10,17 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tracing::{debug, error, info, trace, warn};
 
+use super::cache_src::{self, ChunkCache};
 use super::video::{self, VideoOutput};
 use crate::backend::{MediaBackend, MediaBackendError, TrackInfo};
 use crate::server::soap::types::av_transport::{PlayMode, TransportState, TransportStatus};
+
+/// Used by every constructor that doesn't take an explicit budget
+/// (`new()`/`new_with_playbin_version()`, only ever used by tests and the
+/// no-video-output dummy-fallback path) - `new_with_video_output` (what a
+/// real run actually uses) takes an explicit, operator-tunable budget
+/// instead. See [`cache_src`] for what this bounds and why.
+const DEFAULT_CACHE_BUDGET_BYTES: u64 = 256 * 1024 * 1024;
 
 /// How long a single call on the dedicated GStreamer pipeline thread
 /// (`run_on_gst_thread`) gets before it's treated as wedged rather than
@@ -102,6 +110,27 @@ impl PlaybinVersion {
     }
 }
 
+/// Everything a pipeline (re)build needs beyond the [`PlaybinVersion`]
+/// itself, bundled into one clonable value rather than threaded through as
+/// six-plus separate parameters - `clippy::too_many_arguments` flagged the
+/// unbundled version, rightly: several of these are same-typed
+/// (`Arc<Mutex<_>>`/`Sender<_>`) and easy to mis-order positionally.
+/// Cloning is cheap - every field is itself a handle (`Arc`, `Sender`, or a
+/// `reqwest::Client`, which is internally reference-counted).
+#[derive(Clone)]
+struct BackendHandles {
+    video_output: Option<VideoOutput>,
+    video_frame_counter: Arc<AtomicU64>,
+    // Backend-lifetime, shared with every `upnpcachehttpsrc` instance across
+    // every pipeline rebuild - see `cache_src`'s module docs for why this
+    // can't live inside the element/pipeline itself.
+    media_cache: Arc<Mutex<ChunkCache>>,
+    http_client: reqwest::Client,
+    state: Arc<Mutex<PlayerState>>,
+    state_tx: watch::Sender<TransportState>,
+    track_tx: watch::Sender<TrackInfo>,
+}
+
 /// The GStreamer element plus what has to be rebuilt alongside it whenever
 /// the element itself is swapped for a different [`PlaybinVersion`].
 struct Pipeline {
@@ -111,14 +140,7 @@ struct Pipeline {
 }
 
 impl Pipeline {
-    fn build(
-        version: PlaybinVersion,
-        video_output: Option<VideoOutput>,
-        video_frame_counter: Arc<AtomicU64>,
-        state: Arc<Mutex<PlayerState>>,
-        state_tx: watch::Sender<TransportState>,
-        track_tx: watch::Sender<TrackInfo>,
-    ) -> Result<Self, MediaBackendError> {
+    fn build(version: PlaybinVersion, handles: &BackendHandles) -> Result<Self, MediaBackendError> {
         let element_name = version.element_name();
         let playbin = gst::ElementFactory::make(element_name)
             .name("upnp-receiver-playbin")
@@ -128,23 +150,39 @@ impl Pipeline {
             })?;
         info!(playbin = element_name, "Building GStreamer playback pipeline");
 
-        use_download_buffering(&playbin);
+        // `playbin` fires this for every source it creates or reuses,
+        // including on a gapless/playlist URI change - `cache_src::
+        // inject_shared` is a no-op for anything that isn't our
+        // `upnpcachehttpsrc` (e.g. a `file://` track), so this is safe to
+        // connect unconditionally. The cache/client are backend-lifetime,
+        // not tied to this pipeline, so they survive this element being
+        // torn down and rebuilt (audio/video swap, decoder-stall recovery).
+        let shared = cache_src::Shared {
+            cache: handles.media_cache.clone(),
+            client: handles.http_client.clone(),
+        };
+        playbin.connect("source-setup", false, move |args| {
+            let source = args[1].get::<gst::Element>().expect("source-setup's argument is the new source element");
+            cache_src::inject_shared(&source, shared.clone());
+            None
+        });
+
         // Only a V3 (video) pipeline gets the real GL-accelerated video-sink -
         // a V1 (audio) one always gets `fakesink`, even when `video_output`
         // is available, so an audio track never spins up a second, idle GL
         // context/appsink chain alongside whatever the video pipeline it's
         // being swapped with is using.
         let video_sink_output = match version {
-            PlaybinVersion::V3 => video_output,
+            PlaybinVersion::V3 => handles.video_output.clone(),
             PlaybinVersion::V1 => None,
         };
         playbin.set_property(
             "video-sink",
-            video::build_video_sink(video_sink_output, video_frame_counter)?,
+            video::build_video_sink(video_sink_output, handles.video_frame_counter.clone())?,
         );
 
-        let bus_watcher = spawn_bus_watcher(playbin.clone(), state.clone(), state_tx);
-        connect_about_to_finish(&playbin, state, track_tx);
+        let bus_watcher = spawn_bus_watcher(playbin.clone(), handles.state.clone(), handles.state_tx.clone());
+        connect_about_to_finish(&playbin, handles.state.clone(), handles.track_tx.clone());
 
         Ok(Self {
             playbin,
@@ -174,6 +212,11 @@ pub struct GStreamerBackend {
     // hardware decoder session (observed after a backward seek) and
     // rebuilds the pipeline to recover.
     video_frame_counter: Arc<AtomicU64>,
+    // Backend-lifetime, shared with every `upnpcachehttpsrc` instance across
+    // every pipeline rebuild - see `cache_src`'s module docs for why this
+    // can't live inside the element/pipeline itself.
+    media_cache: Arc<Mutex<ChunkCache>>,
+    http_client: reqwest::Client,
     watchdog: tokio::task::JoinHandle<()>,
     state: Arc<Mutex<PlayerState>>,
     // Fires on transitions GStreamer makes on its own — end-of-stream or a
@@ -200,60 +243,61 @@ pub struct GStreamerBackend {
 
 impl GStreamerBackend {
     pub fn new() -> Result<Self, MediaBackendError> {
-        Self::build(None, PlaybinVersion::default())
+        Self::build(None, PlaybinVersion::default(), DEFAULT_CACHE_BUDGET_BYTES)
     }
 
     /// Same as [`Self::new`], but with an explicit [`PlaybinVersion`]
     /// instead of the default - for tests or comparing the two directly.
     pub fn new_with_playbin_version(version: PlaybinVersion) -> Result<Self, MediaBackendError> {
-        Self::build(None, version)
+        Self::build(None, version, DEFAULT_CACHE_BUDGET_BYTES)
     }
 
     /// Same as [`Self::new`], but also displays decoded video in its own
     /// window via `video_output` - see [`super::video`] for how frames get
-    /// from GStreamer's decoding thread to that window.
-    pub fn new_with_video_output(video_output: VideoOutput) -> Result<Self, MediaBackendError> {
-        Self::build(Some(video_output), PlaybinVersion::V3)
+    /// from GStreamer's decoding thread to that window. `cache_budget_bytes`
+    /// bounds the in-memory chunk cache every HTTP(S) track's bytes flow
+    /// through (see [`super::cache_src`]) - operator-tunable since the right
+    /// size depends entirely on the device (a Pi wants this small, anything
+    /// with real RAM to spare can afford more).
+    pub fn new_with_video_output(
+        video_output: VideoOutput,
+        cache_budget_bytes: u64,
+    ) -> Result<Self, MediaBackendError> {
+        Self::build(Some(video_output), PlaybinVersion::V3, cache_budget_bytes)
     }
 
     fn build(
         video_output: Option<VideoOutput>,
         playbin_version: PlaybinVersion,
+        cache_budget_bytes: u64,
     ) -> Result<Self, MediaBackendError> {
         ensure_initialized()?;
 
-        let state = Arc::new(Mutex::new(PlayerState::default()));
-        let (state_tx, _) = watch::channel(TransportState::NoMediaPresent);
-        let (track_tx, _) = watch::channel(TrackInfo::default());
-        let video_frame_counter = Arc::new(AtomicU64::new(0));
+        let handles = BackendHandles {
+            video_output,
+            video_frame_counter: Arc::new(AtomicU64::new(0)),
+            media_cache: Arc::new(Mutex::new(ChunkCache::new(cache_budget_bytes))),
+            http_client: reqwest::Client::new(),
+            state: Arc::new(Mutex::new(PlayerState::default())),
+            state_tx: watch::channel(TransportState::NoMediaPresent).0,
+            track_tx: watch::channel(TrackInfo::default()).0,
+        };
 
-        let pipeline = Pipeline::build(
-            playbin_version,
-            video_output.clone(),
-            video_frame_counter.clone(),
-            state.clone(),
-            state_tx.clone(),
-            track_tx.clone(),
-        )?;
+        let pipeline = Pipeline::build(playbin_version, &handles)?;
         let pipeline = Arc::new(Mutex::new(pipeline));
 
-        let watchdog = tokio::spawn(run_decoder_watchdog(
-            pipeline.clone(),
-            state.clone(),
-            state_tx.clone(),
-            track_tx.clone(),
-            video_output.clone(),
-            video_frame_counter.clone(),
-        ));
+        let watchdog = tokio::spawn(run_decoder_watchdog(pipeline.clone(), handles.clone()));
 
         Ok(Self {
             pipeline,
-            video_output,
-            video_frame_counter,
+            video_output: handles.video_output,
+            video_frame_counter: handles.video_frame_counter,
+            media_cache: handles.media_cache,
+            http_client: handles.http_client,
             watchdog,
-            state,
-            state_tx,
-            track_tx,
+            state: handles.state,
+            state_tx: handles.state_tx,
+            track_tx: handles.track_tx,
             gst_thread_tx: spawn_gst_thread(),
         })
     }
@@ -304,6 +348,20 @@ impl GStreamerBackend {
         }
     }
 
+    /// Clones this backend's shared handles into a [`BackendHandles`] for a
+    /// `Pipeline::build` call - see that struct's docs for why it exists.
+    fn handles(&self) -> BackendHandles {
+        BackendHandles {
+            video_output: self.video_output.clone(),
+            video_frame_counter: self.video_frame_counter.clone(),
+            media_cache: self.media_cache.clone(),
+            http_client: self.http_client.clone(),
+            state: self.state.clone(),
+            state_tx: self.state_tx.clone(),
+            track_tx: self.track_tx.clone(),
+        }
+    }
+
     /// Rebuilds the pipeline with `desired`'s element if it isn't already
     /// running it, carrying volume and mute over to the replacement. `desired`
     /// is purely a per-track decision (`load_media` picks it from the new
@@ -325,14 +383,7 @@ impl GStreamerBackend {
         let volume: f64 = pipeline.playbin.property("volume");
         let mute: bool = pipeline.playbin.property("mute");
 
-        let replacement = Pipeline::build(
-            desired,
-            self.video_output.clone(),
-            self.video_frame_counter.clone(),
-            self.state.clone(),
-            self.state_tx.clone(),
-            self.track_tx.clone(),
-        )?;
+        let replacement = Pipeline::build(desired, &self.handles())?;
         replacement.playbin.set_property("volume", volume);
         replacement.playbin.set_property("mute", mute);
 
@@ -375,34 +426,6 @@ impl SubtitleControl for GStreamerBackend {
     }
 }
 
-/// Swaps the `buffering` flag for `download`. Everything this renderer
-/// plays is a finite, seekable, on-demand file, never a live stream, so
-/// `download` is the better fit: it caches to a local temp file as it
-/// downloads, so a seek into anything already downloaded is instant with no
-/// network wait, and playback isn't gated on an in-memory ring buffer
-/// refilling to a percentage threshold - which on a source whose real
-/// throughput is well under the link speed (a phone-hosted HTTP server on
-/// gigabit ethernet, for instance - the link isn't the bottleneck, the
-/// server's own disk/CPU is) can mean repeatedly pausing and resuming
-/// playback while that threshold refills.
-fn use_download_buffering(playbin: &gst::Element) {
-    let flags = playbin.property_value("flags");
-    let Some(flags_class) = gst::glib::FlagsClass::with_type(flags.type_()) else {
-        warn!("playbin's \"flags\" property isn't a flags type; leaving buffering mode as-is");
-        return;
-    };
-
-    let updated = flags_class
-        .builder_with_value(flags)
-        .map(|builder| builder.unset_by_nick("buffering").set_by_nick("download"))
-        .and_then(|builder| builder.build());
-
-    match updated {
-        Some(flags) => playbin.set_property("flags", flags),
-        None => warn!("Failed to switch playbin from buffering to download mode"),
-    }
-}
-
 /// Whether `metadata`'s DIDL-Lite hints at video content, checked as a
 /// plain substring search rather than XML parsing - it only ever decides
 /// which pipeline to start a track with, nothing depends on it being exact.
@@ -433,8 +456,17 @@ const DECODER_STALL_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 /// Consecutive stalled checks (no new frame while a video track is playing)
 /// before the decoder is treated as wedged rather than just between
 /// frames - about 2 seconds at [`DECODER_STALL_CHECK_INTERVAL`], generous
-/// enough that ordinary frame pacing never trips it.
+/// enough that ordinary frame pacing never trips it. Only applies once at
+/// least one frame has already arrived for the current pipeline - see
+/// [`DECODER_STARTUP_STALL_CHECKS`] for before that.
 const DECODER_STALL_CHECKS_BEFORE_RECOVERY: u32 = 4;
+/// Same idea, but for before the *first* frame of a fresh pipeline has ever
+/// arrived - about 10 seconds. A real network fetch (the first chunk of a
+/// track, possibly over a slow phone-hosted DLNA server) can legitimately
+/// take longer than the couple of seconds [`DECODER_STALL_CHECKS_BEFORE_RECOVERY`]
+/// allows once frames are already flowing - that's normal startup latency,
+/// not the hardware-decoder wedging this watchdog exists to catch.
+const DECODER_STARTUP_STALL_CHECKS: u32 = 20;
 /// How long to hold off re-checking after a recovery rebuild - covers the
 /// new pipeline's own preroll, which briefly looks like a stall too.
 const DECODER_RECOVERY_GRACE_PERIOD: Duration = Duration::from_secs(3);
@@ -459,43 +491,48 @@ const DECODER_MAX_CONSECUTIVE_RECOVERIES: u32 = 3;
 /// `vtdec`'s session from scratch) at the same position, same as
 /// `ensure_playbin_version` already does for an audio/video switch - just
 /// forced rather than gated on the [`PlaybinVersion`] actually changing.
-async fn run_decoder_watchdog(
-    pipeline: Arc<Mutex<Pipeline>>,
-    state: Arc<Mutex<PlayerState>>,
-    state_tx: watch::Sender<TransportState>,
-    track_tx: watch::Sender<TrackInfo>,
-    video_output: Option<VideoOutput>,
-    video_frame_counter: Arc<AtomicU64>,
-) {
+async fn run_decoder_watchdog(pipeline: Arc<Mutex<Pipeline>>, handles: BackendHandles) {
     let mut interval = tokio::time::interval(DECODER_STALL_CHECK_INTERVAL);
-    let mut last_seen = video_frame_counter.load(Ordering::Relaxed);
+    let mut last_seen = handles.video_frame_counter.load(Ordering::Relaxed);
     let mut stalled_checks: u32 = 0;
     let mut consecutive_recoveries: u32 = 0;
+    // Whether at least one frame has already arrived for the *current*
+    // pipeline - false right after a fresh load or a recovery rebuild,
+    // which both need `DECODER_STARTUP_STALL_CHECKS`' longer grace instead
+    // of the tighter `DECODER_STALL_CHECKS_BEFORE_RECOVERY`.
+    let mut has_seen_frame = false;
 
     loop {
         interval.tick().await;
 
         let watching_video = {
-            let playing = state.lock().unwrap().transport_state == TransportState::Playing;
+            let playing = handles.state.lock().unwrap().transport_state == TransportState::Playing;
             pipeline.lock().unwrap().version == PlaybinVersion::V3 && playing
         };
         if !watching_video {
-            last_seen = video_frame_counter.load(Ordering::Relaxed);
+            last_seen = handles.video_frame_counter.load(Ordering::Relaxed);
             stalled_checks = 0;
             consecutive_recoveries = 0;
+            has_seen_frame = false;
             continue;
         }
 
-        let current = video_frame_counter.load(Ordering::Relaxed);
+        let current = handles.video_frame_counter.load(Ordering::Relaxed);
         if current != last_seen {
             last_seen = current;
             stalled_checks = 0;
             consecutive_recoveries = 0;
+            has_seen_frame = true;
             continue;
         }
 
         stalled_checks += 1;
-        if stalled_checks < DECODER_STALL_CHECKS_BEFORE_RECOVERY {
+        let stall_threshold = if has_seen_frame {
+            DECODER_STALL_CHECKS_BEFORE_RECOVERY
+        } else {
+            DECODER_STARTUP_STALL_CHECKS
+        };
+        if stalled_checks < stall_threshold {
             continue;
         }
         stalled_checks = 0;
@@ -514,29 +551,25 @@ async fn run_decoder_watchdog(
                 "Video decoder still stalled after repeated automatic recovery; stopping playback"
             );
             let playbin = pipeline.lock().unwrap().playbin.clone();
-            stop_after_unprompted_end(&playbin, &state, &state_tx, TransportStatus::ErrorOccurred);
+            stop_after_unprompted_end(&playbin, &handles.state, &handles.state_tx, TransportStatus::ErrorOccurred);
             continue;
         }
         consecutive_recoveries += 1;
 
         warn!(
             attempt = consecutive_recoveries,
-            stalled_for = ?(DECODER_STALL_CHECK_INTERVAL * DECODER_STALL_CHECKS_BEFORE_RECOVERY),
+            stalled_for = ?(DECODER_STALL_CHECK_INTERVAL * stall_threshold),
             "Video decoder appears stuck; rebuilding the pipeline to recover"
         );
 
-        if let Err(err) = recover_stuck_video_pipeline(
-            &pipeline,
-            &state,
-            &state_tx,
-            &track_tx,
-            &video_output,
-            &video_frame_counter,
-        ) {
+        if let Err(err) = recover_stuck_video_pipeline(&pipeline, &handles) {
             error!(error = %err, "Failed to recover from a stuck video decoder");
         }
 
-        last_seen = video_frame_counter.load(Ordering::Relaxed);
+        // The rebuilt pipeline starts from zero frames too - it gets its
+        // own startup grace, not the tighter post-warm-up threshold.
+        has_seen_frame = false;
+        last_seen = handles.video_frame_counter.load(Ordering::Relaxed);
         tokio::time::sleep(DECODER_RECOVERY_GRACE_PERIOD).await;
     }
 }
@@ -546,13 +579,9 @@ async fn run_decoder_watchdog(
 /// at - see [`run_decoder_watchdog`] for why this is needed at all.
 fn recover_stuck_video_pipeline(
     pipeline: &Arc<Mutex<Pipeline>>,
-    state: &Arc<Mutex<PlayerState>>,
-    state_tx: &watch::Sender<TransportState>,
-    track_tx: &watch::Sender<TrackInfo>,
-    video_output: &Option<VideoOutput>,
-    video_frame_counter: &Arc<AtomicU64>,
+    handles: &BackendHandles,
 ) -> Result<(), MediaBackendError> {
-    let uri = state.lock().unwrap().uri.clone().ok_or_else(|| {
+    let uri = handles.state.lock().unwrap().uri.clone().ok_or_else(|| {
         MediaBackendError::GStreamer("No URI to resume after decoder recovery".to_string())
     })?;
 
@@ -569,14 +598,7 @@ fn recover_stuck_video_pipeline(
         )
     };
 
-    let replacement = Pipeline::build(
-        PlaybinVersion::V3,
-        video_output.clone(),
-        video_frame_counter.clone(),
-        state.clone(),
-        state_tx.clone(),
-        track_tx.clone(),
-    )?;
+    let replacement = Pipeline::build(PlaybinVersion::V3, handles)?;
     replacement.playbin.set_property("volume", volume);
     replacement.playbin.set_property("mute", mute);
 
@@ -825,6 +847,7 @@ pub(super) fn ensure_initialized() -> Result<(), MediaBackendError> {
     INIT.get_or_init(|| {
         gst::init().map_err(|e| e.to_string())?;
         bridge_gstreamer_logging();
+        cache_src::register().map_err(|e| e.to_string())?;
         Ok(())
     })
     .clone()
@@ -1269,22 +1292,5 @@ mod tests {
             backend.pipeline.lock().unwrap().version,
             PlaybinVersion::V1
         );
-    }
-
-    #[test]
-    fn switches_buffering_flag_for_download() {
-        gst::init().unwrap();
-        let playbin = gst::ElementFactory::make("playbin3").build().unwrap();
-        use_download_buffering(&playbin);
-
-        let flags: u32 = playbin
-            .property_value("flags")
-            .transform::<u32>()
-            .unwrap()
-            .get::<u32>()
-            .unwrap();
-
-        assert_eq!(flags & 0x100, 0, "buffering bit should be cleared");
-        assert_eq!(flags & 0x80, 0x80, "download bit should be set");
     }
 }
