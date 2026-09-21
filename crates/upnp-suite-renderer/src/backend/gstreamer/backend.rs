@@ -568,7 +568,7 @@ async fn run_decoder_watchdog(pipeline: Arc<Mutex<Pipeline>>, handles: BackendHa
             "Video decoder appears stuck; rebuilding the pipeline to recover"
         );
 
-        if let Err(err) = recover_stuck_video_pipeline(&pipeline, &handles) {
+        if let Err(err) = recover_stuck_video_pipeline(&pipeline, &handles).await {
             error!(error = %err, "Failed to recover from a stuck video decoder");
         }
 
@@ -583,58 +583,78 @@ async fn run_decoder_watchdog(pipeline: Arc<Mutex<Pipeline>>, handles: BackendHa
 /// Rebuilds the current pipeline in place at the same [`PlaybinVersion`],
 /// resuming at the position and (optimistic) `Playing` state it was stuck
 /// at - see [`run_decoder_watchdog`] for why this is needed at all.
-fn recover_stuck_video_pipeline(
+///
+/// Runs entirely inside [`tokio::task::spawn_blocking`], not directly on
+/// the calling task's own thread: `playbin.set_state(Paused)` below
+/// synchronously triggers `upnpcachehttpsrc`'s `start()`, which blocks on
+/// its own dedicated Tokio runtime (`cache_src::imp::RUNTIME`) to probe the
+/// track - and calling *any* runtime's `block_on` from a thread already
+/// driving a different runtime's async tasks (this function's caller,
+/// `run_decoder_watchdog`, is itself a `tokio::spawn`ed task on the
+/// application's main runtime) panics with "Cannot start a runtime from
+/// within a runtime". `spawn_blocking` moves this onto a plain blocking-pool
+/// thread, the same fix `load_media()`'s `run_on_gst_thread` already
+/// applies to every other blocking GStreamer call in this backend - this
+/// one just wasn't running through that mechanism yet.
+async fn recover_stuck_video_pipeline(
     pipeline: &Arc<Mutex<Pipeline>>,
     handles: &BackendHandles,
 ) -> Result<(), MediaBackendError> {
-    let uri = handles.state.lock().unwrap().uri.clone().ok_or_else(|| {
-        MediaBackendError::GStreamer("No URI to resume after decoder recovery".to_string())
-    })?;
+    let pipeline = pipeline.clone();
+    let handles = handles.clone();
 
-    let (position, volume, mute) = {
-        let pipeline = pipeline.lock().unwrap();
-        let position = pipeline
-            .playbin
-            .query_position::<gst::ClockTime>()
-            .unwrap_or(gst::ClockTime::ZERO);
-        (
-            position,
-            pipeline.playbin.property::<f64>("volume"),
-            pipeline.playbin.property::<bool>("mute"),
-        )
-    };
+    tokio::task::spawn_blocking(move || {
+        let uri = handles.state.lock().unwrap().uri.clone().ok_or_else(|| {
+            MediaBackendError::GStreamer("No URI to resume after decoder recovery".to_string())
+        })?;
 
-    let replacement = Pipeline::build(PlaybinVersion::V3, handles)?;
-    replacement.playbin.set_property("volume", volume);
-    replacement.playbin.set_property("mute", mute);
+        let (position, volume, mute) = {
+            let pipeline = pipeline.lock().unwrap();
+            let position = pipeline
+                .playbin
+                .query_position::<gst::ClockTime>()
+                .unwrap_or(gst::ClockTime::ZERO);
+            (
+                position,
+                pipeline.playbin.property::<f64>("volume"),
+                pipeline.playbin.property::<bool>("mute"),
+            )
+        };
 
-    // Swap the replacement in before touching its state/URI/seek, same as
-    // `ensure_playbin_version` - whatever happens below, there's only ever
-    // one tracked pipeline, and the old (stuck) one is never left running
-    // - unlike leaving it in `replacement` and only swapping in on success,
-    // which would leak this element (and its `bus_watcher` task) on any
-    // error from here on.
-    let playbin = {
-        let mut pipeline = pipeline.lock().unwrap();
-        let old = std::mem::replace(&mut *pipeline, replacement);
-        old.shutdown();
-        pipeline.playbin.clone()
-    };
+        let replacement = Pipeline::build(PlaybinVersion::V3, &handles)?;
+        replacement.playbin.set_property("volume", volume);
+        replacement.playbin.set_property("mute", mute);
 
-    playbin.set_property("uri", &uri);
-    playbin.set_state(gst::State::Paused).map_err(state_change_error)?;
-    // `set_state` only requests the transition - block for it to actually
-    // finish (pads created, caps negotiated) before seeking. Seeking any
-    // earlier has no linked pads to seek through yet and fails outright,
-    // which is what caused the pad-mismatch warning flood the first version
-    // of this recovery path produced.
-    let (result, _, _) = playbin.state(gst::ClockTime::from_seconds(5));
-    result.map_err(state_change_error)?;
-    playbin
-        .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, position)
-        .map_err(|e| MediaBackendError::GStreamer(format!("Post-recovery seek failed: {e}")))?;
-    playbin.set_state(gst::State::Playing).map_err(state_change_error)?;
-    Ok(())
+        // Swap the replacement in before touching its state/URI/seek, same
+        // as `ensure_playbin_version` - whatever happens below, there's
+        // only ever one tracked pipeline, and the old (stuck) one is never
+        // left running - unlike leaving it in `replacement` and only
+        // swapping in on success, which would leak this element (and its
+        // `bus_watcher` task) on any error from here on.
+        let playbin = {
+            let mut pipeline = pipeline.lock().unwrap();
+            let old = std::mem::replace(&mut *pipeline, replacement);
+            old.shutdown();
+            pipeline.playbin.clone()
+        };
+
+        playbin.set_property("uri", &uri);
+        playbin.set_state(gst::State::Paused).map_err(state_change_error)?;
+        // `set_state` only requests the transition - block for it to
+        // actually finish (pads created, caps negotiated) before seeking.
+        // Seeking any earlier has no linked pads to seek through yet and
+        // fails outright, which is what caused the pad-mismatch warning
+        // flood an earlier version of this recovery path produced.
+        let (result, _, _) = playbin.state(gst::ClockTime::from_seconds(5));
+        result.map_err(state_change_error)?;
+        playbin
+            .seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, position)
+            .map_err(|e| MediaBackendError::GStreamer(format!("Post-recovery seek failed: {e}")))?;
+        playbin.set_state(gst::State::Playing).map_err(state_change_error)?;
+        Ok(())
+    })
+    .await
+    .unwrap_or_else(|join_err| Err(MediaBackendError::GStreamer(format!("Recovery task panicked: {join_err}"))))
 }
 
 /// Watches the bus for the messages that mean playback stopped without
