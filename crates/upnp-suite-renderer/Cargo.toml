@@ -23,14 +23,17 @@ serde_json = { workspace = true }
 tower-http = { workspace = true }
 nix = { workspace = true }
 gstreamer = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["rustls-tls", "stream"] }
 rand = { workspace = true }
 winit = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }
 gstreamer-video = { workspace = true }
 gstreamer-app = { workspace = true }
+gstreamer-base = { workspace = true }
 muda = { workspace = true }
+lru = { workspace = true }
+bytes = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

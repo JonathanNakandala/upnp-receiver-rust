@@ -27,6 +27,7 @@ nix = { version = "0.31.3", features = ["process", "signal"] }
 gstreamer = "0.25.3"
 gstreamer-video = "0.25.3"
 gstreamer-app = "0.25.2"
+gstreamer-base = "0.25.3"
 reqwest = { version = "0.11", default-features = false }
 rand = "0.8"
 socket2 = "0.5"
@@ -35,3 +36,5 @@ winit = "0.30.13"
 wgpu = "30.0.1"
 bytemuck = { version = "1.25.2", features = ["derive"] }
 muda = "0.20.0"
+lru = "0.12"
+bytes = "1"

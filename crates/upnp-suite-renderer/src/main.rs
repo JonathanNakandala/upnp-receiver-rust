@@ -179,6 +179,32 @@ fn parse_icon_path(args: &[String]) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// `--media-cache-mb <n>` bounds the in-memory chunk cache every HTTP(S)
+/// media track's bytes flow through (see `backend::gstreamer::cache_src`) -
+/// the right size depends entirely on the device this runs on, so it's
+/// operator-tunable rather than fixed: small on a Raspberry Pi (bounded RAM,
+/// no SD-card wear from an unbounded on-disk cache), larger wherever there's
+/// RAM to spare. Defaults to 256 MiB when not passed.
+fn parse_media_cache_mb(args: &[String]) -> u64 {
+    const DEFAULT_MB: u64 = 256;
+
+    let value = args
+        .iter()
+        .position(|a| a == "--media-cache-mb")
+        .and_then(|i| args.get(i + 1));
+
+    match value {
+        None => DEFAULT_MB,
+        Some(raw) => match raw.parse::<u64>() {
+            Ok(mb) if mb > 0 => mb,
+            _ => {
+                eprintln!("Invalid --media-cache-mb value '{}': expected a positive integer", raw);
+                std::process::exit(1);
+            }
+        },
+    }
+}
+
 fn client_log_dir() -> PathBuf {
     std::env::var("CLIENT_LOG_DIR")
         .map(PathBuf::from)
@@ -436,8 +462,9 @@ async fn run_renderer(video_output: VideoOutput) -> Result<(), Box<dyn std::erro
 
     // Initialize components
     let backend_choice = parse_backend_choice(&args);
+    let cache_budget_bytes = parse_media_cache_mb(&args) * 1024 * 1024;
     let selected = select_backend(backend_choice, || {
-        GStreamerBackend::new_with_video_output(video_output.clone())
+        GStreamerBackend::new_with_video_output(video_output.clone(), cache_budget_bytes)
     })
     .await;
     let renderer = create_renderer(
