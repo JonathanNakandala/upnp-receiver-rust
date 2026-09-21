@@ -26,12 +26,16 @@ mod capability;
 mod frame;
 mod frame_texture;
 mod menu;
+mod overlay_frame;
+mod overlay_texture;
 mod renderer;
 mod sink;
+mod subtitle_sink;
 
 pub use frame::VideoFrame;
 pub(crate) use capability::can_render;
 pub(crate) use sink::build_video_sink;
+pub(crate) use subtitle_sink::build_subtitle_sink;
 
 use crate::server::soap::types::av_transport::TransportState;
 use winit::event_loop::{EventLoop, EventLoopBuilder, EventLoopProxy};
@@ -89,6 +93,12 @@ fn configure_macos_activation(_builder: &mut EventLoopBuilder<VideoEvent>) {}
 /// into the event loop running on the main thread.
 enum VideoEvent {
     Frame(VideoFrame),
+    /// A freshly rendered subtitle overlay canvas - see [`subtitle_sink`].
+    /// Arrives at its own, much lower rate than [`VideoEvent::Frame`] (see
+    /// `SUBTITLE_CANVAS_FRAMERATE`), independent of the video's frame rate.
+    SubtitleFrame(overlay_frame::OverlayFrame),
+    /// Sent right after a seek - see [`VideoOutput::clear_subtitle_overlay`].
+    ClearSubtitleOverlay,
     /// Sent once, shortly after the renderer starts - see [`PlaybackControls`].
     Controls(PlaybackControls),
     /// Sent on a timer from `main`'s async side, so the menu's Play/Pause
@@ -152,6 +162,20 @@ impl VideoOutput {
         // exiting) - nothing to do about that from a GStreamer streaming
         // thread, so the frame is just dropped.
         let _ = self.proxy.send_event(VideoEvent::Frame(frame));
+    }
+
+    fn send_subtitle_frame(&self, frame: overlay_frame::OverlayFrame) {
+        let _ = self.proxy.send_event(VideoEvent::SubtitleFrame(frame));
+    }
+
+    /// Called right after a seek - `subtitleoverlay`/`assrender` has been
+    /// observed to keep rendering the subtitle that was active *before* a
+    /// flushing seek instead of resyncing to the new position (an upstream
+    /// behavior, not something this renderer can fix), so this clears
+    /// whatever's currently drawn rather than let stale, mismatched text
+    /// sit on screen until the next real cue happens to arrive.
+    pub fn clear_subtitle_overlay(&self) {
+        let _ = self.proxy.send_event(VideoEvent::ClearSubtitleOverlay);
     }
 
     /// Sent once, as soon as the AVTransport service exists - well before

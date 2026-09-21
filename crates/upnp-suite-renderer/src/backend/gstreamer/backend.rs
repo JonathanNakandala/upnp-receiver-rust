@@ -184,15 +184,20 @@ impl Pipeline {
         // a V1 (audio) one always gets `fakesink`, even when `video_output`
         // is available, so an audio track never spins up a second, idle GL
         // context/appsink chain alongside whatever the video pipeline it's
-        // being swapped with is using.
+        // being swapped with is using. Same reasoning for `text-sink` below:
+        // subtitles only ever make sense alongside a video track.
         let video_sink_output = match version {
             PlaybinVersion::V3 => handles.video_output.clone(),
             PlaybinVersion::V1 => None,
         };
         playbin.set_property(
             "video-sink",
-            video::build_video_sink(video_sink_output, handles.video_frame_counter.clone())?,
+            video::build_video_sink(video_sink_output.clone(), handles.video_frame_counter.clone())?,
         );
+        // Overriding `text-sink` takes subtitle rendering out of the video
+        // path entirely - see `video::build_subtitle_sink`'s module docs
+        // for what this changes and why.
+        playbin.set_property("text-sink", video::build_subtitle_sink(video_sink_output)?);
 
         let bus_watcher = spawn_bus_watcher(
             playbin.clone(),
@@ -912,7 +917,15 @@ impl MediaBackend for GStreamerBackend {
         let playbin = self.playbin();
         self.run_on_gst_thread(move || playbin.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, target))
             .await?
-            .map_err(|e| MediaBackendError::GStreamer(format!("Seek failed: {}", e)))
+            .map_err(|e| MediaBackendError::GStreamer(format!("Seek failed: {}", e)))?;
+
+        // `subtitleoverlay`/`assrender` doesn't reliably resync which cue
+        // is active after a flushing seek - see
+        // `VideoOutput::clear_subtitle_overlay`'s doc for what this avoids.
+        if let Some(video_output) = &self.video_output {
+            video_output.clear_subtitle_overlay();
+        }
+        Ok(())
     }
 
     async fn get_duration(&self) -> Result<Option<Duration>, MediaBackendError> {
