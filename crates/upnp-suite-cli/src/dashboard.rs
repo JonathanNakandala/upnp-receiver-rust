@@ -7,16 +7,24 @@
 //! Also accepts playback controls: space toggles play/pause, `s` stops,
 //! `+`/`-` step volume, `m` toggles mute, and - only when the current
 //! track's DIDL-Lite metadata looks like video (see
-//! [`upnp_suite_client::suggests_video`]) - `b`/`B` step brightness and
-//! `c`/`C` step contrast. Issued as SOAP actions against the selected
-//! device and reflected back once its GENA NOTIFY (or the next position
-//! poll) catches up.
+//! [`upnp_suite_client::suggests_video`]) - `b`/`B` step brightness, `c`/`C`
+//! step contrast, and `t`/`T` step color temperature cooler/warmer. Issued
+//! as SOAP actions against the selected device and reflected back once its
+//! GENA NOTIFY (or the next position poll) catches up.
 //!
-//! Brightness/Contrast are gated on content type in this dashboard, not by
-//! the renderer itself: `SetBrightness`/`SetContrast` succeed against any
-//! track UPnP-side (the spec doesn't tie them to a media type), it's just
-//! that adjusting a video picture setting for audio-only playback has no
-//! visible effect to show for it here.
+//! Picture state is gated on content type in this dashboard, not by the
+//! renderer itself: every `Set*` action here succeeds against any track
+//! UPnP-side (the spec doesn't tie them to a media type), it's just that
+//! adjusting a video picture setting for audio-only playback has no visible
+//! effect to show for it here.
+//!
+//! The RGB Gain/BlackLevel pair (2-point white balance calibration) is
+//! shown in the Picture panel but has no dedicated hotkeys - these are
+//! per-channel calibration controls, six of them, meant to be set once with
+//! a measurement device rather than nudged live, and six more hotkeys would
+//! clutter this dashboard for a control nobody uses this way. They're still
+//! fully queryable/settable through [`upnp_suite_client::RenderingControlClient`]
+//! for anything that wants real calibration tooling.
 
 use std::time::Duration;
 
@@ -36,6 +44,7 @@ const AV_TRANSPORT_PREFIX: &str = "urn:schemas-upnp-org:service:AVTransport:";
 const POSITION_POLL: Duration = Duration::from_millis(1000);
 const VOLUME_STEP: u16 = 5;
 const PICTURE_STEP: u16 = 5;
+const TEMPERATURE_STEP: u16 = 5;
 
 pub async fn run(wait: Duration) {
     let devices = match discover::scan(wait).await {
@@ -159,6 +168,8 @@ pub async fn run(wait: Duration) {
                             rendering_rx.as_ref().map(|rx| rx.borrow().brightness);
                         let current_contrast =
                             rendering_rx.as_ref().map(|rx| rx.borrow().contrast);
+                        let current_color_temperature =
+                            rendering_rx.as_ref().map(|rx| rx.borrow().color_temperature);
 
                         match key.code {
                             KeyCode::Char(' ') => {
@@ -229,6 +240,33 @@ pub async fn run(wait: Duration) {
                                     }
                                 }
                             }
+                            // Lower = warmer, higher = cooler (the UPnP
+                            // spec's own ColorTemperature direction) - `t`
+                            // always decreases and `T` always increases,
+                            // same lowercase/uppercase convention as
+                            // brightness/contrast above, so `t` warms.
+                            KeyCode::Char('t') if is_video => {
+                                if let (Some(rc), Some(temperature)) =
+                                    (&rc, current_color_temperature)
+                                {
+                                    let new_temperature =
+                                        temperature.saturating_sub(TEMPERATURE_STEP);
+                                    if let Err(err) = rc.set_color_temperature(new_temperature).await {
+                                        eprintln!("Set color temperature failed: {err}");
+                                    }
+                                }
+                            }
+                            KeyCode::Char('T') if is_video => {
+                                if let (Some(rc), Some(temperature)) =
+                                    (&rc, current_color_temperature)
+                                {
+                                    let new_temperature =
+                                        temperature.saturating_add(TEMPERATURE_STEP).min(100);
+                                    if let Err(err) = rc.set_color_temperature(new_temperature).await {
+                                        eprintln!("Set color temperature failed: {err}");
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -258,7 +296,7 @@ fn render(
             Constraint::Length(7),
             Constraint::Length(3),
             Constraint::Length(3),
-            Constraint::Length(3),
+            Constraint::Length(4),
             Constraint::Min(0),
         ])
         .split(frame.area());
@@ -276,7 +314,8 @@ fn render(
     frame.render_widget(picture_panel(rendering, is_video), layout[4]);
 
     let help = if is_video {
-        "space play/pause · s stop · +/- volume · m mute · b/B brightness · c/C contrast · q / Esc / Ctrl-C quit"
+        "space play/pause · s stop · +/- volume · m mute · b/B brightness · c/C contrast · \
+         t/T color temp · q / Esc / Ctrl-C quit"
     } else {
         "space play/pause · s stop · +/- volume · m mute · q / Esc / Ctrl-C quit"
     };
@@ -341,27 +380,37 @@ fn volume_panel(rendering: Option<&RenderingControlSnapshot>) -> Paragraph<'stat
     Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("Volume"))
 }
 
-/// Brightness/Contrast are UPnP state regardless of content type (see this
+/// Picture state is UPnP state regardless of content type (see this
 /// module's doc), so this always shows the current values when available -
-/// `is_video` only decides the *reason* shown when they can't be adjusted
-/// from here, not whether the panel appears at all.
+/// `is_video` only decides the *reason* shown when the hotkeyed ones
+/// (Brightness/Contrast/ColorTemperature) can't be adjusted from here, not
+/// whether the panel appears at all. Gain/BlackLevel have no hotkeys at all
+/// (see the module doc) - shown here read-only regardless of `is_video`.
 fn picture_panel(rendering: Option<&RenderingControlSnapshot>, is_video: bool) -> Paragraph<'static> {
-    let text = match rendering {
+    let lines = match rendering {
         Some(snapshot) => {
-            let values = format!(
-                "Brightness: {} · Contrast: {}",
-                snapshot.brightness, snapshot.contrast
+            let mut adjustable = format!(
+                "Brightness: {} · Contrast: {} · ColorTemp: {} (0-100, 50=neutral=D65)",
+                snapshot.brightness, snapshot.contrast, snapshot.color_temperature
             );
-            if is_video {
-                values
-            } else {
-                format!("{values} (current track isn't video - b/B/c/C disabled)")
+            if !is_video {
+                adjustable.push_str(" - current track isn't video, b/B/c/C/t/T disabled");
             }
+            let calibration = format!(
+                "Gain R/G/B: {}/{}/{} · BlackLevel R/G/B: {}/{}/{} (0-1000, 500=neutral)",
+                snapshot.red_gain,
+                snapshot.green_gain,
+                snapshot.blue_gain,
+                snapshot.red_black_level,
+                snapshot.green_black_level,
+                snapshot.blue_black_level,
+            );
+            vec![Line::from(adjustable), Line::from(calibration.dim())]
         }
-        None => "RenderingControl not available on this device".to_string(),
+        None => vec![Line::from("RenderingControl not available on this device")],
     };
 
-    Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("Picture"))
+    Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Picture"))
 }
 
 /// Parses UPnP's `H+:MM:SS` position/duration strings into total seconds;

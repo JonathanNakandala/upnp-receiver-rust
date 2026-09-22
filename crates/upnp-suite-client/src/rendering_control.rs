@@ -161,6 +161,193 @@ impl<'a> RenderingControlClient<'a> {
         Ok(())
     }
 
+    /// UPnP's 2-point white balance pair per primary color -
+    /// `Output = Gain * Input + BlackLevel`. 0-1000, 500 = neutral for
+    /// both. No `Channel` argument, same reasoning as `Brightness`/`Contrast`.
+    pub async fn get_red_video_gain(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke("GetRedVideoGain", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+        fields
+            .get("CurrentRedVideoGain")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse("response missing CurrentRedVideoGain".into())
+            })
+    }
+
+    pub async fn set_red_video_gain(&self, gain: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetRedVideoGain",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredRedVideoGain", &gain.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_green_video_gain(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke("GetGreenVideoGain", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+        fields
+            .get("CurrentGreenVideoGain")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse("response missing CurrentGreenVideoGain".into())
+            })
+    }
+
+    pub async fn set_green_video_gain(&self, gain: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetGreenVideoGain",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredGreenVideoGain", &gain.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_blue_video_gain(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke("GetBlueVideoGain", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+        fields
+            .get("CurrentBlueVideoGain")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse("response missing CurrentBlueVideoGain".into())
+            })
+    }
+
+    pub async fn set_blue_video_gain(&self, gain: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetBlueVideoGain",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredBlueVideoGain", &gain.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_red_video_black_level(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke(
+                "GetRedVideoBlackLevel",
+                &[("InstanceID", DEFAULT_INSTANCE_ID)],
+            )
+            .await?;
+        fields
+            .get("CurrentRedVideoBlackLevel")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse(
+                    "response missing CurrentRedVideoBlackLevel".into(),
+                )
+            })
+    }
+
+    pub async fn set_red_video_black_level(&self, level: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetRedVideoBlackLevel",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredRedVideoBlackLevel", &level.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_green_video_black_level(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke(
+                "GetGreenVideoBlackLevel",
+                &[("InstanceID", DEFAULT_INSTANCE_ID)],
+            )
+            .await?;
+        fields
+            .get("CurrentGreenVideoBlackLevel")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse(
+                    "response missing CurrentGreenVideoBlackLevel".into(),
+                )
+            })
+    }
+
+    pub async fn set_green_video_black_level(&self, level: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetGreenVideoBlackLevel",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredGreenVideoBlackLevel", &level.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_blue_video_black_level(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke(
+                "GetBlueVideoBlackLevel",
+                &[("InstanceID", DEFAULT_INSTANCE_ID)],
+            )
+            .await?;
+        fields
+            .get("CurrentBlueVideoBlackLevel")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse(
+                    "response missing CurrentBlueVideoBlackLevel".into(),
+                )
+            })
+    }
+
+    pub async fn set_blue_video_black_level(&self, level: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetBlueVideoBlackLevel",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredBlueVideoBlackLevel", &level.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// UPnP's `ColorTemperature` - 0-100, 50 = neutral = D65 (6500K).
+    pub async fn get_color_temperature(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke("GetColorTemperature", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+        fields
+            .get("CurrentColorTemperature")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse("response missing CurrentColorTemperature".into())
+            })
+    }
+
+    pub async fn set_color_temperature(&self, temperature: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetColorTemperature",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredColorTemperature", &temperature.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_volume_db_range(&self) -> Result<VolumeDbRange, ClientError> {
         let fields = self
             .invoke(
