@@ -121,10 +121,21 @@ impl App {
             return;
         };
 
-        let target_size = PhysicalSize::new(frame.width, frame.height);
-        if window.inner_size() != target_size {
-            let _ = window.request_inner_size(target_size);
-            renderer.resize(target_size);
+        // Only chase the video's native resolution while windowed - in
+        // fullscreen, the window is deliberately the display's resolution,
+        // not the video's, and `letterboxed_viewport` already handles
+        // aspect-correct scaling within whatever that real size is (kept
+        // current via `WindowEvent::Resized` -> `resize`, below). Without
+        // this guard, every single decoded frame during fullscreen playback
+        // would re-request the video's small native size here, fighting
+        // the fullscreen state the user just asked for and reconfiguring
+        // wgpu's surface to a size that doesn't match the real window.
+        if !self.fullscreen {
+            let target_size = PhysicalSize::new(frame.width, frame.height);
+            if window.inner_size() != target_size {
+                let _ = window.request_inner_size(target_size);
+                renderer.resize(target_size);
+            }
         }
 
         renderer.update_frame(frame);
