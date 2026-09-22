@@ -113,6 +113,16 @@ pub trait MediaBackend: Send + Sync {
     async fn set_sharpness(&self, sharpness: u16) -> Result<(), MediaBackendError>;
     async fn get_sharpness(&self) -> Result<u16, MediaBackendError>;
 
+    /// UPnP's `Loudness` - a boolean, unlike every other RenderingControl
+    /// field here. Toggles physiological loudness compensation (bass/treble
+    /// boost that tapers as volume rises, compensating for the ear's own
+    /// reduced sensitivity to those frequencies at quiet listening levels -
+    /// the classic hi-fi "Loudness" button). A backend with no audio EQ
+    /// stage of its own can just remember the value, the same way it would
+    /// for picture controls with no video output.
+    async fn set_loudness(&self, loudness: bool) -> Result<(), MediaBackendError>;
+    async fn get_loudness(&self) -> Result<bool, MediaBackendError>;
+
     // Media info
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError>;
     async fn get_metadata(&self) -> Result<Option<String>, MediaBackendError>;

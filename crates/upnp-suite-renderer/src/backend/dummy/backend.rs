@@ -42,6 +42,9 @@ pub struct DummyBackend {
     horizontal_keystone: Mutex<i16>,
     vertical_keystone: Mutex<i16>,
     sharpness: Mutex<u16>,
+    // No audio EQ stage to apply this to either — same reasoning as
+    // `volume`/`muted`, just remembered for API completeness.
+    loudness: Mutex<bool>,
 }
 
 impl DummyBackend {
@@ -65,6 +68,7 @@ impl DummyBackend {
             horizontal_keystone: Mutex::new(0),
             vertical_keystone: Mutex::new(0),
             sharpness: Mutex::new(0),
+            loudness: Mutex::new(false),
         }
     }
 
@@ -326,6 +330,15 @@ impl MediaBackend for DummyBackend {
 
     async fn get_sharpness(&self) -> Result<u16, MediaBackendError> {
         Ok(*self.sharpness.lock().await)
+    }
+
+    async fn set_loudness(&self, loudness: bool) -> Result<(), MediaBackendError> {
+        *self.loudness.lock().await = loudness;
+        Ok(())
+    }
+
+    async fn get_loudness(&self) -> Result<bool, MediaBackendError> {
+        Ok(*self.loudness.lock().await)
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {

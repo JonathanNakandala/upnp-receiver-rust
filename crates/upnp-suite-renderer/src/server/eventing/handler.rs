@@ -73,6 +73,7 @@ pub async fn handle_rendering_control_events(
             let horizontal_keystone = control.get_horizontal_keystone().await.unwrap_or(0);
             let vertical_keystone = control.get_vertical_keystone().await.unwrap_or(0);
             let sharpness = control.get_sharpness().await.unwrap_or(0);
+            let loudness = control.get_loudness().await.unwrap_or(false);
             last_change::rendering_control_last_change(
                 InstanceId::DEFAULT,
                 last_change::RenderingControlEventState {
@@ -90,6 +91,7 @@ pub async fn handle_rendering_control_events(
                     horizontal_keystone,
                     vertical_keystone,
                     sharpness,
+                    loudness,
                 },
             )
         }

@@ -527,3 +527,52 @@ async fn test_set_sharpness_rejects_out_of_range() {
         body
     );
 }
+
+// Loudness covers what's new relative to every picture control above: it's
+// the one audio (not video) RenderingControl field this renderer implements
+// besides Volume/Mute, and - like Mute - it's a boolean carrying a `Channel`
+// argument, not a ranged value.
+
+#[test(tokio::test)]
+async fn test_get_loudness_default() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_loudness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentLoudness>false</CurrentLoudness>")
+            || body.contains("<CurrentLoudness>0</CurrentLoudness>"),
+        "Unexpected body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_loudness_changes_get_loudness() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_loudness(true).await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_loudness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentLoudness>true</CurrentLoudness>")
+            || body.contains("<CurrentLoudness>1</CurrentLoudness>"),
+        "Loudness change was not reflected: {}",
+        body
+    );
+
+    // Toggle back
+    let resp = client.set_loudness(false).await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_loudness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentLoudness>false</CurrentLoudness>")
+            || body.contains("<CurrentLoudness>0</CurrentLoudness>"),
+        "Loudness change was not reflected: {}",
+        body
+    );
+}

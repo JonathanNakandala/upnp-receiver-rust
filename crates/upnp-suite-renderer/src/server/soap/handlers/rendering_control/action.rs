@@ -3,13 +3,13 @@ use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::rendering_control::{
     GetBlueVideoBlackLevelResponse, GetBlueVideoGainResponse, GetBrightnessResponse,
     GetColorTemperatureResponse, GetContrastResponse, GetGreenVideoBlackLevelResponse,
-    GetGreenVideoGainResponse, GetHorizontalKeystoneResponse, GetMuteResponse,
+    GetGreenVideoGainResponse, GetHorizontalKeystoneResponse, GetLoudnessResponse, GetMuteResponse,
     GetRedVideoBlackLevelResponse, GetRedVideoGainResponse, GetSharpnessResponse,
     GetVerticalKeystoneResponse, GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse,
     ListPresetsResponse, RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
     SetBlueVideoBlackLevelResponse, SetBlueVideoGainResponse, SetBrightnessResponse,
     SetColorTemperatureResponse, SetContrastResponse, SetGreenVideoBlackLevelResponse,
-    SetGreenVideoGainResponse, SetHorizontalKeystoneResponse, SetMuteResponse,
+    SetGreenVideoGainResponse, SetHorizontalKeystoneResponse, SetLoudnessResponse, SetMuteResponse,
     SetRedVideoBlackLevelResponse, SetRedVideoGainResponse, SetSharpnessResponse,
     SetVerticalKeystoneResponse, SetVolumeDBResponse, SetVolumeResponse,
 };
@@ -44,6 +44,7 @@ async fn publish_rendering_state(
     let horizontal_keystone = control.get_horizontal_keystone().await.unwrap_or(0);
     let vertical_keystone = control.get_vertical_keystone().await.unwrap_or(0);
     let sharpness = control.get_sharpness().await.unwrap_or(0);
+    let loudness = control.get_loudness().await.unwrap_or(false);
     events.broadcast(rendering_control_last_change(
         instance_id,
         RenderingControlEventState {
@@ -61,6 +62,7 @@ async fn publish_rendering_state(
             horizontal_keystone,
             vertical_keystone,
             sharpness,
+            loudness,
         },
     ));
 }
@@ -115,6 +117,8 @@ impl UPnPAction for RenderingControlAction {
             Self::GetVerticalKeystone(_) => "GetVerticalKeystone",
             Self::SetSharpness(_) => "SetSharpness",
             Self::GetSharpness(_) => "GetSharpness",
+            Self::SetLoudness(_) => "SetLoudness",
+            Self::GetLoudness(_) => "GetLoudness",
         }
     }
 
@@ -836,6 +840,53 @@ impl UPnPAction for RenderingControlAction {
                 let current_sharpness = result?;
                 Ok(RenderingControlResponse::Sharpness(GetSharpnessResponse {
                     current_sharpness,
+                }))
+            }
+            Self::SetLoudness(req) => {
+                validate_channel(&req.channel)?;
+                let result = control.set_loudness(req.desired_loudness).await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        desired_loudness = req.desired_loudness,
+                        "Handling SetLoudness"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        desired_loudness = req.desired_loudness,
+                        error = %err,
+                        "Handling SetLoudness"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetLoudness(
+                    SetLoudnessResponse {},
+                ))
+            }
+            Self::GetLoudness(req) => {
+                validate_channel(&req.channel)?;
+                let result = control.get_loudness().await;
+                match &result {
+                    Ok(current_loudness) => info!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        current_loudness,
+                        "Handling GetLoudness"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        channel = %req.channel,
+                        error = %err,
+                        "Handling GetLoudness"
+                    ),
+                }
+                let current_loudness = result?;
+                Ok(RenderingControlResponse::Loudness(GetLoudnessResponse {
+                    current_loudness,
                 }))
             }
         }

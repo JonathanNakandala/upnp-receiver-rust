@@ -247,4 +247,18 @@ impl RenderingControl for MediaBackendRenderingControl {
             .await
             .map_err(Self::convert_error)
     }
+
+    async fn set_loudness(&self, loudness: bool) -> Result<(), ServiceError> {
+        self.backend
+            .set_loudness(loudness)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_loudness(&self) -> Result<bool, ServiceError> {
+        self.backend
+            .get_loudness()
+            .await
+            .map_err(Self::convert_error)
+    }
 }

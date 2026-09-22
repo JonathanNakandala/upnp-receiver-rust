@@ -540,6 +540,46 @@
                 </argument>
             </argumentList>
         </action>
+        <action>
+            <name>SetLoudness</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>Channel</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_Channel</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>DesiredLoudness</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>Loudness</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>GetLoudness</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>Channel</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_Channel</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>CurrentLoudness</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>Loudness</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
     </actionList>
     <serviceStateTable>
         <!-- Evented as a bundled LastChange NOTIFY (GENA), not individually —
@@ -703,6 +743,15 @@
                 <maximum>100</maximum>
                 <step>1</step>
             </allowedValueRange>
+        </stateVariable>
+        <!-- Physiological loudness compensation (bass/treble boost that
+             tapers as volume rises) - a boolean, unlike every other picture/
+             audio control above. See gstreamer::audio::apply_loudness's doc
+             for the compensation curve and why it has to taper with volume
+             rather than being a fixed boost. -->
+        <stateVariable sendEvents="no">
+            <name>Loudness</name>
+            <dataType>boolean</dataType>
         </stateVariable>
         <stateVariable sendEvents="no">
             <name>A_ARG_TYPE_PresetName</name>

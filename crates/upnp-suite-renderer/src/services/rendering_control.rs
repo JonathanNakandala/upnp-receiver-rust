@@ -20,6 +20,7 @@ pub struct RenderingState {
     horizontal_keystone: i16,
     vertical_keystone: i16,
     sharpness: u16,
+    loudness: bool,
 }
 
 impl Default for RenderingState {
@@ -39,6 +40,7 @@ impl Default for RenderingState {
             horizontal_keystone: 0, // 0 = neutral (no warp)
             vertical_keystone: 0,
             sharpness: 0, // 0 = neutral (the spec's own minimum, not a midpoint)
+            loudness: false,
         }
     }
 }
@@ -157,6 +159,14 @@ pub trait RenderingControl: Send + Sync {
     /// unlike every other picture control here - see [`validate_range`]).
     async fn set_sharpness(&self, sharpness: u16) -> Result<(), ServiceError>;
     async fn get_sharpness(&self) -> Result<u16, ServiceError>;
+
+    /// UPnP's `Loudness` - a boolean, unlike every other RenderingControl
+    /// field here. Toggles physiological loudness compensation (bass/treble
+    /// boost that tapers as volume rises) - see
+    /// `gstreamer::audio::apply_loudness`'s doc for the technique and why it
+    /// has to taper with volume rather than being a fixed boost.
+    async fn set_loudness(&self, loudness: bool) -> Result<(), ServiceError>;
+    async fn get_loudness(&self) -> Result<bool, ServiceError>;
 
     /// UPnP's `GetVolumeDB` — derived from `get_volume` rather than tracked
     /// separately, so it can never drift from `Volume`/whatever the backend
@@ -363,6 +373,16 @@ impl RenderingControl for RenderingControlImpl {
     async fn get_sharpness(&self) -> Result<u16, ServiceError> {
         Ok(self.state.read().await.sharpness)
     }
+
+    async fn set_loudness(&self, loudness: bool) -> Result<(), ServiceError> {
+        debug!(loudness = loudness, "Setting loudness");
+        self.state.write().await.loudness = loudness;
+        Ok(())
+    }
+
+    async fn get_loudness(&self) -> Result<bool, ServiceError> {
+        Ok(self.state.read().await.loudness)
+    }
 }
 
 #[cfg(test)]
@@ -398,6 +418,19 @@ mod tests {
         // Test toggling mute
         control.set_mute(false).await.unwrap();
         assert!(!control.get_mute().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_loudness_control() {
+        let control = RenderingControlImpl::new();
+
+        assert!(!control.get_loudness().await.unwrap());
+
+        control.set_loudness(true).await.unwrap();
+        assert!(control.get_loudness().await.unwrap());
+
+        control.set_loudness(false).await.unwrap();
+        assert!(!control.get_loudness().await.unwrap());
     }
 
     #[test]

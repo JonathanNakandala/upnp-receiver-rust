@@ -37,6 +37,8 @@ pub enum RenderingControlAction {
     GetVerticalKeystone(GetVerticalKeystoneRequest),
     SetSharpness(SetSharpnessRequest),
     GetSharpness(GetSharpnessRequest),
+    SetLoudness(SetLoudnessRequest),
+    GetLoudness(GetLoudnessRequest),
 }
 
 impl RenderingControlAction {
@@ -77,6 +79,8 @@ impl RenderingControlAction {
             Self::GetVerticalKeystone(r) => r.instance_id,
             Self::SetSharpness(r) => r.instance_id,
             Self::GetSharpness(r) => r.instance_id,
+            Self::SetLoudness(r) => r.instance_id,
+            Self::GetLoudness(r) => r.instance_id,
         };
         InstanceId::new(raw)
     }
@@ -346,6 +350,25 @@ pub struct GetSharpnessRequest {
     pub instance_id: u32,
 }
 
+// Loudness carries a `Channel` argument like Volume/Mute above - see
+// `action.rs`'s `validate_channel` for why only `"Master"` is accepted.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetLoudnessRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub channel: String,
+    pub desired_loudness: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetLoudnessRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub channel: String,
+}
+
 // Add response types
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -515,6 +538,16 @@ pub struct GetSharpnessResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetLoudnessResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetLoudnessResponse {
+    pub current_loudness: bool,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum RenderingControlResponse {
     ListPresets(ListPresetsResponse),
@@ -550,4 +583,6 @@ pub enum RenderingControlResponse {
     VerticalKeystone(GetVerticalKeystoneResponse),
     SetSharpness(SetSharpnessResponse),
     Sharpness(GetSharpnessResponse),
+    SetLoudness(SetLoudnessResponse),
+    Loudness(GetLoudnessResponse),
 }

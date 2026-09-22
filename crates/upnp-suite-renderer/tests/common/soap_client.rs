@@ -1086,6 +1086,64 @@ impl SoapClient {
             .unwrap()
     }
 
+    pub async fn get_loudness(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetLoudness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                        <Channel>Master</Channel>
+                    </u:GetLoudness>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetLoudness\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn set_loudness(&self, loudness: bool) -> reqwest::Response {
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetLoudness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                        <Channel>Master</Channel>
+                        <DesiredLoudness>{}</DesiredLoudness>
+                    </u:SetLoudness>
+                </s:Body>
+            </s:Envelope>"#,
+            loudness
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetLoudness\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
     /// Self-closing zero-argument form, matching how real clients (e.g.
     /// BubbleUPnP) actually send it on the wire.
     pub async fn get_protocol_info(&self) -> reqwest::Response {

@@ -64,6 +64,10 @@ pub struct RenderingControlSnapshot {
     /// the spec's own minimum, not a midpoint. See
     /// `RenderingControlClient::set_sharpness`'s doc.
     pub sharpness: u16,
+    /// Whether physiological loudness compensation is on - a boolean, like
+    /// `muted` carrying a `channel` attribute on the wire. See
+    /// `RenderingControlClient::set_loudness`'s doc.
+    pub loudness: bool,
 }
 
 impl Default for RenderingControlSnapshot {
@@ -83,6 +87,7 @@ impl Default for RenderingControlSnapshot {
             horizontal_keystone: 0,
             vertical_keystone: 0,
             sharpness: 0,
+            loudness: false,
         }
     }
 }
@@ -167,6 +172,10 @@ pub fn parse_rendering_control_last_change(
         .get("Sharpness")
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
+    let loudness = fields
+        .get("Loudness")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
 
     Ok(RenderingControlSnapshot {
         volume,
@@ -183,6 +192,7 @@ pub fn parse_rendering_control_last_change(
         horizontal_keystone,
         vertical_keystone,
         sharpness,
+        loudness,
     })
 }
 
@@ -385,6 +395,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_loudness() {
+        let body = notify_body(concat!(
+            r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">"#,
+            r#"<InstanceID val="0">"#,
+            r#"<Loudness channel="Master" val="1"/>"#,
+            r#"</InstanceID>"#,
+            r#"</Event>"#
+        ));
+
+        let snapshot = parse_rendering_control_last_change(&body).unwrap();
+        assert!(snapshot.loudness);
+    }
+
+    #[test]
     fn rendering_control_last_change_defaults_picture_state_when_absent() {
         // A control point talking to an older, pre-picture-controls build
         // of this renderer (or any RenderingControl device that never
@@ -411,6 +435,7 @@ mod tests {
         assert_eq!(snapshot.horizontal_keystone, 0);
         assert_eq!(snapshot.vertical_keystone, 0);
         assert_eq!(snapshot.sharpness, 0);
+        assert!(!snapshot.loudness);
     }
 
     #[test]
