@@ -40,6 +40,7 @@ pub enum RenderingControlAction {
     SetLoudness(SetLoudnessRequest),
     GetLoudness(GetLoudnessRequest),
     GetStateVariables(GetStateVariablesRequest),
+    SetStateVariables(SetStateVariablesRequest),
     GetAllowedTransforms(GetAllowedTransformsRequest),
     GetTransforms(GetTransformsRequest),
     SetTransforms(SetTransformsRequest),
@@ -87,6 +88,7 @@ impl RenderingControlAction {
             Self::SetLoudness(r) => r.instance_id,
             Self::GetLoudness(r) => r.instance_id,
             Self::GetStateVariables(r) => r.instance_id,
+            Self::SetStateVariables(r) => r.instance_id,
             Self::GetAllowedTransforms(r) => r.instance_id,
             Self::GetTransforms(r) => r.instance_id,
             Self::SetTransforms(r) => r.instance_id,
@@ -397,6 +399,24 @@ pub struct GetStateVariablesRequest {
     pub state_variable_list: String,
 }
 
+/// The write side of `GetStateVariables` above - replaces the named state
+/// variables' current values from `state_variable_value_pairs`.
+/// `rendering_control_udn`/`service_type`/`service_id` are a compatibility
+/// check (5.4.38: this device must recognize itself in all three before any
+/// value gets applied) - see action.rs's `SERVICE_TYPE`/`SERVICE_ID` and how
+/// `rendering_control_udn` is checked against `MediaRenderer::unique_id`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetStateVariablesRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    #[serde(rename = "RenderingControlUDN")]
+    pub rendering_control_udn: String,
+    pub service_type: String,
+    pub service_id: String,
+    pub state_variable_value_pairs: String,
+}
+
 // Annex B.21 "legacy compatible transforms" - the same reflection idea as
 // GetStateVariables above, but viewed as named `transform` elements instead
 // of `stateVariable` ones, covering only the 16 transforms Annex B.21
@@ -621,6 +641,16 @@ pub struct GetStateVariablesResponse {
     pub state_variable_value_pairs: String,
 }
 
+/// `state_variable_list` is the CSV of names `SetStateVariables` actually
+/// applied - a subset of what was requested only if the request named
+/// nothing invalid (an all-or-nothing rejection happens before anything is
+/// applied - see action.rs).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetStateVariablesResponse {
+    pub state_variable_list: String,
+}
+
 /// `current_allowed_transform_settings` is the already-built `<TransformList>`
 /// XML document as a plain string - same double-escaping-on-the-wire
 /// reasoning as `GetStateVariablesResponse` above.
@@ -685,6 +715,7 @@ pub enum RenderingControlResponse {
     SetLoudness(SetLoudnessResponse),
     Loudness(GetLoudnessResponse),
     StateVariables(GetStateVariablesResponse),
+    SetStateVariables(SetStateVariablesResponse),
     AllowedTransforms(GetAllowedTransformsResponse),
     Transforms(GetTransformsResponse),
     SetTransforms(SetTransformsResponse),

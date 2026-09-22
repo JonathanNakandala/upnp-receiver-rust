@@ -787,3 +787,148 @@ async fn test_set_transforms_applies_whichever_transforms_succeed() {
         body
     );
 }
+
+// SetStateVariables is GetStateVariables' write side - same
+// stateVariableValuePairs dialect, but it also gates on a
+// RenderingControlUDN/ServiceType/ServiceId compatibility check before
+// applying anything (5.4.38), unlike every other action in this file.
+
+const SERVICE_TYPE: &str = "urn:schemas-upnp-org:service:RenderingControl:1";
+const SERVICE_ID: &str = "urn:upnp-org:serviceId:RenderingControl";
+
+#[test(tokio::test)]
+async fn test_set_state_variables_changes_volume_and_brightness() {
+    let (_server, client) = setup().await;
+    let udn = client.device_udn().await;
+
+    let resp = client
+        .set_state_variables(
+            &udn,
+            SERVICE_TYPE,
+            SERVICE_ID,
+            r#"<stateVariableValuePairs xmlns="urn:schemas-upnp-org:av:avs"><stateVariable variableName="Volume">65</stateVariable><stateVariable variableName="Brightness">30</stateVariable></stateVariableValuePairs>"#,
+        )
+        .await;
+    let body = assert_response(resp, 200).await;
+    assert!(body.contains("Volume"), "{}", body);
+    assert!(body.contains("Brightness"), "{}", body);
+
+    let resp = client.get_volume().await;
+    let body = assert_response(resp, 200).await;
+    assert!(body.contains("<CurrentVolume>65</CurrentVolume>"), "{}", body);
+
+    let resp = client.get_brightness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentBrightness>30</CurrentBrightness>"),
+        "{}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_state_variables_rejects_wrong_udn() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_state_variables(
+            "uuid:not-the-real-device",
+            SERVICE_TYPE,
+            SERVICE_ID,
+            r#"<stateVariableValuePairs xmlns="urn:schemas-upnp-org:av:avs"><stateVariable variableName="Volume">65</stateVariable></stateVariableValuePairs>"#,
+        )
+        .await;
+    assert_response(resp, 400).await;
+
+    let resp = client.get_volume().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentVolume>50</CurrentVolume>"),
+        "Volume should not have changed when the UDN check fails: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_state_variables_rejects_wrong_service_type() {
+    let (_server, client) = setup().await;
+    let udn = client.device_udn().await;
+
+    let resp = client
+        .set_state_variables(
+            &udn,
+            "urn:schemas-upnp-org:service:RenderingControl:99",
+            SERVICE_ID,
+            r#"<stateVariableValuePairs xmlns="urn:schemas-upnp-org:av:avs"><stateVariable variableName="Volume">65</stateVariable></stateVariableValuePairs>"#,
+        )
+        .await;
+    assert_response(resp, 400).await;
+}
+
+#[test(tokio::test)]
+async fn test_set_state_variables_rejects_forbidden_variable() {
+    let (_server, client) = setup().await;
+    let udn = client.device_udn().await;
+
+    // LastChange must never be settable - see the exclusion list both
+    // GetStateVariables and SetStateVariables share.
+    let resp = client
+        .set_state_variables(
+            &udn,
+            SERVICE_TYPE,
+            SERVICE_ID,
+            r#"<stateVariableValuePairs xmlns="urn:schemas-upnp-org:av:avs"><stateVariable variableName="LastChange">bogus</stateVariable></stateVariableValuePairs>"#,
+        )
+        .await;
+    assert_response(resp, 400).await;
+}
+
+#[test(tokio::test)]
+async fn test_set_state_variables_rejects_out_of_range_value() {
+    let (_server, client) = setup().await;
+    let udn = client.device_udn().await;
+
+    let resp = client
+        .set_state_variables(
+            &udn,
+            SERVICE_TYPE,
+            SERVICE_ID,
+            r#"<stateVariableValuePairs xmlns="urn:schemas-upnp-org:av:avs"><stateVariable variableName="Volume">500</stateVariable></stateVariableValuePairs>"#,
+        )
+        .await;
+    assert_response(resp, 400).await;
+
+    let resp = client.get_volume().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentVolume>50</CurrentVolume>"),
+        "Volume should not have changed after a rejected SetStateVariables: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_state_variables_is_all_or_nothing() {
+    let (_server, client) = setup().await;
+    let udn = client.device_udn().await;
+
+    // Brightness is valid, LastChange is forbidden - unlike SetTransforms,
+    // nothing here should apply since the request as a whole is rejected.
+    let resp = client
+        .set_state_variables(
+            &udn,
+            SERVICE_TYPE,
+            SERVICE_ID,
+            r#"<stateVariableValuePairs xmlns="urn:schemas-upnp-org:av:avs"><stateVariable variableName="Brightness">90</stateVariable><stateVariable variableName="LastChange">bogus</stateVariable></stateVariableValuePairs>"#,
+        )
+        .await;
+    assert_response(resp, 400).await;
+
+    let resp = client.get_brightness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentBrightness>50</CurrentBrightness>"),
+        "Brightness should not have changed - the whole request should have been rejected: {}",
+        body
+    );
+}

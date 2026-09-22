@@ -16,7 +16,8 @@ use crate::server::soap::types::rendering_control::{
     SetContrastRequest, SetGreenVideoBlackLevelRequest, SetGreenVideoGainRequest,
     SetHorizontalKeystoneRequest, SetLoudnessRequest, SetMuteRequest,
     SetRedVideoBlackLevelRequest, SetRedVideoGainRequest, SetSharpnessRequest,
-    SetTransformsRequest, SetVerticalKeystoneRequest, SetVolumeDBRequest, SetVolumeRequest,
+    SetStateVariablesRequest, SetTransformsRequest, SetVerticalKeystoneRequest,
+    SetVolumeDBRequest, SetVolumeRequest,
 };
 
 pub struct RenderingControlService;
@@ -248,6 +249,13 @@ impl UPnPService for RenderingControlService {
                     action_name,
                 )?;
                 Ok(RenderingControlAction::GetStateVariables(request))
+            }
+            "SetStateVariables" => {
+                let request = extract_and_parse_soap_body::<SetStateVariablesRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::SetStateVariables(request))
             }
             "GetAllowedTransforms" => {
                 let request = extract_and_parse_soap_body::<GetAllowedTransformsRequest>(

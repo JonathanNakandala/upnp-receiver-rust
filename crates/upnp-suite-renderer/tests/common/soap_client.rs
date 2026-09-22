@@ -1174,6 +1174,68 @@ impl SoapClient {
             .unwrap()
     }
 
+    /// Fetches `/description.xml` and pulls out `<UDN>` - the same
+    /// discovery path a real control point uses before calling
+    /// `SetStateVariables`, which checks its `RenderingControlUDN` argument
+    /// against exactly this value (see `action.rs`'s `SetStateVariables`
+    /// handling).
+    pub async fn device_udn(&self) -> String {
+        let body = self
+            .client
+            .get(format!("{}/description.xml", self.base_url))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        let start = body.find("<UDN>").unwrap() + "<UDN>".len();
+        let end = body[start..].find("</UDN>").unwrap();
+        body[start..start + end].to_string()
+    }
+
+    pub async fn set_state_variables(
+        &self,
+        rendering_control_udn: &str,
+        service_type: &str,
+        service_id: &str,
+        state_variable_value_pairs: &str,
+    ) -> reqwest::Response {
+        let escaped = state_variable_value_pairs
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetStateVariables xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                        <RenderingControlUDN>{rendering_control_udn}</RenderingControlUDN>
+                        <ServiceType>{service_type}</ServiceType>
+                        <ServiceId>{service_id}</ServiceId>
+                        <StateVariableValuePairs>{escaped}</StateVariableValuePairs>
+                    </u:SetStateVariables>
+                </s:Body>
+            </s:Envelope>"#,
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetStateVariables\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
     pub async fn get_allowed_transforms(&self) -> reqwest::Response {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
