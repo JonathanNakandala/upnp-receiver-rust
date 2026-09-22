@@ -4,18 +4,19 @@ use crate::server::soap::types::soap_action::ParsedSoapAction;
 use crate::server::soap::types::UPnPService;
 
 use crate::server::soap::types::rendering_control::{
-    GetBlueVideoBlackLevelRequest, GetBlueVideoGainRequest, GetBrightnessRequest,
-    GetColorTemperatureRequest, GetContrastRequest, GetGreenVideoBlackLevelRequest,
-    GetGreenVideoGainRequest, GetHorizontalKeystoneRequest, GetMuteRequest,
+    GetAllAvailableTransformsRequest, GetAllowedTransformsRequest, GetBlueVideoBlackLevelRequest,
+    GetBlueVideoGainRequest, GetBrightnessRequest, GetColorTemperatureRequest,
+    GetContrastRequest, GetGreenVideoBlackLevelRequest, GetGreenVideoGainRequest,
+    GetHorizontalKeystoneRequest, GetLoudnessRequest, GetMuteRequest,
     GetRedVideoBlackLevelRequest, GetRedVideoGainRequest, GetSharpnessRequest,
-    GetLoudnessRequest, GetStateVariablesRequest, GetVerticalKeystoneRequest,
-    GetVolumeDBRangeRequest, GetVolumeDBRequest,
-    GetVolumeRequest, ListPresetsRequest, RenderingControlAction, SelectPresetRequest,
-    SetBlueVideoBlackLevelRequest, SetBlueVideoGainRequest, SetBrightnessRequest,
-    SetColorTemperatureRequest, SetContrastRequest, SetGreenVideoBlackLevelRequest,
-    SetGreenVideoGainRequest, SetHorizontalKeystoneRequest, SetLoudnessRequest, SetMuteRequest,
+    GetStateVariablesRequest, GetTransformsRequest, GetVerticalKeystoneRequest,
+    GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest, ListPresetsRequest,
+    RenderingControlAction, SelectPresetRequest, SetBlueVideoBlackLevelRequest,
+    SetBlueVideoGainRequest, SetBrightnessRequest, SetColorTemperatureRequest,
+    SetContrastRequest, SetGreenVideoBlackLevelRequest, SetGreenVideoGainRequest,
+    SetHorizontalKeystoneRequest, SetLoudnessRequest, SetMuteRequest,
     SetRedVideoBlackLevelRequest, SetRedVideoGainRequest, SetSharpnessRequest,
-    SetVerticalKeystoneRequest, SetVolumeDBRequest, SetVolumeRequest,
+    SetTransformsRequest, SetVerticalKeystoneRequest, SetVolumeDBRequest, SetVolumeRequest,
 };
 
 pub struct RenderingControlService;
@@ -247,6 +248,30 @@ impl UPnPService for RenderingControlService {
                     action_name,
                 )?;
                 Ok(RenderingControlAction::GetStateVariables(request))
+            }
+            "GetAllowedTransforms" => {
+                let request = extract_and_parse_soap_body::<GetAllowedTransformsRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::GetAllowedTransforms(request))
+            }
+            "GetTransforms" => {
+                let request =
+                    extract_and_parse_soap_body::<GetTransformsRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetTransforms(request))
+            }
+            "SetTransforms" => {
+                let request =
+                    extract_and_parse_soap_body::<SetTransformsRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SetTransforms(request))
+            }
+            "GetAllAvailableTransforms" => {
+                let request = extract_and_parse_soap_body::<GetAllAvailableTransformsRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::GetAllAvailableTransforms(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",
