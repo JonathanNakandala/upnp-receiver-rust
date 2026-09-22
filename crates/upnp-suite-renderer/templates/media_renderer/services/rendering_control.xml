@@ -580,6 +580,26 @@
                 </argument>
             </argumentList>
         </action>
+        <action>
+            <name>GetStateVariables</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>StateVariableList</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_StateVariableList</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>StateVariableValuePairs</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>A_ARG_TYPE_StateVariableValuePairs</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
     </actionList>
     <serviceStateTable>
         <!-- Evented as a bundled LastChange NOTIFY (GENA), not individually —
@@ -770,6 +790,19 @@
             <allowedValueList>
                 <allowedValue>Master</allowedValue>
             </allowedValueList>
+        </stateVariable>
+        <!-- CSV of state variable names GetStateVariables should report, or
+             "*" for all of them - see action.rs's ALL_STATE_VARIABLE_NAMES
+             for the exact set (excludes LastChange/PresetNameList per spec). -->
+        <stateVariable sendEvents="no">
+            <name>A_ARG_TYPE_StateVariableList</name>
+            <dataType>string</dataType>
+        </stateVariable>
+        <!-- The <stateVariableValuePairs> XML document GetStateVariables
+             returns - see action.rs's GetStateVariables handling. -->
+        <stateVariable sendEvents="no">
+            <name>A_ARG_TYPE_StateVariableValuePairs</name>
+            <dataType>string</dataType>
         </stateVariable>
     </serviceStateTable>
 </scpd>

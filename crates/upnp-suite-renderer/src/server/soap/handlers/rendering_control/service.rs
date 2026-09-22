@@ -8,7 +8,8 @@ use crate::server::soap::types::rendering_control::{
     GetColorTemperatureRequest, GetContrastRequest, GetGreenVideoBlackLevelRequest,
     GetGreenVideoGainRequest, GetHorizontalKeystoneRequest, GetMuteRequest,
     GetRedVideoBlackLevelRequest, GetRedVideoGainRequest, GetSharpnessRequest,
-    GetLoudnessRequest, GetVerticalKeystoneRequest, GetVolumeDBRangeRequest, GetVolumeDBRequest,
+    GetLoudnessRequest, GetStateVariablesRequest, GetVerticalKeystoneRequest,
+    GetVolumeDBRangeRequest, GetVolumeDBRequest,
     GetVolumeRequest, ListPresetsRequest, RenderingControlAction, SelectPresetRequest,
     SetBlueVideoBlackLevelRequest, SetBlueVideoGainRequest, SetBrightnessRequest,
     SetColorTemperatureRequest, SetContrastRequest, SetGreenVideoBlackLevelRequest,
@@ -239,6 +240,13 @@ impl UPnPService for RenderingControlService {
                 let request =
                     extract_and_parse_soap_body::<GetLoudnessRequest>(content, action_name)?;
                 Ok(RenderingControlAction::GetLoudness(request))
+            }
+            "GetStateVariables" => {
+                let request = extract_and_parse_soap_body::<GetStateVariablesRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::GetStateVariables(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",

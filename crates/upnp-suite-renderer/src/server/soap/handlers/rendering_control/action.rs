@@ -5,7 +5,8 @@ use crate::server::soap::types::rendering_control::{
     GetColorTemperatureResponse, GetContrastResponse, GetGreenVideoBlackLevelResponse,
     GetGreenVideoGainResponse, GetHorizontalKeystoneResponse, GetLoudnessResponse, GetMuteResponse,
     GetRedVideoBlackLevelResponse, GetRedVideoGainResponse, GetSharpnessResponse,
-    GetVerticalKeystoneResponse, GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse,
+    GetStateVariablesResponse, GetVerticalKeystoneResponse, GetVolumeDBRangeResponse,
+    GetVolumeDBResponse, GetVolumeResponse,
     ListPresetsResponse, RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
     SetBlueVideoBlackLevelResponse, SetBlueVideoGainResponse, SetBrightnessResponse,
     SetColorTemperatureResponse, SetContrastResponse, SetGreenVideoBlackLevelResponse,
@@ -79,6 +80,94 @@ fn validate_channel(channel: &str) -> Result<(), SoapError> {
     Ok(())
 }
 
+/// Every state variable `GetStateVariables` can report, in the order used
+/// when a control point asks for all of them via `"*"` — mirrors
+/// `RenderingControlEventState`'s field order. Excludes `LastChange` and
+/// `PresetNameList` per the spec's own exclusion list for this action (the
+/// v3 Transform state variables it also excludes don't exist on this
+/// renderer at all, so there's nothing further to leave out).
+const ALL_STATE_VARIABLE_NAMES: &[&str] = &[
+    "Volume",
+    "VolumeDB",
+    "Mute",
+    "Brightness",
+    "Contrast",
+    "RedVideoGain",
+    "GreenVideoGain",
+    "BlueVideoGain",
+    "RedVideoBlackLevel",
+    "GreenVideoBlackLevel",
+    "BlueVideoBlackLevel",
+    "ColorTemperature",
+    "HorizontalKeystone",
+    "VerticalKeystone",
+    "Sharpness",
+    "Loudness",
+];
+
+fn bool_str(value: bool) -> String {
+    if value { "1" } else { "0" }.to_string()
+}
+
+/// Looks up one state variable's current wire value, plus whether it
+/// carries a `channel="Master"` attribute — mirrors
+/// `rendering_control_last_change`'s per-variable channel handling exactly
+/// (`Volume`/`VolumeDB`/`Mute`/`Loudness` only). `None` means `name` isn't
+/// one of [`ALL_STATE_VARIABLE_NAMES`], which the caller turns into UPnP
+/// error 704 rather than silently skipping.
+async fn state_variable_value(
+    control: &dyn RenderingControl,
+    name: &str,
+) -> Option<Result<(String, bool), SoapError>> {
+    let with_channel = |v: Result<String, _>| v.map(|v| (v, true)).map_err(SoapError::from);
+    let no_channel = |v: Result<String, _>| v.map(|v| (v, false)).map_err(SoapError::from);
+    Some(match name {
+        "Volume" => with_channel(control.get_volume().await.map(|v| v.to_string())),
+        "VolumeDB" => with_channel(control.get_volume_db().await.map(|v| v.to_string())),
+        "Mute" => with_channel(control.get_mute().await.map(bool_str)),
+        "Brightness" => no_channel(control.get_brightness().await.map(|v| v.to_string())),
+        "Contrast" => no_channel(control.get_contrast().await.map(|v| v.to_string())),
+        "RedVideoGain" => no_channel(control.get_red_video_gain().await.map(|v| v.to_string())),
+        "GreenVideoGain" => {
+            no_channel(control.get_green_video_gain().await.map(|v| v.to_string()))
+        }
+        "BlueVideoGain" => no_channel(control.get_blue_video_gain().await.map(|v| v.to_string())),
+        "RedVideoBlackLevel" => no_channel(
+            control
+                .get_red_video_black_level()
+                .await
+                .map(|v| v.to_string()),
+        ),
+        "GreenVideoBlackLevel" => no_channel(
+            control
+                .get_green_video_black_level()
+                .await
+                .map(|v| v.to_string()),
+        ),
+        "BlueVideoBlackLevel" => no_channel(
+            control
+                .get_blue_video_black_level()
+                .await
+                .map(|v| v.to_string()),
+        ),
+        "ColorTemperature" => {
+            no_channel(control.get_color_temperature().await.map(|v| v.to_string()))
+        }
+        "HorizontalKeystone" => no_channel(
+            control
+                .get_horizontal_keystone()
+                .await
+                .map(|v| v.to_string()),
+        ),
+        "VerticalKeystone" => {
+            no_channel(control.get_vertical_keystone().await.map(|v| v.to_string()))
+        }
+        "Sharpness" => no_channel(control.get_sharpness().await.map(|v| v.to_string())),
+        "Loudness" => with_channel(control.get_loudness().await.map(bool_str)),
+        _ => return None,
+    })
+}
+
 impl UPnPAction for RenderingControlAction {
     type Response = RenderingControlResponse;
 
@@ -119,6 +208,7 @@ impl UPnPAction for RenderingControlAction {
             Self::GetSharpness(_) => "GetSharpness",
             Self::SetLoudness(_) => "SetLoudness",
             Self::GetLoudness(_) => "GetLoudness",
+            Self::GetStateVariables(_) => "GetStateVariables",
         }
     }
 
@@ -888,6 +978,75 @@ impl UPnPAction for RenderingControlAction {
                 Ok(RenderingControlResponse::Loudness(GetLoudnessResponse {
                     current_loudness,
                 }))
+            }
+            Self::GetStateVariables(req) => {
+                let names: Vec<&str> = if req.state_variable_list.trim() == "*" {
+                    ALL_STATE_VARIABLE_NAMES.to_vec()
+                } else {
+                    req.state_variable_list
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                };
+                if names.is_empty() {
+                    warn!(
+                        instance_id = req.instance_id,
+                        state_variable_list = %req.state_variable_list,
+                        "Handling GetStateVariables"
+                    );
+                    return Err(SoapError::Soap(SoapProtocolError::InvalidStateVariableList(
+                        req.state_variable_list.clone(),
+                    )));
+                }
+
+                let mut pairs = String::new();
+                for name in &names {
+                    let value = match state_variable_value(control.as_ref(), name).await {
+                        Some(Ok(v)) => v,
+                        Some(Err(err)) => return Err(err),
+                        None => {
+                            warn!(
+                                instance_id = req.instance_id,
+                                variable_name = %name,
+                                "Handling GetStateVariables"
+                            );
+                            return Err(SoapError::Soap(SoapProtocolError::InvalidStateVariableList(
+                                (*name).to_string(),
+                            )));
+                        }
+                    };
+                    let (value, has_channel) = value;
+                    if has_channel {
+                        pairs.push_str(&format!(
+                            r#"<stateVariable variableName="{name}" channel="Master">{value}</stateVariable>"#
+                        ));
+                    } else {
+                        pairs.push_str(&format!(
+                            r#"<stateVariable variableName="{name}">{value}</stateVariable>"#
+                        ));
+                    }
+                }
+
+                info!(
+                    instance_id = req.instance_id,
+                    state_variable_list = %req.state_variable_list,
+                    "Handling GetStateVariables"
+                );
+                let state_variable_value_pairs = format!(
+                    concat!(
+                        r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+                        r#"<stateVariableValuePairs xmlns="urn:schemas-upnp-org:av:avs">"#,
+                        "{pairs}",
+                        r#"</stateVariableValuePairs>"#
+                    ),
+                    pairs = pairs,
+                );
+                Ok(RenderingControlResponse::StateVariables(
+                    GetStateVariablesResponse {
+                        state_variable_value_pairs,
+                    },
+                ))
             }
         }
     }

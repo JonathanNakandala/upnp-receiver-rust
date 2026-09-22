@@ -576,3 +576,84 @@ async fn test_set_loudness_changes_get_loudness() {
         body
     );
 }
+
+// GetStateVariables is a generic reflection action, not its own state - it
+// just reports whatever the individual Getxxx() actions above would. The
+// StateVariableValuePairs it returns is itself XML, so the response body
+// carries it double-escaped (once for the inner XML's own attributes, once
+// for embedding as this response field's text) - the same convention
+// `LastChange` NOTIFY bodies use, see `server::eventing::last_change`.
+
+#[test(tokio::test)]
+async fn test_get_state_variables_single_name() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_state_variables("Volume").await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains(r#"variableName="Volume" channel="Master""#),
+        "Unexpected body: {}",
+        body
+    );
+    assert!(
+        body.contains("&gt;50&lt;/stateVariable&gt;"),
+        "Expected default Volume (50) in the reported value: {}",
+        body
+    );
+    // Brightness wasn't asked for, so it shouldn't be reported.
+    assert!(
+        !body.contains(r#"variableName="Brightness""#),
+        "Unrequested variable leaked into the response: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_get_state_variables_csv_list() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_state_variables("Volume,Loudness").await;
+    let body = assert_response(resp, 200).await;
+    assert!(body.contains(r#"variableName="Volume""#), "{}", body);
+    assert!(body.contains(r#"variableName="Loudness""#), "{}", body);
+}
+
+#[test(tokio::test)]
+async fn test_get_state_variables_wildcard_reports_everything() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_state_variables("*").await;
+    let body = assert_response(resp, 200).await;
+    for name in [
+        "Volume",
+        "VolumeDB",
+        "Mute",
+        "Brightness",
+        "Contrast",
+        "RedVideoGain",
+        "GreenVideoGain",
+        "BlueVideoGain",
+        "RedVideoBlackLevel",
+        "GreenVideoBlackLevel",
+        "BlueVideoBlackLevel",
+        "ColorTemperature",
+        "HorizontalKeystone",
+        "VerticalKeystone",
+        "Sharpness",
+        "Loudness",
+    ] {
+        assert!(
+            body.contains(&format!(r#"variableName="{name}""#)),
+            "Missing {name} in wildcard response: {}",
+            body
+        );
+    }
+}
+
+#[test(tokio::test)]
+async fn test_get_state_variables_rejects_unknown_name() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_state_variables("NotARealVariable").await;
+    assert_response(resp, 400).await;
+}
