@@ -329,3 +329,100 @@ async fn test_set_contrast_rejects_out_of_range() {
         body
     );
 }
+
+// RedVideoGain and ColorTemperature below stand in for all seven new
+// Gain/BlackLevel/ColorTemperature actions - same dispatch mechanism, same
+// code shape (see action.rs), so these two cover both new value ranges
+// (0-1000 and 0-100) and prove the SOAP action-name dispatcher (the exact
+// thing that silently 402'd Brightness/Contrast before service.rs's match
+// arms were added) is wired up correctly for this whole group too.
+
+#[test(tokio::test)]
+async fn test_get_red_video_gain_default() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_red_video_gain().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentRedVideoGain>500</CurrentRedVideoGain>"),
+        "Unexpected body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_red_video_gain_changes_get_red_video_gain() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_red_video_gain(750).await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_red_video_gain().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentRedVideoGain>750</CurrentRedVideoGain>"),
+        "RedVideoGain change was not reflected: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_red_video_gain_rejects_out_of_range() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_red_video_gain(1001).await;
+    assert_response(resp, 500).await;
+
+    let resp = client.get_red_video_gain().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentRedVideoGain>500</CurrentRedVideoGain>"),
+        "RedVideoGain should not have changed after invalid SetRedVideoGain: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_get_color_temperature_default_is_d65() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_color_temperature().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentColorTemperature>50</CurrentColorTemperature>"),
+        "Unexpected body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_color_temperature_changes_get_color_temperature() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_color_temperature(0).await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_color_temperature().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentColorTemperature>0</CurrentColorTemperature>"),
+        "ColorTemperature change was not reflected: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_color_temperature_rejects_out_of_range() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_color_temperature(101).await;
+    assert_response(resp, 500).await;
+
+    let resp = client.get_color_temperature().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentColorTemperature>50</CurrentColorTemperature>"),
+        "ColorTemperature should not have changed after invalid SetColorTemperature: {}",
+        body
+    );
+}

@@ -17,6 +17,20 @@ pub enum RenderingControlAction {
     GetBrightness(GetBrightnessRequest),
     SetContrast(SetContrastRequest),
     GetContrast(GetContrastRequest),
+    SetRedVideoGain(SetRedVideoGainRequest),
+    GetRedVideoGain(GetRedVideoGainRequest),
+    SetGreenVideoGain(SetGreenVideoGainRequest),
+    GetGreenVideoGain(GetGreenVideoGainRequest),
+    SetBlueVideoGain(SetBlueVideoGainRequest),
+    GetBlueVideoGain(GetBlueVideoGainRequest),
+    SetRedVideoBlackLevel(SetRedVideoBlackLevelRequest),
+    GetRedVideoBlackLevel(GetRedVideoBlackLevelRequest),
+    SetGreenVideoBlackLevel(SetGreenVideoBlackLevelRequest),
+    GetGreenVideoBlackLevel(GetGreenVideoBlackLevelRequest),
+    SetBlueVideoBlackLevel(SetBlueVideoBlackLevelRequest),
+    GetBlueVideoBlackLevel(GetBlueVideoBlackLevelRequest),
+    SetColorTemperature(SetColorTemperatureRequest),
+    GetColorTemperature(GetColorTemperatureRequest),
 }
 
 impl RenderingControlAction {
@@ -37,6 +51,20 @@ impl RenderingControlAction {
             Self::GetBrightness(r) => r.instance_id,
             Self::SetContrast(r) => r.instance_id,
             Self::GetContrast(r) => r.instance_id,
+            Self::SetRedVideoGain(r) => r.instance_id,
+            Self::GetRedVideoGain(r) => r.instance_id,
+            Self::SetGreenVideoGain(r) => r.instance_id,
+            Self::GetGreenVideoGain(r) => r.instance_id,
+            Self::SetBlueVideoGain(r) => r.instance_id,
+            Self::GetBlueVideoGain(r) => r.instance_id,
+            Self::SetRedVideoBlackLevel(r) => r.instance_id,
+            Self::GetRedVideoBlackLevel(r) => r.instance_id,
+            Self::SetGreenVideoBlackLevel(r) => r.instance_id,
+            Self::GetGreenVideoBlackLevel(r) => r.instance_id,
+            Self::SetBlueVideoBlackLevel(r) => r.instance_id,
+            Self::GetBlueVideoBlackLevel(r) => r.instance_id,
+            Self::SetColorTemperature(r) => r.instance_id,
+            Self::GetColorTemperature(r) => r.instance_id,
         };
         InstanceId::new(raw)
     }
@@ -149,6 +177,113 @@ pub struct GetContrastRequest {
     pub instance_id: u32,
 }
 
+// RedVideoGain/GreenVideoGain/BlueVideoGain/*BlackLevel/ColorTemperature
+// take no Channel argument either - same reasoning as Brightness/Contrast.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetRedVideoGainRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_red_video_gain: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetRedVideoGainRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetGreenVideoGainRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_green_video_gain: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetGreenVideoGainRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetBlueVideoGainRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_blue_video_gain: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetBlueVideoGainRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetRedVideoBlackLevelRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_red_video_black_level: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetRedVideoBlackLevelRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetGreenVideoBlackLevelRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_green_video_black_level: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetGreenVideoBlackLevelRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetBlueVideoBlackLevelRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_blue_video_black_level: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetBlueVideoBlackLevelRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetColorTemperatureRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_color_temperature: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetColorTemperatureRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
 // Add response types
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -218,6 +353,76 @@ pub struct GetContrastResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetRedVideoGainResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetRedVideoGainResponse {
+    pub current_red_video_gain: u16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetGreenVideoGainResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetGreenVideoGainResponse {
+    pub current_green_video_gain: u16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetBlueVideoGainResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetBlueVideoGainResponse {
+    pub current_blue_video_gain: u16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetRedVideoBlackLevelResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetRedVideoBlackLevelResponse {
+    pub current_red_video_black_level: u16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetGreenVideoBlackLevelResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetGreenVideoBlackLevelResponse {
+    pub current_green_video_black_level: u16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetBlueVideoBlackLevelResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetBlueVideoBlackLevelResponse {
+    pub current_blue_video_black_level: u16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetColorTemperatureResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetColorTemperatureResponse {
+    pub current_color_temperature: u16,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum RenderingControlResponse {
     ListPresets(ListPresetsResponse),
@@ -233,4 +438,18 @@ pub enum RenderingControlResponse {
     Brightness(GetBrightnessResponse),
     SetContrast(SetContrastResponse),
     Contrast(GetContrastResponse),
+    SetRedVideoGain(SetRedVideoGainResponse),
+    RedVideoGain(GetRedVideoGainResponse),
+    SetGreenVideoGain(SetGreenVideoGainResponse),
+    GreenVideoGain(GetGreenVideoGainResponse),
+    SetBlueVideoGain(SetBlueVideoGainResponse),
+    BlueVideoGain(GetBlueVideoGainResponse),
+    SetRedVideoBlackLevel(SetRedVideoBlackLevelResponse),
+    RedVideoBlackLevel(GetRedVideoBlackLevelResponse),
+    SetGreenVideoBlackLevel(SetGreenVideoBlackLevelResponse),
+    GreenVideoBlackLevel(GetGreenVideoBlackLevelResponse),
+    SetBlueVideoBlackLevel(SetBlueVideoBlackLevelResponse),
+    BlueVideoBlackLevel(GetBlueVideoBlackLevelResponse),
+    SetColorTemperature(SetColorTemperatureResponse),
+    ColorTemperature(GetColorTemperatureResponse),
 }

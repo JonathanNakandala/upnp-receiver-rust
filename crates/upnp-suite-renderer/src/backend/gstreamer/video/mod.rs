@@ -120,22 +120,43 @@ enum VideoEvent {
     /// like the user clicking its close button does; the next video frame
     /// reopens it the same way too.
     Hide,
-    /// Sent whenever RenderingControl's Brightness/Contrast state changes -
-    /// see [`VideoOutput::send_render_params`].
+    /// Sent whenever any RenderingControl picture state changes - see
+    /// [`VideoOutput::send_render_params`].
     RenderParams(RenderParams),
 }
 
-/// UPnP RenderingControl's `Brightness`/`Contrast` state variables, both on
-/// this renderer's own 0-100 scale (50 = neutral/no adjustment - see
-/// `services::rendering_control` for where that scale is chosen and
-/// validated). Precomputed into the shader-ready form
-/// (`shader.wgsl`'s `RenderParams`) by [`renderer::Renderer::set_render_params`],
-/// not here - this struct is the UPnP-facing value, unaware of the shader's
-/// internal `contrast_factor`/`brightness_offset` representation.
+/// UPnP RenderingControl's picture state variables - all on this renderer's
+/// own UPnP-facing scales (see [`Default`]'s values for what "neutral/no
+/// adjustment" means for each; see `services::rendering_control` for range
+/// validation). Precomputed into the shader-ready form (`shader.wgsl`'s
+/// `RenderParams`) by [`renderer::Renderer::set_render_params`], not here -
+/// this struct is the UPnP-facing value, unaware of the shader's internal
+/// per-channel multiplier/offset representation.
+///
+/// `red_gain`/`green_gain`/`blue_gain` and the matching `*_black_level`
+/// fields use a wider 0-1000 range than `brightness`/`contrast`/
+/// `color_temperature`'s 0-100 - these are calibration controls (2-point
+/// white balance, per `Output = Gain * Input + BlackLevel`), not picture
+/// preference, and near-black bias errors are visually significant at
+/// increments a 100-step scale can't express. See `renderer.rs`'s
+/// `RenderParamsUniform` for the exact mapping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RenderParams {
     pub brightness: u16,
     pub contrast: u16,
+    pub red_gain: u16,
+    pub green_gain: u16,
+    pub blue_gain: u16,
+    pub red_black_level: u16,
+    pub green_black_level: u16,
+    pub blue_black_level: u16,
+    /// 0-100, 50 = neutral = D65 (6500K) - the reference white point of
+    /// every consumer video standard this renderer plays (Rec.709,
+    /// Rec.2020, sRGB), so "neutral" here means "trust the decode's own
+    /// white balance," not an arbitrary baseline tint. See
+    /// `renderer::kelvin_to_rgb`'s doc for the warm/cool curve and why this
+    /// is a cosmetic control, not real display calibration.
+    pub color_temperature: u16,
 }
 
 impl Default for RenderParams {
@@ -143,6 +164,13 @@ impl Default for RenderParams {
         Self {
             brightness: 50,
             contrast: 50,
+            red_gain: 500,
+            green_gain: 500,
+            blue_gain: 500,
+            red_black_level: 500,
+            green_black_level: 500,
+            blue_black_level: 500,
+            color_temperature: 50,
         }
     }
 }

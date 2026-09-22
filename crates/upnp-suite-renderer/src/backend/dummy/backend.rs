@@ -26,9 +26,19 @@ pub struct DummyBackend {
     muted: Mutex<bool>,
     // No video output to apply these to either — same reasoning as
     // `volume`/`muted`, just remembered for API completeness. 50 = neutral,
-    // matching `GStreamerBackend`'s default.
+    // matching `GStreamerBackend`'s default. Kept as plain fields rather
+    // than reusing `gstreamer::video::RenderParams` — this backend has no
+    // GStreamer/video dependency at all, and shouldn't gain one just for a
+    // struct shape.
     brightness: Mutex<u16>,
     contrast: Mutex<u16>,
+    red_gain: Mutex<u16>,
+    green_gain: Mutex<u16>,
+    blue_gain: Mutex<u16>,
+    red_black_level: Mutex<u16>,
+    green_black_level: Mutex<u16>,
+    blue_black_level: Mutex<u16>,
+    color_temperature: Mutex<u16>,
 }
 
 impl DummyBackend {
@@ -42,6 +52,13 @@ impl DummyBackend {
             muted: Mutex::new(false),
             brightness: Mutex::new(50),
             contrast: Mutex::new(50),
+            red_gain: Mutex::new(500),
+            green_gain: Mutex::new(500),
+            blue_gain: Mutex::new(500),
+            red_black_level: Mutex::new(500),
+            green_black_level: Mutex::new(500),
+            blue_black_level: Mutex::new(500),
+            color_temperature: Mutex::new(50),
         }
     }
 
@@ -213,6 +230,69 @@ impl MediaBackend for DummyBackend {
 
     async fn get_contrast(&self) -> Result<u16, MediaBackendError> {
         Ok(*self.contrast.lock().await)
+    }
+
+    async fn set_red_video_gain(&self, gain: u16) -> Result<(), MediaBackendError> {
+        *self.red_gain.lock().await = gain;
+        Ok(())
+    }
+
+    async fn get_red_video_gain(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.red_gain.lock().await)
+    }
+
+    async fn set_green_video_gain(&self, gain: u16) -> Result<(), MediaBackendError> {
+        *self.green_gain.lock().await = gain;
+        Ok(())
+    }
+
+    async fn get_green_video_gain(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.green_gain.lock().await)
+    }
+
+    async fn set_blue_video_gain(&self, gain: u16) -> Result<(), MediaBackendError> {
+        *self.blue_gain.lock().await = gain;
+        Ok(())
+    }
+
+    async fn get_blue_video_gain(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.blue_gain.lock().await)
+    }
+
+    async fn set_red_video_black_level(&self, level: u16) -> Result<(), MediaBackendError> {
+        *self.red_black_level.lock().await = level;
+        Ok(())
+    }
+
+    async fn get_red_video_black_level(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.red_black_level.lock().await)
+    }
+
+    async fn set_green_video_black_level(&self, level: u16) -> Result<(), MediaBackendError> {
+        *self.green_black_level.lock().await = level;
+        Ok(())
+    }
+
+    async fn get_green_video_black_level(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.green_black_level.lock().await)
+    }
+
+    async fn set_blue_video_black_level(&self, level: u16) -> Result<(), MediaBackendError> {
+        *self.blue_black_level.lock().await = level;
+        Ok(())
+    }
+
+    async fn get_blue_video_black_level(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.blue_black_level.lock().await)
+    }
+
+    async fn set_color_temperature(&self, temperature: u16) -> Result<(), MediaBackendError> {
+        *self.color_temperature.lock().await = temperature;
+        Ok(())
+    }
+
+    async fn get_color_temperature(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.color_temperature.lock().await)
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {

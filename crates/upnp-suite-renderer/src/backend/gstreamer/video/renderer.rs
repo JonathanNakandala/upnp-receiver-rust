@@ -21,28 +21,130 @@ use super::overlay_texture::{self, OverlayTexture};
 use super::RenderParams;
 
 /// `shader.wgsl`'s `RenderParams` uniform, precomputed from the UPnP-facing
-/// 0-100 [`RenderParams`] scale so the shader itself stays agnostic of that
-/// scale - see the shader's doc on why this is the very last operation in
-/// `fs_main` and what that constrains if HDR output is ever added. Padded
-/// to 16 bytes: not strictly required for a 2-`f32` uniform struct on every
-/// backend, but matching common uniform buffer alignment expectations costs
-/// nothing here.
+/// [`RenderParams`] scales so the shader itself stays agnostic of them -
+/// see the shader's doc for the three-stage composition order (gain/black
+/// level, then color temperature, then contrast/brightness) and why this
+/// is the very last thing computed in `fs_main`. Field order must exactly
+/// match the WGSL struct - `bytemuck::bytes_of` just reinterprets these
+/// bytes directly, there's no name-based binding. One trailing `f32` pads
+/// 11 semantic fields (44 bytes) to 48 - a multiple of 16, matching common
+/// uniform buffer alignment expectations; not strictly required for every
+/// backend, but costs nothing here.
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct RenderParamsUniform {
+    red_gain: f32,
+    green_gain: f32,
+    blue_gain: f32,
+    red_black_level: f32,
+    green_black_level: f32,
+    blue_black_level: f32,
+    temp_red: f32,
+    temp_green: f32,
+    temp_blue: f32,
     contrast_factor: f32,
     brightness_offset: f32,
-    _padding: [f32; 2],
+    _padding: f32,
+}
+
+/// 0-1000, 500 = neutral -> a 0.0x-2.0x multiplier. See [`RenderParams`]'s
+/// doc for why Gain/BlackLevel get a wider range than Brightness/Contrast.
+fn gain_factor(value: u16) -> f32 {
+    value as f32 / 500.0
+}
+
+/// 0-1000, 500 = neutral -> a -0.2..+0.2 additive offset - deliberately a
+/// small range: this adds directly to normalized [0, 1] RGB, so anything
+/// close to the full -1..+1 span would clip immediately at either end,
+/// unlike Brightness's offset which is meant to span the whole range.
+fn black_level_offset(value: u16) -> f32 {
+    (value as f32 - 500.0) / 500.0 * 0.2
+}
+
+/// 0-100, 50 = neutral -> 3000K-10000K, symmetric around 6500K (D65) - see
+/// [`RenderParams::color_temperature`]'s doc for why 6500K is the neutral
+/// point rather than an arbitrary one.
+fn color_temperature_kelvin(value: u16) -> f32 {
+    if value <= 50 {
+        3000.0 + value as f32 * 70.0
+    } else {
+        6500.0 + (value as f32 - 50.0) * 70.0
+    }
+}
+
+/// Tanner Helland's widely-used blackbody-radiation-to-RGB approximation
+/// (valid roughly 1000K-40000K) - not photometrically exact, but
+/// qualitatively correct (monotonic warm -> cool, roughly tracks real
+/// blackbody chromaticity), which is what a cosmetic "color temperature"
+/// slider needs. This is deliberately not presented as real display
+/// calibration - see [`RenderParams::color_temperature`]'s doc.
+fn kelvin_to_rgb(kelvin: f32) -> (f32, f32, f32) {
+    // f64 throughout, only cast back to f32 at the end: this keeps the
+    // published constants below at their real precision instead of
+    // truncating them to fit f32 (which clippy would otherwise flag as
+    // `excessive_precision`) - irrelevant for accuracy either way given
+    // this is explicitly a cosmetic approximation, but there's no reason
+    // to hand-truncate a widely-cited formula when the cost of not doing
+    // so is zero (this runs once per `RenderParams` change, never
+    // per-pixel).
+    let temp: f64 = (kelvin as f64 / 100.0).clamp(10.0, 400.0);
+
+    let red = if temp <= 66.0 {
+        255.0
+    } else {
+        (329.698727446 * (temp - 60.0).powf(-0.1332047592)).clamp(0.0, 255.0)
+    };
+
+    let green = if temp <= 66.0 {
+        (99.4708025861 * temp.ln() - 161.1195681661).clamp(0.0, 255.0)
+    } else {
+        (288.1221695283 * (temp - 60.0).powf(-0.0755148492)).clamp(0.0, 255.0)
+    };
+
+    let blue = if temp >= 66.0 {
+        255.0
+    } else if temp <= 19.0 {
+        0.0
+    } else {
+        (138.5177312231 * (temp - 10.0).ln() - 305.0447927307).clamp(0.0, 255.0)
+    };
+
+    ((red / 255.0) as f32, (green / 255.0) as f32, (blue / 255.0) as f32)
+}
+
+/// D65's blackbody approximation, computed once - dividing by this (rather
+/// than using [`kelvin_to_rgb`]'s raw output directly) is what guarantees
+/// `color_temperature = 50` (6500K, neutral) produces exactly `(1, 1, 1)`,
+/// an identity multiplier, regardless of the approximation's own small
+/// imperfection at 6500K (a 6500K blackbody isn't quite the same
+/// chromaticity as true CIE D65 - a known, accepted subtlety this
+/// normalization sidesteps rather than needing to be exact about).
+fn kelvin_to_rgb_relative_to_d65(kelvin: f32) -> (f32, f32, f32) {
+    let (r, g, b) = kelvin_to_rgb(kelvin);
+    let (d65_r, d65_g, d65_b) = kelvin_to_rgb(6500.0);
+    (r / d65_r, g / d65_g, b / d65_b)
 }
 
 impl From<RenderParams> for RenderParamsUniform {
     fn from(params: RenderParams) -> Self {
+        let (temp_red, temp_green, temp_blue) =
+            kelvin_to_rgb_relative_to_d65(color_temperature_kelvin(params.color_temperature));
+
         Self {
+            red_gain: gain_factor(params.red_gain),
+            green_gain: gain_factor(params.green_gain),
+            blue_gain: gain_factor(params.blue_gain),
+            red_black_level: black_level_offset(params.red_black_level),
+            green_black_level: black_level_offset(params.green_black_level),
+            blue_black_level: black_level_offset(params.blue_black_level),
+            temp_red,
+            temp_green,
+            temp_blue,
             // 50 (neutral) -> 1.0x. 0 -> 0x (flat gray). 100 -> 2.0x.
             contrast_factor: params.contrast as f32 / 50.0,
             // 50 (neutral) -> 0.0 offset. 0 -> -1.0, 100 -> +1.0.
             brightness_offset: (params.brightness as f32 / 100.0 - 0.5) * 2.0,
-            _padding: [0.0; 2],
+            _padding: 0.0,
         }
     }
 }
@@ -560,5 +662,77 @@ impl Renderer {
 
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(surface_texture);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gain_and_black_level_are_identity_at_neutral() {
+        assert_eq!(gain_factor(500), 1.0);
+        assert_eq!(black_level_offset(500), 0.0);
+    }
+
+    #[test]
+    fn gain_and_black_level_span_the_expected_range() {
+        assert_eq!(gain_factor(0), 0.0);
+        assert_eq!(gain_factor(1000), 2.0);
+        assert!((black_level_offset(0) - -0.2).abs() < 1e-6);
+        assert!((black_level_offset(1000) - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn color_temperature_neutral_is_6500k() {
+        assert_eq!(color_temperature_kelvin(50), 6500.0);
+    }
+
+    #[test]
+    fn color_temperature_spans_3000k_to_10000k() {
+        assert_eq!(color_temperature_kelvin(0), 3000.0);
+        assert_eq!(color_temperature_kelvin(100), 10000.0);
+    }
+
+    /// The property the whole `_relative_to_d65` normalization exists for -
+    /// see its doc. Without it, `kelvin_to_rgb(6500.0)` alone wouldn't be
+    /// exactly `(1, 1, 1)` (a real 6500K blackbody isn't bit-identical to
+    /// CIE D65), which would mean "neutral" silently applied a tint.
+    #[test]
+    fn color_temperature_neutral_is_an_identity_multiplier() {
+        let (r, g, b) = kelvin_to_rgb_relative_to_d65(6500.0);
+        assert!((r - 1.0).abs() < 1e-6, "r = {r}");
+        assert!((g - 1.0).abs() < 1e-6, "g = {g}");
+        assert!((b - 1.0).abs() < 1e-6, "b = {b}");
+    }
+
+    /// Qualitative sanity check on the blackbody curve's direction, the
+    /// other thing worth checking per the RenderingControl design notes:
+    /// warmer (lower Kelvin) should boost red relative to blue, cooler
+    /// (higher Kelvin) the opposite - matches "lower = warmer/orange,
+    /// higher = cooler/blue" in the UPnP spec's own `ColorTemperature` doc.
+    #[test]
+    fn color_temperature_warms_and_cools_in_the_right_direction() {
+        let (warm_r, _, warm_b) = kelvin_to_rgb_relative_to_d65(color_temperature_kelvin(0));
+        let (cool_r, _, cool_b) = kelvin_to_rgb_relative_to_d65(color_temperature_kelvin(100));
+
+        assert!(warm_r > warm_b, "3000K should be red-biased relative to blue");
+        assert!(cool_b > cool_r, "10000K should be blue-biased relative to red");
+    }
+
+    #[test]
+    fn render_params_uniform_matches_defaults_at_neutral() {
+        let uniform = RenderParamsUniform::from(RenderParams::default());
+        assert_eq!(uniform.red_gain, 1.0);
+        assert_eq!(uniform.green_gain, 1.0);
+        assert_eq!(uniform.blue_gain, 1.0);
+        assert_eq!(uniform.red_black_level, 0.0);
+        assert_eq!(uniform.green_black_level, 0.0);
+        assert_eq!(uniform.blue_black_level, 0.0);
+        assert!((uniform.temp_red - 1.0).abs() < 1e-6);
+        assert!((uniform.temp_green - 1.0).abs() < 1e-6);
+        assert!((uniform.temp_blue - 1.0).abs() < 1e-6);
+        assert_eq!(uniform.contrast_factor, 1.0);
+        assert_eq!(uniform.brightness_offset, 0.0);
     }
 }

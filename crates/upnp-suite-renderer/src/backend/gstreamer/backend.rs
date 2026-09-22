@@ -74,15 +74,16 @@ pub(super) struct PlayerState {
     // for each new track, since there's nothing UPnP-visible carrying a
     // per-track "no subtitles" preference forward.
     subtitles_enabled: bool,
-    // UPnP RenderingControl's `Brightness`/`Contrast`, 0-100 (50 = neutral -
-    // see `services::rendering_control`). Unlike `Volume`/`Mute`, there's no
-    // GStreamer element property backing these - `set_brightness`/
-    // `set_contrast` push a `RenderParams` to `video_output` right after
-    // updating these, so this is the source of truth `get_brightness`/
-    // `get_contrast` read back, and what a newly opened video window is
-    // seeded with (see `video::RenderParams`'s doc).
-    brightness: u16,
-    contrast: u16,
+    // UPnP RenderingControl's picture state (Brightness/Contrast/Gain/
+    // BlackLevel/ColorTemperature) - reusing `video::RenderParams` directly
+    // rather than a second copy of the same fields, since this *is* that
+    // value, just where it's persisted. Unlike `Volume`/`Mute`, there's no
+    // GStreamer element property backing any of it - each `set_*` pushes
+    // this whole struct to `video_output` right after updating one field,
+    // so this is the source of truth every `get_*` reads back, and what a
+    // newly opened video window is seeded with (see `video::RenderParams`'s
+    // doc, and `push_render_params` below).
+    picture: video::RenderParams,
 }
 
 impl Default for PlayerState {
@@ -97,8 +98,7 @@ impl Default for PlayerState {
             play_mode: PlayMode::Normal,
             stream_collection: None,
             subtitles_enabled: true,
-            brightness: 50,
-            contrast: 50,
+            picture: video::RenderParams::default(),
         }
     }
 }
@@ -449,19 +449,15 @@ impl GStreamerBackend {
         self.pipeline.lock().unwrap().playbin.clone()
     }
 
-    /// Pushes the current `brightness`/`contrast` to the video window, if
-    /// one exists - see `video::RenderParams`'s doc for why this has to be
-    /// pushed explicitly rather than picked up on a timer. A no-op when
-    /// there's no `video_output` at all (audio-only backend construction).
+    /// Pushes the current picture state to the video window, if one exists,
+    /// see `video::RenderParams`'s doc for why this has to be pushed
+    /// explicitly rather than picked up on a timer. A no-op when there's no
+    /// `video_output` at all (audio-only backend construction).
     fn push_render_params(&self) {
         let Some(video_output) = &self.video_output else {
             return;
         };
-        let state = self.state.lock().unwrap();
-        video_output.send_render_params(video::RenderParams {
-            brightness: state.brightness,
-            contrast: state.contrast,
-        });
+        video_output.send_render_params(self.state.lock().unwrap().picture);
     }
 }
 
@@ -1067,23 +1063,93 @@ impl MediaBackend for GStreamerBackend {
     }
 
     async fn set_brightness(&self, brightness: u16) -> Result<(), MediaBackendError> {
-        self.state.lock().unwrap().brightness = brightness;
+        self.state.lock().unwrap().picture.brightness = brightness;
         self.push_render_params();
         Ok(())
     }
 
     async fn get_brightness(&self) -> Result<u16, MediaBackendError> {
-        Ok(self.state.lock().unwrap().brightness)
+        Ok(self.state.lock().unwrap().picture.brightness)
     }
 
     async fn set_contrast(&self, contrast: u16) -> Result<(), MediaBackendError> {
-        self.state.lock().unwrap().contrast = contrast;
+        self.state.lock().unwrap().picture.contrast = contrast;
         self.push_render_params();
         Ok(())
     }
 
     async fn get_contrast(&self) -> Result<u16, MediaBackendError> {
-        Ok(self.state.lock().unwrap().contrast)
+        Ok(self.state.lock().unwrap().picture.contrast)
+    }
+
+    async fn set_red_video_gain(&self, gain: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.red_gain = gain;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_red_video_gain(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.red_gain)
+    }
+
+    async fn set_green_video_gain(&self, gain: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.green_gain = gain;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_green_video_gain(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.green_gain)
+    }
+
+    async fn set_blue_video_gain(&self, gain: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.blue_gain = gain;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_blue_video_gain(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.blue_gain)
+    }
+
+    async fn set_red_video_black_level(&self, level: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.red_black_level = level;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_red_video_black_level(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.red_black_level)
+    }
+
+    async fn set_green_video_black_level(&self, level: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.green_black_level = level;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_green_video_black_level(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.green_black_level)
+    }
+
+    async fn set_blue_video_black_level(&self, level: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.blue_black_level = level;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_blue_video_black_level(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.blue_black_level)
+    }
+
+    async fn set_color_temperature(&self, temperature: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.color_temperature = temperature;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_color_temperature(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.color_temperature)
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {

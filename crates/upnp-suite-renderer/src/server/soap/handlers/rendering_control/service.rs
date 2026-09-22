@@ -4,10 +4,14 @@ use crate::server::soap::types::soap_action::ParsedSoapAction;
 use crate::server::soap::types::UPnPService;
 
 use crate::server::soap::types::rendering_control::{
-    GetBrightnessRequest, GetContrastRequest, GetMuteRequest, GetVolumeDBRangeRequest,
-    GetVolumeDBRequest, GetVolumeRequest, ListPresetsRequest, RenderingControlAction,
-    SelectPresetRequest, SetBrightnessRequest, SetContrastRequest, SetMuteRequest,
-    SetVolumeDBRequest, SetVolumeRequest,
+    GetBlueVideoBlackLevelRequest, GetBlueVideoGainRequest, GetBrightnessRequest,
+    GetColorTemperatureRequest, GetContrastRequest, GetGreenVideoBlackLevelRequest,
+    GetGreenVideoGainRequest, GetMuteRequest, GetRedVideoBlackLevelRequest,
+    GetRedVideoGainRequest, GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest,
+    ListPresetsRequest, RenderingControlAction, SelectPresetRequest, SetBlueVideoBlackLevelRequest,
+    SetBlueVideoGainRequest, SetBrightnessRequest, SetColorTemperatureRequest,
+    SetContrastRequest, SetGreenVideoBlackLevelRequest, SetGreenVideoGainRequest, SetMuteRequest,
+    SetRedVideoBlackLevelRequest, SetRedVideoGainRequest, SetVolumeDBRequest, SetVolumeRequest,
 };
 
 pub struct RenderingControlService;
@@ -98,6 +102,92 @@ impl UPnPService for RenderingControlService {
                 let request =
                     extract_and_parse_soap_body::<GetContrastRequest>(content, action_name)?;
                 Ok(RenderingControlAction::GetContrast(request))
+            }
+            "SetRedVideoGain" => {
+                let request =
+                    extract_and_parse_soap_body::<SetRedVideoGainRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SetRedVideoGain(request))
+            }
+            "GetRedVideoGain" => {
+                let request =
+                    extract_and_parse_soap_body::<GetRedVideoGainRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetRedVideoGain(request))
+            }
+            "SetGreenVideoGain" => {
+                let request =
+                    extract_and_parse_soap_body::<SetGreenVideoGainRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SetGreenVideoGain(request))
+            }
+            "GetGreenVideoGain" => {
+                let request =
+                    extract_and_parse_soap_body::<GetGreenVideoGainRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetGreenVideoGain(request))
+            }
+            "SetBlueVideoGain" => {
+                let request =
+                    extract_and_parse_soap_body::<SetBlueVideoGainRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SetBlueVideoGain(request))
+            }
+            "GetBlueVideoGain" => {
+                let request =
+                    extract_and_parse_soap_body::<GetBlueVideoGainRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetBlueVideoGain(request))
+            }
+            "SetRedVideoBlackLevel" => {
+                let request = extract_and_parse_soap_body::<SetRedVideoBlackLevelRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::SetRedVideoBlackLevel(request))
+            }
+            "GetRedVideoBlackLevel" => {
+                let request = extract_and_parse_soap_body::<GetRedVideoBlackLevelRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::GetRedVideoBlackLevel(request))
+            }
+            "SetGreenVideoBlackLevel" => {
+                let request = extract_and_parse_soap_body::<SetGreenVideoBlackLevelRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::SetGreenVideoBlackLevel(request))
+            }
+            "GetGreenVideoBlackLevel" => {
+                let request = extract_and_parse_soap_body::<GetGreenVideoBlackLevelRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::GetGreenVideoBlackLevel(request))
+            }
+            "SetBlueVideoBlackLevel" => {
+                let request = extract_and_parse_soap_body::<SetBlueVideoBlackLevelRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::SetBlueVideoBlackLevel(request))
+            }
+            "GetBlueVideoBlackLevel" => {
+                let request = extract_and_parse_soap_body::<GetBlueVideoBlackLevelRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::GetBlueVideoBlackLevel(request))
+            }
+            "SetColorTemperature" => {
+                let request = extract_and_parse_soap_body::<SetColorTemperatureRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::SetColorTemperature(request))
+            }
+            "GetColorTemperature" => {
+                let request = extract_and_parse_soap_body::<GetColorTemperatureRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::GetColorTemperature(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",

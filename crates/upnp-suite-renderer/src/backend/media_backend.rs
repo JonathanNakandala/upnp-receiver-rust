@@ -73,6 +73,31 @@ pub trait MediaBackend: Send + Sync {
     async fn set_contrast(&self, contrast: u16) -> Result<(), MediaBackendError>;
     async fn get_contrast(&self) -> Result<u16, MediaBackendError>;
 
+    /// UPnP RenderingControl's 2-point white balance pair per primary color
+    /// - `Output = Gain * Input + BlackLevel` (see the spec's own
+    /// `xxxVideoGain`/`xxxVideoBlackLevel` relationship note). 0-1000,
+    /// 500 = neutral for both - wider than `Brightness`/`Contrast`'s 0-100,
+    /// since these are calibration controls where near-black precision
+    /// matters (see `video::RenderParams`'s doc).
+    async fn set_red_video_gain(&self, gain: u16) -> Result<(), MediaBackendError>;
+    async fn get_red_video_gain(&self) -> Result<u16, MediaBackendError>;
+    async fn set_green_video_gain(&self, gain: u16) -> Result<(), MediaBackendError>;
+    async fn get_green_video_gain(&self) -> Result<u16, MediaBackendError>;
+    async fn set_blue_video_gain(&self, gain: u16) -> Result<(), MediaBackendError>;
+    async fn get_blue_video_gain(&self) -> Result<u16, MediaBackendError>;
+    async fn set_red_video_black_level(&self, level: u16) -> Result<(), MediaBackendError>;
+    async fn get_red_video_black_level(&self) -> Result<u16, MediaBackendError>;
+    async fn set_green_video_black_level(&self, level: u16) -> Result<(), MediaBackendError>;
+    async fn get_green_video_black_level(&self) -> Result<u16, MediaBackendError>;
+    async fn set_blue_video_black_level(&self, level: u16) -> Result<(), MediaBackendError>;
+    async fn get_blue_video_black_level(&self) -> Result<u16, MediaBackendError>;
+
+    /// UPnP's `ColorTemperature` - 0-100, 50 = neutral = D65 (6500K), the
+    /// reference white point of every consumer video standard this
+    /// renderer plays. See `video::RenderParams::color_temperature`'s doc.
+    async fn set_color_temperature(&self, temperature: u16) -> Result<(), MediaBackendError>;
+    async fn get_color_temperature(&self) -> Result<u16, MediaBackendError>;
+
     // Media info
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError>;
     async fn get_metadata(&self) -> Result<Option<String>, MediaBackendError>;
