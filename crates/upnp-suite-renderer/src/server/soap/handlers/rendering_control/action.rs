@@ -76,7 +76,7 @@ async fn publish_rendering_state(
 /// else in this file, as data `SetStateVariables` actually compares a
 /// control point's claims against (5.4.38's UDN/ServiceType/ServiceId
 /// compatibility check - see its handling in `handle()`).
-const SERVICE_TYPE: &str = "urn:schemas-upnp-org:service:RenderingControl:1";
+pub(super) const SERVICE_TYPE: &str = "urn:schemas-upnp-org:service:RenderingControl:3";
 const SERVICE_ID: &str = "urn:upnp-org:serviceId:RenderingControl";
 
 /// UPnP's `A_ARG_TYPE_Channel` only ever allows `"Master"` here (see the
