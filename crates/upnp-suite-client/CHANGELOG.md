@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/JonathanNakandala/upnp-receiver-rust/compare/upnp-suite-client-v0.2.0...upnp-suite-client-v0.3.0) (2026-09-22)
+
+
+### Features
+
+* **cli:** brightness/contrast control ([a170ab1](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/a170ab105d4c0c5449099c8c7fca45d5946c3118))
+* **cli:** RGB Gain and Colour Temperature Control ([d06eb84](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/d06eb847cf2627262d61edcf84b84e0fa09c9efb))
+* **gstreamer:** implement Horizontal/Vertical Keystone ([c201ff3](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/c201ff37b070f3ce08cdab3df752f56d26b213a9))
+* **gstreamer:** implement Loudness compensation ([230647f](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/230647f8d3f0d23e5058cca4d41cebe077abd944))
+* **gstreamer:** implement sharpness control ([48616ec](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/48616ec9fcfdaab05815d6855deccc5c3ceeb3f0))
+
 ## [0.2.0](https://github.com/JonathanNakandala/upnp-receiver-rust/compare/upnp-suite-client-v0.1.0...upnp-suite-client-v0.2.0) (2026-09-21)
 
 
