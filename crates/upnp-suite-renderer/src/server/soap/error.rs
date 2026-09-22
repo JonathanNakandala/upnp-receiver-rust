@@ -173,6 +173,21 @@ pub enum SoapProtocolError {
 
     #[error("Unsupported value for transform: {0}")]
     UnsupportedTransformValue(String),
+
+    #[error("Invalid state variable value for {0}")]
+    InvalidStateVariableValue(String),
+
+    #[error("Invalid RenderingControl UDN: {0}")]
+    InvalidRenderingControlUdn(String),
+
+    #[error("Invalid ServiceType: {0}")]
+    InvalidServiceType(String),
+
+    #[error("Invalid ServiceId: {0}")]
+    InvalidServiceId(String),
+
+    #[error("State variables specified improperly: {0}")]
+    StateVariablesSpecifiedImproperly(String),
 }
 
 impl From<UnknownInstance> for SoapProtocolError {
@@ -248,6 +263,26 @@ impl SoapProtocolError {
             SoapProtocolError::UnsupportedTransformValue(_) => UPnPErrorCode {
                 code: 712,
                 description: "Unsupported Values for Transforms",
+            },
+            SoapProtocolError::InvalidStateVariableValue(_) => UPnPErrorCode {
+                code: 706,
+                description: "Invalid State Variable Value",
+            },
+            SoapProtocolError::InvalidRenderingControlUdn(_) => UPnPErrorCode {
+                code: 707,
+                description: "Invalid MediaRenderer's UDN",
+            },
+            SoapProtocolError::InvalidServiceType(_) => UPnPErrorCode {
+                code: 708,
+                description: "Invalid Service Type",
+            },
+            SoapProtocolError::InvalidServiceId(_) => UPnPErrorCode {
+                code: 709,
+                description: "Invalid Service Id",
+            },
+            SoapProtocolError::StateVariablesSpecifiedImproperly(_) => UPnPErrorCode {
+                code: 710,
+                description: "State Variables Specified Improperly",
             },
         }
     }

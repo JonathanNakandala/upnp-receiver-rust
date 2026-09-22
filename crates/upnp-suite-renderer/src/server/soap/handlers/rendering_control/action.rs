@@ -13,7 +13,8 @@ use crate::server::soap::types::rendering_control::{
     SetColorTemperatureResponse, SetContrastResponse, SetGreenVideoBlackLevelResponse,
     SetGreenVideoGainResponse, SetHorizontalKeystoneResponse, SetLoudnessResponse, SetMuteResponse,
     SetRedVideoBlackLevelResponse, SetRedVideoGainResponse, SetSharpnessResponse,
-    SetTransformsResponse, SetVerticalKeystoneResponse, SetVolumeDBResponse, SetVolumeResponse,
+    SetStateVariablesResponse, SetTransformsResponse, SetVerticalKeystoneResponse,
+    SetVolumeDBResponse, SetVolumeResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::instance::InstanceId;
@@ -69,6 +70,14 @@ async fn publish_rendering_state(
         },
     ));
 }
+
+/// This service's identity as declared in `device.xml`'s `<serviceList>` -
+/// used both for the SOAP response namespace below and, unlike everywhere
+/// else in this file, as data `SetStateVariables` actually compares a
+/// control point's claims against (5.4.38's UDN/ServiceType/ServiceId
+/// compatibility check - see its handling in `handle()`).
+const SERVICE_TYPE: &str = "urn:schemas-upnp-org:service:RenderingControl:1";
+const SERVICE_ID: &str = "urn:upnp-org:serviceId:RenderingControl";
 
 /// UPnP's `A_ARG_TYPE_Channel` only ever allows `"Master"` here (see the
 /// SCPD's `allowedValueList` for it) — this renderer has no concept of
@@ -490,6 +499,63 @@ fn parse_transform_settings(xml: &str) -> Result<Vec<(String, String)>, SoapErro
     Ok(pairs)
 }
 
+/// Parses `SetStateVariables`'s `StateVariableValuePairs` argument: each
+/// `<stateVariable variableName="...">`'s text content, in document order.
+/// Structurally identical to [`parse_transform_settings`] (attribute name +
+/// text content instead of attribute + child element), but kept separate
+/// since the two dialects' tag/attribute names differ and conflating them
+/// would need parser-level dialect switching for no real reuse.
+fn parse_state_variable_value_pairs(xml: &str) -> Result<Vec<(String, String)>, SoapError> {
+    let mut reader = quick_xml::reader::Reader::from_str(xml);
+    reader.config_mut().trim_text(true);
+
+    let mut pairs = Vec::new();
+    let mut current_name: Option<String> = None;
+    let mut in_state_variable = false;
+
+    loop {
+        let event = reader.read_event().map_err(|e| {
+            SoapError::Soap(SoapProtocolError::ParseError(format!(
+                "Ill-formed StateVariableValuePairs: {e}"
+            )))
+        })?;
+        match event {
+            Event::Start(e) => {
+                let tag = local_tag(e.name().into_inner());
+                if tag == "stateVariable" {
+                    current_name = e
+                        .attributes()
+                        .flatten()
+                        .find(|a| local_tag(a.key.into_inner()) == "variableName")
+                        .and_then(|a| a.unescape_value().ok().map(|v| v.into_owned()));
+                    in_state_variable = current_name.is_some();
+                }
+            }
+            Event::Text(t) if in_state_variable => {
+                if let Some(name) = current_name.take() {
+                    let value = t.unescape().map_err(|e| {
+                        SoapError::Soap(SoapProtocolError::ParseError(format!(
+                            "Ill-formed StateVariableValuePairs: {e}"
+                        )))
+                    })?.into_owned();
+                    pairs.push((name, value));
+                }
+                in_state_variable = false;
+            }
+            Event::End(e) => {
+                if local_tag(e.name().into_inner()) == "stateVariable" {
+                    in_state_variable = false;
+                    current_name = None;
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+
+    Ok(pairs)
+}
+
 impl UPnPAction for RenderingControlAction {
     type Response = RenderingControlResponse;
 
@@ -531,6 +597,7 @@ impl UPnPAction for RenderingControlAction {
             Self::SetLoudness(_) => "SetLoudness",
             Self::GetLoudness(_) => "GetLoudness",
             Self::GetStateVariables(_) => "GetStateVariables",
+            Self::SetStateVariables(_) => "SetStateVariables",
             Self::GetAllowedTransforms(_) => "GetAllowedTransforms",
             Self::GetTransforms(_) => "GetTransforms",
             Self::SetTransforms(_) => "SetTransforms",
@@ -539,7 +606,7 @@ impl UPnPAction for RenderingControlAction {
     }
 
     fn namespace(&self) -> &'static str {
-        "urn:schemas-upnp-org:service:RenderingControl:1"
+        SERVICE_TYPE
     }
 
     async fn handle(&self, renderer: Arc<MediaRenderer>) -> Result<Self::Response, SoapError> {
@@ -1372,6 +1439,97 @@ impl UPnPAction for RenderingControlAction {
                     GetStateVariablesResponse {
                         state_variable_value_pairs,
                     },
+                ))
+            }
+            Self::SetStateVariables(req) => {
+                let expected_udn = format!("uuid:{}", renderer.unique_id());
+                if req.rendering_control_udn != expected_udn {
+                    warn!(
+                        instance_id = req.instance_id,
+                        rendering_control_udn = %req.rendering_control_udn,
+                        "Handling SetStateVariables"
+                    );
+                    return Err(SoapError::Soap(SoapProtocolError::InvalidRenderingControlUdn(
+                        req.rendering_control_udn.clone(),
+                    )));
+                }
+                if req.service_type != SERVICE_TYPE {
+                    warn!(
+                        instance_id = req.instance_id,
+                        service_type = %req.service_type,
+                        "Handling SetStateVariables"
+                    );
+                    return Err(SoapError::Soap(SoapProtocolError::InvalidServiceType(
+                        req.service_type.clone(),
+                    )));
+                }
+                if req.service_id != SERVICE_ID {
+                    warn!(
+                        instance_id = req.instance_id,
+                        service_id = %req.service_id,
+                        "Handling SetStateVariables"
+                    );
+                    return Err(SoapError::Soap(SoapProtocolError::InvalidServiceId(
+                        req.service_id.clone(),
+                    )));
+                }
+
+                let pairs = parse_state_variable_value_pairs(&req.state_variable_value_pairs)?;
+
+                // Validated up front, all-or-nothing - unlike SetTransforms,
+                // nothing here says SetStateVariables tolerates a partial
+                // application, and 5.4.38's own wording ("all state
+                // variable values will be replaced") reads as all-or-
+                // nothing once the UDN/ServiceType/ServiceId check above
+                // passes.
+                for (name, _) in &pairs {
+                    if !ALL_STATE_VARIABLE_NAMES.contains(&name.as_str()) {
+                        warn!(
+                            instance_id = req.instance_id,
+                            variable_name = %name,
+                            "Handling SetStateVariables"
+                        );
+                        return Err(SoapError::Soap(
+                            SoapProtocolError::StateVariablesSpecifiedImproperly(name.clone()),
+                        ));
+                    }
+                }
+
+                for (name, value) in &pairs {
+                    let transform_name = match name.as_str() {
+                        "Volume" => "Volume_Master",
+                        "VolumeDB" => "VolumeDB_Master",
+                        "Mute" => "Mute_Master",
+                        "Loudness" => "Loudness_Master",
+                        other => other,
+                    };
+                    if apply_transform(control.as_ref(), transform_name, value)
+                        .await
+                        .is_err()
+                    {
+                        warn!(
+                            instance_id = req.instance_id,
+                            variable_name = %name,
+                            value = %value,
+                            "Handling SetStateVariables"
+                        );
+                        return Err(SoapError::Soap(SoapProtocolError::InvalidStateVariableValue(
+                            name.clone(),
+                        )));
+                    }
+                }
+
+                let state_variable_list =
+                    pairs.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(",");
+                info!(
+                    instance_id = req.instance_id,
+                    state_variable_list = %state_variable_list,
+                    "Handling SetStateVariables"
+                );
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetStateVariables(
+                    SetStateVariablesResponse { state_variable_list },
                 ))
             }
             Self::GetAllowedTransforms(req) => {

@@ -600,6 +600,46 @@
                 </argument>
             </argumentList>
         </action>
+        <!-- The write side of GetStateVariables above. RenderingControlUDN/
+             ServiceType/ServiceId are a compatibility check the control
+             point must pass before any value is applied - see
+             action.rs's SERVICE_TYPE/SERVICE_ID and its SetStateVariables
+             handling. -->
+        <action>
+            <name>SetStateVariables</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>RenderingControlUDN</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_DeviceUDN</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>ServiceType</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_ServiceType</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>ServiceId</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_ServiceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>StateVariableValuePairs</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_StateVariableValuePairs</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>StateVariableList</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>A_ARG_TYPE_StateVariableList</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
         <!-- Annex B.21 "legacy compatible transforms" - GetAllowedTransforms/
              GetTransforms/SetTransforms/GetAllAvailableTransforms are a set:
              the spec requires implementing all four together if any one is
@@ -860,6 +900,21 @@
              for the exact set (excludes LastChange/PresetNameList per spec). -->
         <stateVariable sendEvents="no">
             <name>A_ARG_TYPE_StateVariableList</name>
+            <dataType>string</dataType>
+        </stateVariable>
+        <!-- SetStateVariables's compatibility-check arguments - see its
+             action definition above and action.rs's SERVICE_TYPE/SERVICE_ID
+             constants for the exact values this renderer checks against. -->
+        <stateVariable sendEvents="no">
+            <name>A_ARG_TYPE_DeviceUDN</name>
+            <dataType>string</dataType>
+        </stateVariable>
+        <stateVariable sendEvents="no">
+            <name>A_ARG_TYPE_ServiceType</name>
+            <dataType>string</dataType>
+        </stateVariable>
+        <stateVariable sendEvents="no">
+            <name>A_ARG_TYPE_ServiceID</name>
             <dataType>string</dataType>
         </stateVariable>
         <!-- The <stateVariableValuePairs> XML document GetStateVariables
