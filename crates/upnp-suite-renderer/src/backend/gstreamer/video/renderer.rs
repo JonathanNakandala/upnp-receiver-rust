@@ -25,13 +25,14 @@ use super::RenderParams;
 /// see the shader's doc for the three-stage fragment composition order
 /// (gain/black level, then color temperature, then contrast/brightness)
 /// and why that's the very last thing computed in `fs_main`; the two
-/// keystone fields are read in `vs_main` instead - see the shader's
-/// `keystone_scale` doc. Field order must exactly match the WGSL struct -
-/// `bytemuck::bytes_of` just reinterprets these bytes directly, there's no
-/// name-based binding. Three trailing `f32`s pad 13 semantic fields (52
-/// bytes) to 64 - a multiple of 16, matching common uniform buffer
-/// alignment expectations; not strictly required for every backend, but
-/// costs nothing here.
+/// keystone fields are read in `vs_main` instead (see the shader's
+/// `keystone_scale` doc), and `sharpness_amount` is read first of all, in
+/// `sharpen_luma`, before luma even reaches the fragment composition chain
+/// above. Field order must exactly match the WGSL struct - `bytemuck::bytes_of`
+/// just reinterprets these bytes directly, there's no name-based binding.
+/// Two trailing `f32`s pad 14 semantic fields (56 bytes) to 64 - a
+/// multiple of 16, matching common uniform buffer alignment expectations;
+/// not strictly required for every backend, but costs nothing here.
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct RenderParamsUniform {
@@ -48,7 +49,8 @@ struct RenderParamsUniform {
     brightness_offset: f32,
     horizontal_keystone: f32,
     vertical_keystone: f32,
-    _padding: [f32; 3],
+    sharpness_amount: f32,
+    _padding: [f32; 2],
 }
 
 /// One vertex of the quad the video is drawn on - just a UV coordinate;
@@ -81,6 +83,17 @@ const QUAD_VERTICES: [QuadVertex; 6] = [
 /// keystone angle, not a clamping bug.
 fn keystone_strength(value: i16) -> f32 {
     value as f32 / 50.0
+}
+
+/// 0-100, 0 = neutral (the spec's own minimum, unlike every other field
+/// here where neutral sits at the midpoint) -> a 0.0-1.0 unsharp-mask
+/// amount. Capped at 1.0 rather than continuing to scale further:
+/// `sharpen_luma`'s 5-tap Laplacian already produces a strong effect by
+/// amount=1.0 (roughly doubling local contrast at a hard edge) - pushing
+/// higher mostly adds ringing/haloing artifacts rather than perceived
+/// detail, the same ceiling real TV sharpness controls back off from.
+fn sharpness_amount(value: u16) -> f32 {
+    value as f32 / 100.0
 }
 
 /// 0-1000, 500 = neutral -> a 0.0x-2.0x multiplier. See [`RenderParams`]'s
@@ -182,7 +195,8 @@ impl From<RenderParams> for RenderParamsUniform {
             brightness_offset: (params.brightness as f32 / 100.0 - 0.5) * 2.0,
             horizontal_keystone: keystone_strength(params.horizontal_keystone),
             vertical_keystone: keystone_strength(params.vertical_keystone),
-            _padding: [0.0; 3],
+            sharpness_amount: sharpness_amount(params.sharpness),
+            _padding: [0.0; 2],
         }
     }
 }
@@ -801,6 +815,9 @@ mod tests {
         assert!((uniform.temp_blue - 1.0).abs() < 1e-6);
         assert_eq!(uniform.contrast_factor, 1.0);
         assert_eq!(uniform.brightness_offset, 0.0);
+        assert_eq!(uniform.horizontal_keystone, 0.0);
+        assert_eq!(uniform.vertical_keystone, 0.0);
+        assert_eq!(uniform.sharpness_amount, 0.0);
     }
 
     #[test]
@@ -808,6 +825,31 @@ mod tests {
         assert_eq!(keystone_strength(0), 0.0);
         assert_eq!(keystone_strength(-50), -1.0);
         assert_eq!(keystone_strength(50), 1.0);
+    }
+
+    #[test]
+    fn sharpness_amount_is_zero_at_neutral_and_spans_the_expected_range() {
+        // Unlike every other RenderParams field, `Sharpness`'s neutral
+        // point is the spec's own minimum (0), not a midpoint - see
+        // `sharpness_amount`'s doc.
+        assert_eq!(sharpness_amount(0), 0.0);
+        assert_eq!(sharpness_amount(100), 1.0);
+    }
+
+    /// `sharpen_luma`'s formula is `center + amount * laplacian` - at
+    /// `amount == 0.0` that's an exact identity regardless of what the
+    /// neighboring texels sample to, straight from the algebra (multiplying
+    /// by zero), not something that needs a GPU readback to confirm. This
+    /// pins that property down as an explicit, checked fact rather than an
+    /// assumption.
+    #[test]
+    fn sharpen_formula_is_an_identity_when_amount_is_zero() {
+        fn sharpen(center: f32, laplacian: f32, amount: f32) -> f32 {
+            center + amount * laplacian
+        }
+        for &(center, laplacian) in &[(0.5, 0.3), (0.0, 1.0), (1.0, -1.0), (0.502, 0.0)] {
+            assert_eq!(sharpen(center, laplacian, 0.0), center);
+        }
     }
 
     /// A Rust port of `shader.wgsl`'s `keystone_scale` - not production

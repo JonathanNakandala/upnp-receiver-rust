@@ -19,6 +19,7 @@ pub struct RenderingState {
     color_temperature: u16,
     horizontal_keystone: i16,
     vertical_keystone: i16,
+    sharpness: u16,
 }
 
 impl Default for RenderingState {
@@ -37,6 +38,7 @@ impl Default for RenderingState {
             color_temperature: 50, // 50 = neutral = D65 (6500K)
             horizontal_keystone: 0, // 0 = neutral (no warp)
             vertical_keystone: 0,
+            sharpness: 0, // 0 = neutral (the spec's own minimum, not a midpoint)
         }
     }
 }
@@ -150,6 +152,11 @@ pub trait RenderingControl: Send + Sync {
     async fn get_horizontal_keystone(&self) -> Result<i16, ServiceError>;
     async fn set_vertical_keystone(&self, keystone: i16) -> Result<(), ServiceError>;
     async fn get_vertical_keystone(&self) -> Result<i16, ServiceError>;
+
+    /// UPnP's `Sharpness` - 0-100, 0 = neutral (the spec's own minimum,
+    /// unlike every other picture control here - see [`validate_range`]).
+    async fn set_sharpness(&self, sharpness: u16) -> Result<(), ServiceError>;
+    async fn get_sharpness(&self) -> Result<u16, ServiceError>;
 
     /// UPnP's `GetVolumeDB` — derived from `get_volume` rather than tracked
     /// separately, so it can never drift from `Volume`/whatever the backend
@@ -345,6 +352,16 @@ impl RenderingControl for RenderingControlImpl {
 
     async fn get_vertical_keystone(&self) -> Result<i16, ServiceError> {
         Ok(self.state.read().await.vertical_keystone)
+    }
+
+    async fn set_sharpness(&self, sharpness: u16) -> Result<(), ServiceError> {
+        validate_range(sharpness, 100, "Sharpness")?;
+        self.state.write().await.sharpness = sharpness;
+        Ok(())
+    }
+
+    async fn get_sharpness(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.sharpness)
     }
 }
 
@@ -556,5 +573,19 @@ mod tests {
 
         assert!(control.set_vertical_keystone(-51).await.is_err());
         assert!(control.set_vertical_keystone(51).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sharpness_control() {
+        let control = RenderingControlImpl::new();
+
+        // 0 = neutral - the spec's own minimum, unlike every other picture
+        // control here.
+        assert_eq!(control.get_sharpness().await.unwrap(), 0);
+
+        control.set_sharpness(75).await.unwrap();
+        assert_eq!(control.get_sharpness().await.unwrap(), 75);
+
+        assert!(control.set_sharpness(101).await.is_err());
     }
 }

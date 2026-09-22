@@ -478,3 +478,52 @@ async fn test_set_horizontal_keystone_rejects_out_of_range() {
         body
     );
 }
+
+// Sharpness specifically covers the one thing new relative to every other
+// picture control so far: neutral sits at the range's own minimum (0), not
+// its midpoint - there's no "soften" concept, only "how much sharpening".
+
+#[test(tokio::test)]
+async fn test_get_sharpness_default() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_sharpness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentSharpness>0</CurrentSharpness>"),
+        "Unexpected body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_sharpness_changes_get_sharpness() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_sharpness(75).await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_sharpness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentSharpness>75</CurrentSharpness>"),
+        "Sharpness change was not reflected: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_sharpness_rejects_out_of_range() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_sharpness(101).await;
+    assert_response(resp, 500).await;
+
+    let resp = client.get_sharpness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentSharpness>0</CurrentSharpness>"),
+        "Sharpness should not have changed after invalid SetSharpness: {}",
+        body
+    );
+}

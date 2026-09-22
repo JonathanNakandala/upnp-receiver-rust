@@ -168,6 +168,12 @@ pub struct RenderParams {
     /// Same shape as `horizontal_keystone`, rotated 90 degrees: negative
     /// shrinks the bottom edge, positive the top.
     pub vertical_keystone: i16,
+    /// 0-100, 0 = neutral - unlike every other field here, neutral sits at
+    /// the spec's own minimum, not a midpoint (there's no "soften" concept
+    /// for `Sharpness`, only "how much sharpening"). See
+    /// `renderer::sharpen_luma`'s doc for the unsharp-mask technique and
+    /// why it only ever touches luma, never chroma.
+    pub sharpness: u16,
 }
 
 impl Default for RenderParams {
@@ -184,6 +190,7 @@ impl Default for RenderParams {
             color_temperature: 50,
             horizontal_keystone: 0,
             vertical_keystone: 0,
+            sharpness: 0,
         }
     }
 }

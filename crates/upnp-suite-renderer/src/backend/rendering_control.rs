@@ -232,4 +232,19 @@ impl RenderingControl for MediaBackendRenderingControl {
             .await
             .map_err(Self::convert_error)
     }
+
+    async fn set_sharpness(&self, sharpness: u16) -> Result<(), ServiceError> {
+        validate_range(sharpness, 100, "Sharpness")?;
+        self.backend
+            .set_sharpness(sharpness)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_sharpness(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_sharpness()
+            .await
+            .map_err(Self::convert_error)
+    }
 }

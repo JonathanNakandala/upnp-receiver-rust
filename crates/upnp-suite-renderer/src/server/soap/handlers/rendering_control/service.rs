@@ -7,12 +7,13 @@ use crate::server::soap::types::rendering_control::{
     GetBlueVideoBlackLevelRequest, GetBlueVideoGainRequest, GetBrightnessRequest,
     GetColorTemperatureRequest, GetContrastRequest, GetGreenVideoBlackLevelRequest,
     GetGreenVideoGainRequest, GetHorizontalKeystoneRequest, GetMuteRequest,
-    GetRedVideoBlackLevelRequest, GetRedVideoGainRequest, GetVerticalKeystoneRequest,
-    GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest, ListPresetsRequest,
-    RenderingControlAction, SelectPresetRequest, SetBlueVideoBlackLevelRequest,
-    SetBlueVideoGainRequest, SetBrightnessRequest, SetColorTemperatureRequest, SetContrastRequest,
-    SetGreenVideoBlackLevelRequest, SetGreenVideoGainRequest, SetHorizontalKeystoneRequest,
-    SetMuteRequest, SetRedVideoBlackLevelRequest, SetRedVideoGainRequest,
+    GetRedVideoBlackLevelRequest, GetRedVideoGainRequest, GetSharpnessRequest,
+    GetVerticalKeystoneRequest, GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest,
+    ListPresetsRequest, RenderingControlAction, SelectPresetRequest,
+    SetBlueVideoBlackLevelRequest, SetBlueVideoGainRequest, SetBrightnessRequest,
+    SetColorTemperatureRequest, SetContrastRequest, SetGreenVideoBlackLevelRequest,
+    SetGreenVideoGainRequest, SetHorizontalKeystoneRequest, SetMuteRequest,
+    SetRedVideoBlackLevelRequest, SetRedVideoGainRequest, SetSharpnessRequest,
     SetVerticalKeystoneRequest, SetVolumeDBRequest, SetVolumeRequest,
 };
 
@@ -218,6 +219,16 @@ impl UPnPService for RenderingControlService {
                     action_name,
                 )?;
                 Ok(RenderingControlAction::GetVerticalKeystone(request))
+            }
+            "SetSharpness" => {
+                let request =
+                    extract_and_parse_soap_body::<SetSharpnessRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SetSharpness(request))
+            }
+            "GetSharpness" => {
+                let request =
+                    extract_and_parse_soap_body::<GetSharpnessRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetSharpness(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",

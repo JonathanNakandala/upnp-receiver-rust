@@ -107,6 +107,12 @@ pub trait MediaBackend: Send + Sync {
     async fn set_vertical_keystone(&self, keystone: i16) -> Result<(), MediaBackendError>;
     async fn get_vertical_keystone(&self) -> Result<i16, MediaBackendError>;
 
+    /// UPnP's `Sharpness` - 0-100, 0 = neutral (the spec's own minimum,
+    /// unlike every other picture control here). Unsharp masking on luma
+    /// only - see `video::RenderParams::sharpness`'s doc.
+    async fn set_sharpness(&self, sharpness: u16) -> Result<(), MediaBackendError>;
+    async fn get_sharpness(&self) -> Result<u16, MediaBackendError>;
+
     // Media info
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError>;
     async fn get_metadata(&self) -> Result<Option<String>, MediaBackendError>;

@@ -35,6 +35,8 @@ pub enum RenderingControlAction {
     GetHorizontalKeystone(GetHorizontalKeystoneRequest),
     SetVerticalKeystone(SetVerticalKeystoneRequest),
     GetVerticalKeystone(GetVerticalKeystoneRequest),
+    SetSharpness(SetSharpnessRequest),
+    GetSharpness(GetSharpnessRequest),
 }
 
 impl RenderingControlAction {
@@ -73,6 +75,8 @@ impl RenderingControlAction {
             Self::GetHorizontalKeystone(r) => r.instance_id,
             Self::SetVerticalKeystone(r) => r.instance_id,
             Self::GetVerticalKeystone(r) => r.instance_id,
+            Self::SetSharpness(r) => r.instance_id,
+            Self::GetSharpness(r) => r.instance_id,
         };
         InstanceId::new(raw)
     }
@@ -325,6 +329,23 @@ pub struct GetVerticalKeystoneRequest {
     pub instance_id: u32,
 }
 
+// Sharpness takes no Channel argument either, same reasoning as the rest
+// of this group.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetSharpnessRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_sharpness: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetSharpnessRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
 // Add response types
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -484,6 +505,16 @@ pub struct GetVerticalKeystoneResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetSharpnessResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetSharpnessResponse {
+    pub current_sharpness: u16,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum RenderingControlResponse {
     ListPresets(ListPresetsResponse),
@@ -517,4 +548,6 @@ pub enum RenderingControlResponse {
     HorizontalKeystone(GetHorizontalKeystoneResponse),
     SetVerticalKeystone(SetVerticalKeystoneResponse),
     VerticalKeystone(GetVerticalKeystoneResponse),
+    SetSharpness(SetSharpnessResponse),
+    Sharpness(GetSharpnessResponse),
 }
