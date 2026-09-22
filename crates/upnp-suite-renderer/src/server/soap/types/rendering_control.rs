@@ -31,6 +31,10 @@ pub enum RenderingControlAction {
     GetBlueVideoBlackLevel(GetBlueVideoBlackLevelRequest),
     SetColorTemperature(SetColorTemperatureRequest),
     GetColorTemperature(GetColorTemperatureRequest),
+    SetHorizontalKeystone(SetHorizontalKeystoneRequest),
+    GetHorizontalKeystone(GetHorizontalKeystoneRequest),
+    SetVerticalKeystone(SetVerticalKeystoneRequest),
+    GetVerticalKeystone(GetVerticalKeystoneRequest),
 }
 
 impl RenderingControlAction {
@@ -65,6 +69,10 @@ impl RenderingControlAction {
             Self::GetBlueVideoBlackLevel(r) => r.instance_id,
             Self::SetColorTemperature(r) => r.instance_id,
             Self::GetColorTemperature(r) => r.instance_id,
+            Self::SetHorizontalKeystone(r) => r.instance_id,
+            Self::GetHorizontalKeystone(r) => r.instance_id,
+            Self::SetVerticalKeystone(r) => r.instance_id,
+            Self::GetVerticalKeystone(r) => r.instance_id,
         };
         InstanceId::new(raw)
     }
@@ -284,6 +292,39 @@ pub struct GetColorTemperatureRequest {
     pub instance_id: u32,
 }
 
+// HorizontalKeystone/VerticalKeystone take no Channel argument either, same
+// reasoning as the rest of this group - and are signed (`i2`/`i16`), unlike
+// every other picture state variable here.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetHorizontalKeystoneRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_horizontal_keystone: i16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetHorizontalKeystoneRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetVerticalKeystoneRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_vertical_keystone: i16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetVerticalKeystoneRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
 // Add response types
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -423,6 +464,26 @@ pub struct GetColorTemperatureResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetHorizontalKeystoneResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetHorizontalKeystoneResponse {
+    pub current_horizontal_keystone: i16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetVerticalKeystoneResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetVerticalKeystoneResponse {
+    pub current_vertical_keystone: i16,
+}
+
+#[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum RenderingControlResponse {
     ListPresets(ListPresetsResponse),
@@ -452,4 +513,8 @@ pub enum RenderingControlResponse {
     BlueVideoBlackLevel(GetBlueVideoBlackLevelResponse),
     SetColorTemperature(SetColorTemperatureResponse),
     ColorTemperature(GetColorTemperatureResponse),
+    SetHorizontalKeystone(SetHorizontalKeystoneResponse),
+    HorizontalKeystone(GetHorizontalKeystoneResponse),
+    SetVerticalKeystone(SetVerticalKeystoneResponse),
+    VerticalKeystone(GetVerticalKeystoneResponse),
 }

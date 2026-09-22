@@ -22,14 +22,16 @@ use super::RenderParams;
 
 /// `shader.wgsl`'s `RenderParams` uniform, precomputed from the UPnP-facing
 /// [`RenderParams`] scales so the shader itself stays agnostic of them -
-/// see the shader's doc for the three-stage composition order (gain/black
-/// level, then color temperature, then contrast/brightness) and why this
-/// is the very last thing computed in `fs_main`. Field order must exactly
-/// match the WGSL struct - `bytemuck::bytes_of` just reinterprets these
-/// bytes directly, there's no name-based binding. One trailing `f32` pads
-/// 11 semantic fields (44 bytes) to 48 - a multiple of 16, matching common
-/// uniform buffer alignment expectations; not strictly required for every
-/// backend, but costs nothing here.
+/// see the shader's doc for the three-stage fragment composition order
+/// (gain/black level, then color temperature, then contrast/brightness)
+/// and why that's the very last thing computed in `fs_main`; the two
+/// keystone fields are read in `vs_main` instead - see the shader's
+/// `keystone_scale` doc. Field order must exactly match the WGSL struct -
+/// `bytemuck::bytes_of` just reinterprets these bytes directly, there's no
+/// name-based binding. Three trailing `f32`s pad 13 semantic fields (52
+/// bytes) to 64 - a multiple of 16, matching common uniform buffer
+/// alignment expectations; not strictly required for every backend, but
+/// costs nothing here.
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct RenderParamsUniform {
@@ -44,7 +46,41 @@ struct RenderParamsUniform {
     temp_blue: f32,
     contrast_factor: f32,
     brightness_offset: f32,
-    _padding: f32,
+    horizontal_keystone: f32,
+    vertical_keystone: f32,
+    _padding: [f32; 3],
+}
+
+/// One vertex of the quad the video is drawn on - just a UV coordinate;
+/// `vs_main` derives both the clip-space position (after keystone warping)
+/// and the texture-sampling UV from it. See [`QUAD_VERTICES`].
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct QuadVertex {
+    uv: [f32; 2],
+}
+
+/// Two triangles covering the unit square - `(0,0)` to `(1,1)` - in the
+/// same "uv.x/uv.y = 0 is left/bottom, 1 is right/top" convention
+/// `vs_main` has always used, just now as real vertices instead of derived
+/// from `vertex_index`. See `shader.wgsl`'s module doc for why Keystone
+/// needed this instead of the old zero-vertex-buffer trick.
+const QUAD_VERTICES: [QuadVertex; 6] = [
+    QuadVertex { uv: [0.0, 0.0] },
+    QuadVertex { uv: [1.0, 0.0] },
+    QuadVertex { uv: [0.0, 1.0] },
+    QuadVertex { uv: [1.0, 0.0] },
+    QuadVertex { uv: [1.0, 1.0] },
+    QuadVertex { uv: [0.0, 1.0] },
+];
+
+/// UPnP's HorizontalKeystone/VerticalKeystone - vendor-defined range per
+/// spec (minimum shall be `<= 0`); `-50..=50`, 0 = neutral, chosen here.
+/// `50` maps to the extreme where the shrinking edge collapses to a point
+/// (`keystone_scale` returns 0 there) - a legitimate, if extreme, real
+/// keystone angle, not a clamping bug.
+fn keystone_strength(value: i16) -> f32 {
+    value as f32 / 50.0
 }
 
 /// 0-1000, 500 = neutral -> a 0.0x-2.0x multiplier. See [`RenderParams`]'s
@@ -144,7 +180,9 @@ impl From<RenderParams> for RenderParamsUniform {
             contrast_factor: params.contrast as f32 / 50.0,
             // 50 (neutral) -> 0.0 offset. 0 -> -1.0, 100 -> +1.0.
             brightness_offset: (params.brightness as f32 / 100.0 - 0.5) * 2.0,
-            _padding: 0.0,
+            horizontal_keystone: keystone_strength(params.horizontal_keystone),
+            vertical_keystone: keystone_strength(params.vertical_keystone),
+            _padding: [0.0; 3],
         }
     }
 }
@@ -168,6 +206,10 @@ pub(super) struct Renderer {
     /// [`Renderer::set_render_params`].
     render_params_buffer: wgpu::Buffer,
     render_params_bind_group: wgpu::BindGroup,
+    /// [`QUAD_VERTICES`], uploaded once - static, never changes after
+    /// creation (Keystone warps the quad in the vertex shader, not by
+    /// changing these vertices).
+    quad_vertex_buffer: wgpu::Buffer,
     overlay_pipeline: wgpu::RenderPipeline,
     overlay_bind_group_layout: wgpu::BindGroupLayout,
     /// `None` until the first subtitle frame ever arrives - there may never
@@ -328,7 +370,10 @@ impl Renderer {
                 label: Some("render-params-bind-group-layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    // VERTEX too, not just FRAGMENT - `vs_main` reads
+                    // `horizontal_keystone`/`vertical_keystone` from this
+                    // same uniform to warp the quad.
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -357,11 +402,29 @@ impl Renderer {
             }],
         });
 
+        let quad_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("video-frame-quad-vertex-buffer"),
+            size: std::mem::size_of_val(&QUAD_VERTICES) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&quad_vertex_buffer, 0, bytemuck::cast_slice(&QUAD_VERTICES));
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("video-frame-pipeline-layout"),
             bind_group_layouts: &[Some(&bind_group_layout), Some(&render_params_bind_group_layout)],
             immediate_size: 0,
         });
+
+        let quad_vertex_buffer_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<QuadVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: 0,
+                shader_location: 0,
+            }],
+        };
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("video-frame-pipeline"),
@@ -369,7 +432,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[],
+                buffers: &[Some(quad_vertex_buffer_layout)],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -476,6 +539,7 @@ impl Renderer {
             supports_10bit,
             render_params_buffer,
             render_params_bind_group,
+            quad_vertex_buffer,
             overlay_pipeline,
             overlay_bind_group_layout,
             overlay_texture: None,
@@ -630,7 +694,9 @@ impl Renderer {
             // isn't stretched when the window/surface has a different one
             // (e.g. after toggling fullscreen) - the rest of the
             // already-black-cleared attachment shows through as letterbox
-            // bars.
+            // bars. `keystone_scale` only ever shrinks the quad toward its
+            // own center (see its doc), so it composes with this cleanly -
+            // the warped quad still fits entirely within this same rect.
             let (x, y, width, height) = letterboxed_viewport(
                 self.texture.size().width,
                 self.texture.size().height,
@@ -638,11 +704,12 @@ impl Renderer {
                 self.config.height,
             );
             pass.set_viewport(x, y, width, height, 0.0, 1.0);
-            // A single triangle that covers the whole viewport (positions
-            // computed in the vertex shader from `vertex_index`) - cheaper
-            // than a textured quad and just as correct for a full-screen
-            // blit.
-            pass.draw(0..3, 0..1);
+            // The quad (`QUAD_VERTICES`) Keystone warps in `vs_main` - see
+            // `shader.wgsl`'s module doc for why this is a real vertex
+            // buffer now rather than the old zero-buffer full-viewport
+            // triangle trick.
+            pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+            pass.draw(0..6, 0..1);
 
             // Second draw call, same pass: the subtitle overlay (if any),
             // alpha-blended on top of the video just drawn above, at the
@@ -734,5 +801,122 @@ mod tests {
         assert!((uniform.temp_blue - 1.0).abs() < 1e-6);
         assert_eq!(uniform.contrast_factor, 1.0);
         assert_eq!(uniform.brightness_offset, 0.0);
+    }
+
+    #[test]
+    fn keystone_strength_is_identity_at_neutral_and_spans_the_expected_range() {
+        assert_eq!(keystone_strength(0), 0.0);
+        assert_eq!(keystone_strength(-50), -1.0);
+        assert_eq!(keystone_strength(50), 1.0);
+    }
+
+    /// A Rust port of `shader.wgsl`'s `keystone_scale` - not production
+    /// code, exists purely so the geometric properties claimed in that
+    /// function's doc (and in `video::RenderParams::horizontal_keystone`'s)
+    /// are actually checked rather than just asserted in a comment. Keep in
+    /// sync with the WGSL if either changes.
+    fn keystone_scale_reference(pos: f32, shrink_near: f32, shrink_far: f32) -> f32 {
+        1.0 - shrink_near * (1.0 - pos) - shrink_far * pos
+    }
+
+    /// Where a `(x, y)` corner of the unit quad ends up after applying
+    /// horizontal keystone `h` and vertical keystone `v` (both already in
+    /// [`keystone_strength`]'s -1..=1 form) - mirrors `vs_main`'s warp
+    /// computation exactly, including using the *un-warped* `x`/`y` for
+    /// both axes' scale factors (see the shader's "computed from the same
+    /// original uv" comment on why).
+    fn warp_corner(x: f32, y: f32, h: f32, v: f32) -> (f32, f32) {
+        let y_scale = keystone_scale_reference(x, (-h).max(0.0), h.max(0.0));
+        let x_scale = keystone_scale_reference(y, (-v).max(0.0), v.max(0.0));
+        (0.5 + (x - 0.5) * x_scale, 0.5 + (y - 0.5) * y_scale)
+    }
+
+    #[test]
+    fn keystone_is_a_no_op_at_zero() {
+        for &(x, y) in &[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0), (0.5, 0.5)] {
+            assert_eq!(warp_corner(x, y, 0.0, 0.0), (x, y));
+        }
+    }
+
+    /// Per the UPnP spec's own `HorizontalKeystone` doc: negative shrinks
+    /// the left edge toward a point, right edge untouched, left/right edges
+    /// staying vertical (constant x) throughout - i.e. both left corners
+    /// converge on the same point on the vertical center line, and neither
+    /// right corner moves at all.
+    #[test]
+    fn negative_horizontal_keystone_collapses_the_left_edge_only() {
+        let top_left = warp_corner(0.0, 1.0, -1.0, 0.0);
+        let bottom_left = warp_corner(0.0, 0.0, -1.0, 0.0);
+        assert_eq!(top_left, (0.0, 0.5));
+        assert_eq!(bottom_left, (0.0, 0.5));
+        assert_eq!(top_left, bottom_left, "left edge should collapse to a single point");
+
+        assert_eq!(warp_corner(1.0, 1.0, -1.0, 0.0), (1.0, 1.0));
+        assert_eq!(warp_corner(1.0, 0.0, -1.0, 0.0), (1.0, 0.0));
+    }
+
+    /// Mirror image: positive shrinks the right edge, left untouched.
+    #[test]
+    fn positive_horizontal_keystone_collapses_the_right_edge_only() {
+        assert_eq!(warp_corner(1.0, 1.0, 1.0, 0.0), (1.0, 0.5));
+        assert_eq!(warp_corner(1.0, 0.0, 1.0, 0.0), (1.0, 0.5));
+
+        assert_eq!(warp_corner(0.0, 1.0, 1.0, 0.0), (0.0, 1.0));
+        assert_eq!(warp_corner(0.0, 0.0, 1.0, 0.0), (0.0, 0.0));
+    }
+
+    /// Vertical is the same shape rotated 90 degrees - negative collapses
+    /// the bottom edge, top untouched.
+    #[test]
+    fn negative_vertical_keystone_collapses_the_bottom_edge_only() {
+        let bottom_left = warp_corner(0.0, 0.0, 0.0, -1.0);
+        let bottom_right = warp_corner(1.0, 0.0, 0.0, -1.0);
+        assert_eq!(bottom_left, (0.5, 0.0));
+        assert_eq!(bottom_right, (0.5, 0.0));
+
+        assert_eq!(warp_corner(0.0, 1.0, 0.0, -1.0), (0.0, 1.0));
+        assert_eq!(warp_corner(1.0, 1.0, 0.0, -1.0), (1.0, 1.0));
+    }
+
+    #[test]
+    fn positive_vertical_keystone_collapses_the_top_edge_only() {
+        let top_left = warp_corner(0.0, 1.0, 0.0, 1.0);
+        let top_right = warp_corner(1.0, 1.0, 0.0, 1.0);
+        assert_eq!(top_left, (0.5, 1.0));
+        assert_eq!(top_right, (0.5, 1.0));
+
+        assert_eq!(warp_corner(0.0, 0.0, 0.0, 1.0), (0.0, 0.0));
+        assert_eq!(warp_corner(1.0, 0.0, 0.0, 1.0), (1.0, 0.0));
+    }
+
+    /// Horizontal and vertical keystone applied together should behave as
+    /// two independent axis warps, not interact - each computed from the
+    /// original corner, not chained.
+    #[test]
+    fn horizontal_and_vertical_keystone_combine_independently() {
+        let corner = warp_corner(0.0, 0.0, -1.0, -1.0);
+        // Bottom-left corner: horizontal keystone alone would put it at
+        // (0, 0.5); vertical keystone alone would put it at (0.5, 0).
+        // Together, each axis's scale factor is still computed from the
+        // *original* (0, 0), so both effects apply independently to that
+        // same starting point.
+        assert_eq!(corner, (0.5, 0.5));
+    }
+
+    /// The warped quad only ever shrinks toward its own center - it never
+    /// expands past the original unit square, which is exactly what lets
+    /// it compose with `letterboxed_viewport`'s aspect-correct rect without
+    /// that function needing to know keystone exists at all.
+    #[test]
+    fn keystone_never_expands_past_the_original_bounds() {
+        for h in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+            for v in [-1.0, -0.5, 0.0, 0.5, 1.0] {
+                for &(x, y) in &[(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+                    let (wx, wy) = warp_corner(x, y, h, v);
+                    assert!((0.0..=1.0).contains(&wx), "x out of bounds: {wx}");
+                    assert!((0.0..=1.0).contains(&wy), "y out of bounds: {wy}");
+                }
+            }
+        }
     }
 }

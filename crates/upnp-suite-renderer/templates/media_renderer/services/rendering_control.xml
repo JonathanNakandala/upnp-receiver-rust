@@ -450,6 +450,66 @@
                 </argument>
             </argumentList>
         </action>
+        <action>
+            <name>SetHorizontalKeystone</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>DesiredHorizontalKeystone</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>HorizontalKeystone</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>GetHorizontalKeystone</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>CurrentHorizontalKeystone</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>HorizontalKeystone</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>SetVerticalKeystone</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>DesiredVerticalKeystone</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>VerticalKeystone</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>GetVerticalKeystone</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>CurrentVerticalKeystone</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>VerticalKeystone</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
     </actionList>
     <serviceStateTable>
         <!-- Evented as a bundled LastChange NOTIFY (GENA), not individually —
@@ -576,6 +636,28 @@
             <allowedValueRange>
                 <minimum>0</minimum>
                 <maximum>100</maximum>
+                <step>1</step>
+            </allowedValueRange>
+        </stateVariable>
+        <!-- A trapezoidal warp of the displayed video's shape (real
+             projector keystone correction), not a color adjustment -
+             -50..50, 0 = neutral. See renderer.rs's keystone_scale doc for
+             the exact geometry. -->
+        <stateVariable sendEvents="no">
+            <name>HorizontalKeystone</name>
+            <dataType>i2</dataType>
+            <allowedValueRange>
+                <minimum>-50</minimum>
+                <maximum>50</maximum>
+                <step>1</step>
+            </allowedValueRange>
+        </stateVariable>
+        <stateVariable sendEvents="no">
+            <name>VerticalKeystone</name>
+            <dataType>i2</dataType>
+            <allowedValueRange>
+                <minimum>-50</minimum>
+                <maximum>50</maximum>
                 <step>1</step>
             </allowedValueRange>
         </stateVariable>

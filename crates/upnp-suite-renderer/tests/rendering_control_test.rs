@@ -426,3 +426,55 @@ async fn test_set_color_temperature_rejects_out_of_range() {
         body
     );
 }
+
+// HorizontalKeystone specifically covers the one thing new relative to
+// every other picture control so far: a *signed*, negative-capable range
+// (validate_signed_range, not validate_range) - out-of-range on both ends,
+// not just the top.
+
+#[test(tokio::test)]
+async fn test_get_horizontal_keystone_default() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_horizontal_keystone().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentHorizontalKeystone>0</CurrentHorizontalKeystone>"),
+        "Unexpected body: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_horizontal_keystone_changes_get_horizontal_keystone() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_horizontal_keystone(-25).await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_horizontal_keystone().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentHorizontalKeystone>-25</CurrentHorizontalKeystone>"),
+        "HorizontalKeystone change was not reflected: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_horizontal_keystone_rejects_out_of_range() {
+    let (_server, client) = setup().await;
+
+    let resp = client.set_horizontal_keystone(-51).await;
+    assert_response(resp, 500).await;
+    let resp = client.set_horizontal_keystone(51).await;
+    assert_response(resp, 500).await;
+
+    let resp = client.get_horizontal_keystone().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentHorizontalKeystone>0</CurrentHorizontalKeystone>"),
+        "HorizontalKeystone should not have changed after invalid SetHorizontalKeystone: {}",
+        body
+    );
+}

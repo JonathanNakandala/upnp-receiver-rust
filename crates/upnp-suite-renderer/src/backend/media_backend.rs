@@ -98,6 +98,15 @@ pub trait MediaBackend: Send + Sync {
     async fn set_color_temperature(&self, temperature: u16) -> Result<(), MediaBackendError>;
     async fn get_color_temperature(&self) -> Result<u16, MediaBackendError>;
 
+    /// UPnP's `HorizontalKeystone`/`VerticalKeystone` - -50..=50, 0 =
+    /// neutral, a trapezoidal warp of the displayed video's shape (real
+    /// projector keystone correction), not a color adjustment. See
+    /// `video::RenderParams::horizontal_keystone`'s doc.
+    async fn set_horizontal_keystone(&self, keystone: i16) -> Result<(), MediaBackendError>;
+    async fn get_horizontal_keystone(&self) -> Result<i16, MediaBackendError>;
+    async fn set_vertical_keystone(&self, keystone: i16) -> Result<(), MediaBackendError>;
+    async fn get_vertical_keystone(&self) -> Result<i16, MediaBackendError>;
+
     // Media info
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError>;
     async fn get_metadata(&self) -> Result<Option<String>, MediaBackendError>;
