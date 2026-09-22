@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tracing::{debug, error, info, trace, warn};
 
+use super::audio;
 use super::cache_src::{self, ChunkCache, Prefetcher};
 use super::decoder_watchdog;
 use super::video::{self, VideoOutput};
@@ -84,6 +85,15 @@ pub(super) struct PlayerState {
     // newly opened video window is seeded with (see `video::RenderParams`'s
     // doc, and `push_render_params` below).
     picture: video::RenderParams,
+    // UPnP RenderingControl's audio EQ state (currently just `Loudness`) -
+    // the source of truth `get_loudness` reads back, and what
+    // `audio::apply_loudness` is recomputed from on every `SetLoudness` and
+    // `SetVolume` (volume changes the target curve too - see
+    // `audio::apply_loudness`'s doc). Unlike `picture`, this has a real
+    // GStreamer element backing it (`Pipeline::audio_filter`), but the value
+    // itself still needs to persist here for `get_loudness` and to survive
+    // an `ensure_playbin_version` rebuild.
+    audio: audio::AudioParams,
 }
 
 impl Default for PlayerState {
@@ -99,6 +109,7 @@ impl Default for PlayerState {
             stream_collection: None,
             subtitles_enabled: true,
             picture: video::RenderParams::default(),
+            audio: audio::AudioParams::default(),
         }
     }
 }
@@ -159,6 +170,11 @@ pub(super) struct BackendHandles {
 pub(super) struct Pipeline {
     pub(super) playbin: gst::Element,
     pub(super) version: PlaybinVersion,
+    // The `equalizer-nbands` element inside `playbin`'s `audio-filter` bin
+    // (see `audio::build_audio_filter`) - kept separately from `playbin`
+    // itself so `audio::apply_loudness` can reach it directly, without
+    // walking the filter bin's children on every `SetLoudness`/`SetVolume`.
+    pub(super) audio_filter: gst::Element,
     bus_watcher: tokio::task::JoinHandle<()>,
 }
 
@@ -210,6 +226,18 @@ impl Pipeline {
         // for what this changes and why.
         playbin.set_property("text-sink", video::build_subtitle_sink(video_sink_output)?);
 
+        // Same insertion pattern as `video-sink`/`text-sink` above: a custom
+        // element `playbin` runs the decoded stream through before its real
+        // sink. See `audio::build_audio_filter`'s doc for why this exists
+        // (Loudness compensation) even for a V1 (audio-only) pipeline.
+        let (audio_filter_bin, audio_filter) = audio::build_audio_filter()?;
+        playbin.set_property("audio-filter", &audio_filter_bin);
+        audio::apply_loudness(
+            &audio_filter,
+            handles.state.lock().unwrap().audio,
+            playbin.property("volume"),
+        );
+
         let bus_watcher = spawn_bus_watcher(
             playbin.clone(),
             handles.state.clone(),
@@ -221,6 +249,7 @@ impl Pipeline {
         Ok(Self {
             playbin,
             version,
+            audio_filter,
             bus_watcher,
         })
     }
@@ -436,6 +465,10 @@ impl GStreamerBackend {
         let replacement = Pipeline::build(desired, &self.handles())?;
         replacement.playbin.set_property("volume", volume);
         replacement.playbin.set_property("mute", mute);
+        // `Pipeline::build` already applied loudness once, but against the
+        // fresh element's default volume (1.0), not `volume` just carried
+        // over above - reapply now that the real volume is in place.
+        audio::apply_loudness(&replacement.audio_filter, self.state.lock().unwrap().audio, volume);
 
         std::mem::replace(&mut *pipeline, replacement).shutdown();
         Ok(())
@@ -447,6 +480,12 @@ impl GStreamerBackend {
     /// `ensure_playbin_version` swap never blocks on them.
     fn playbin(&self) -> gst::Element {
         self.pipeline.lock().unwrap().playbin.clone()
+    }
+
+    /// The current pipeline's Loudness EQ element - same cheap-clone,
+    /// don't-hold-the-lock reasoning as [`Self::playbin`].
+    fn audio_filter(&self) -> gst::Element {
+        self.pipeline.lock().unwrap().audio_filter.clone()
     }
 
     /// Pushes the current picture state to the video window, if one exists,
@@ -1045,6 +1084,11 @@ impl MediaBackend for GStreamerBackend {
     async fn set_volume(&self, volume: u8) -> Result<(), MediaBackendError> {
         let linear = (volume as f64 / 100.0).clamp(0.0, 1.0);
         self.playbin().set_property("volume", linear);
+        // Volume changing moves the Loudness compensation curve's target
+        // too, even though Loudness's own value didn't change - see
+        // `audio::apply_loudness`'s doc.
+        let params = self.state.lock().unwrap().audio;
+        audio::apply_loudness(&self.audio_filter(), params, linear);
         Ok(())
     }
 
@@ -1060,6 +1104,21 @@ impl MediaBackend for GStreamerBackend {
 
     async fn get_mute(&self) -> Result<bool, MediaBackendError> {
         Ok(self.playbin().property("mute"))
+    }
+
+    async fn set_loudness(&self, loudness: bool) -> Result<(), MediaBackendError> {
+        let params = {
+            let mut state = self.state.lock().unwrap();
+            state.audio.loudness = loudness;
+            state.audio
+        };
+        let linear_volume: f64 = self.playbin().property("volume");
+        audio::apply_loudness(&self.audio_filter(), params, linear_volume);
+        Ok(())
+    }
+
+    async fn get_loudness(&self) -> Result<bool, MediaBackendError> {
+        Ok(self.state.lock().unwrap().audio.loudness)
     }
 
     async fn set_brightness(&self, brightness: u16) -> Result<(), MediaBackendError> {

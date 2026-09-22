@@ -199,6 +199,7 @@ pub struct RenderingControlEventState {
     pub horizontal_keystone: i16,
     pub vertical_keystone: i16,
     pub sharpness: u16,
+    pub loudness: bool,
 }
 
 /// Builds the `LastChange` inner XML for a RenderingControl state change
@@ -230,6 +231,7 @@ pub fn rendering_control_last_change(
             r#"<HorizontalKeystone val="{horizontal_keystone}"/>"#,
             r#"<VerticalKeystone val="{vertical_keystone}"/>"#,
             r#"<Sharpness val="{sharpness}"/>"#,
+            r#"<Loudness channel="Master" val="{loudness}"/>"#,
             r#"</InstanceID>"#,
             r#"</Event>"#
         ),
@@ -249,6 +251,7 @@ pub fn rendering_control_last_change(
         horizontal_keystone = state.horizontal_keystone,
         vertical_keystone = state.vertical_keystone,
         sharpness = state.sharpness,
+        loudness = if state.loudness { "1" } else { "0" },
     );
 
     wrap_property_set(&inner)
@@ -408,6 +411,7 @@ mod tests {
             horizontal_keystone: 0,
             vertical_keystone: 0,
             sharpness: 0,
+            loudness: false,
         }
     }
 
@@ -465,6 +469,14 @@ mod tests {
         assert!(body.contains("GreenVideoBlackLevel val=&quot;400&quot;"));
         assert!(body.contains("BlueVideoBlackLevel val=&quot;500&quot;"));
         assert!(body.contains("ColorTemperature val=&quot;0&quot;"));
+    }
+
+    #[test]
+    fn rendering_control_event_reports_loudness() {
+        let mut state = test_state(10, false);
+        state.loudness = true;
+        let body = rendering_control_last_change(InstanceId::DEFAULT, state);
+        assert!(body.contains("Loudness channel=&quot;Master&quot; val=&quot;1&quot;"));
     }
 
     #[test]

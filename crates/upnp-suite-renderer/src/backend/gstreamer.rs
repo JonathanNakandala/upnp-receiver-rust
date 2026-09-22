@@ -4,6 +4,7 @@
 //! which callers use to decide whether to fall
 //! back to [`dummy`](super::dummy).
 
+mod audio;
 pub mod backend;
 pub mod cache_src;
 pub mod codecs;

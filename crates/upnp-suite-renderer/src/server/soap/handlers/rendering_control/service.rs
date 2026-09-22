@@ -8,11 +8,11 @@ use crate::server::soap::types::rendering_control::{
     GetColorTemperatureRequest, GetContrastRequest, GetGreenVideoBlackLevelRequest,
     GetGreenVideoGainRequest, GetHorizontalKeystoneRequest, GetMuteRequest,
     GetRedVideoBlackLevelRequest, GetRedVideoGainRequest, GetSharpnessRequest,
-    GetVerticalKeystoneRequest, GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest,
-    ListPresetsRequest, RenderingControlAction, SelectPresetRequest,
+    GetLoudnessRequest, GetVerticalKeystoneRequest, GetVolumeDBRangeRequest, GetVolumeDBRequest,
+    GetVolumeRequest, ListPresetsRequest, RenderingControlAction, SelectPresetRequest,
     SetBlueVideoBlackLevelRequest, SetBlueVideoGainRequest, SetBrightnessRequest,
     SetColorTemperatureRequest, SetContrastRequest, SetGreenVideoBlackLevelRequest,
-    SetGreenVideoGainRequest, SetHorizontalKeystoneRequest, SetMuteRequest,
+    SetGreenVideoGainRequest, SetHorizontalKeystoneRequest, SetLoudnessRequest, SetMuteRequest,
     SetRedVideoBlackLevelRequest, SetRedVideoGainRequest, SetSharpnessRequest,
     SetVerticalKeystoneRequest, SetVolumeDBRequest, SetVolumeRequest,
 };
@@ -229,6 +229,16 @@ impl UPnPService for RenderingControlService {
                 let request =
                     extract_and_parse_soap_body::<GetSharpnessRequest>(content, action_name)?;
                 Ok(RenderingControlAction::GetSharpness(request))
+            }
+            "SetLoudness" => {
+                let request =
+                    extract_and_parse_soap_body::<SetLoudnessRequest>(content, action_name)?;
+                Ok(RenderingControlAction::SetLoudness(request))
+            }
+            "GetLoudness" => {
+                let request =
+                    extract_and_parse_soap_body::<GetLoudnessRequest>(content, action_name)?;
+                Ok(RenderingControlAction::GetLoudness(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",

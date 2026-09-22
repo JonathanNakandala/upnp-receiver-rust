@@ -427,6 +427,39 @@ impl<'a> RenderingControlClient<'a> {
         Ok(())
     }
 
+    /// UPnP's `Loudness` - a boolean, unlike every other RenderingControl
+    /// field here. Toggles the renderer's physiological loudness
+    /// compensation (bass/treble boost that tapers as volume rises).
+    pub async fn get_loudness(&self) -> Result<bool, ClientError> {
+        let fields = self
+            .invoke(
+                "GetLoudness",
+                &[
+                    ("InstanceID", DEFAULT_INSTANCE_ID),
+                    ("Channel", MASTER_CHANNEL),
+                ],
+            )
+            .await?;
+
+        Ok(fields
+            .get("CurrentLoudness")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false))
+    }
+
+    pub async fn set_loudness(&self, loudness: bool) -> Result<(), ClientError> {
+        self.invoke(
+            "SetLoudness",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("Channel", MASTER_CHANNEL),
+                ("DesiredLoudness", if loudness { "1" } else { "0" }),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_volume_db_range(&self) -> Result<VolumeDbRange, ClientError> {
         let fields = self
             .invoke(

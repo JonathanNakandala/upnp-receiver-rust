@@ -5,11 +5,12 @@
 //! polled directly here via `GetPositionInfo`.
 //!
 //! Also accepts playback controls: space toggles play/pause, `s` stops,
-//! `+`/`-` step volume, `m` toggles mute, and - only when the current
-//! track's DIDL-Lite metadata looks like video (see
-//! [`upnp_suite_client::suggests_video`]) - `b`/`B` step brightness, `c`/`C`
-//! step contrast, `t`/`T` step color temperature cooler/warmer, and `h`/`H`
-//! step sharpness. Issued
+//! `+`/`-` step volume, `m` toggles mute, `l` toggles Loudness compensation
+//! (audio-only, not gated on content type like the picture controls below),
+//! and - only when the current track's DIDL-Lite metadata looks like video
+//! (see [`upnp_suite_client::suggests_video`]) - `b`/`B` step brightness,
+//! `c`/`C` step contrast, `t`/`T` step color temperature cooler/warmer, and
+//! `h`/`H` step sharpness. Issued
 //! as SOAP actions against the selected device and reflected back once its
 //! GENA NOTIFY (or the next position poll) catches up.
 //!
@@ -175,6 +176,8 @@ pub async fn run(wait: Duration) {
                             rendering_rx.as_ref().map(|rx| rx.borrow().color_temperature);
                         let current_sharpness =
                             rendering_rx.as_ref().map(|rx| rx.borrow().sharpness);
+                        let current_loudness =
+                            rendering_rx.as_ref().map(|rx| rx.borrow().loudness);
 
                         match key.code {
                             KeyCode::Char(' ') => {
@@ -208,6 +211,17 @@ pub async fn run(wait: Duration) {
                                 if let (Some(rc), Some(muted)) = (&rc, current_muted) {
                                     if let Err(err) = rc.set_mute(!muted).await {
                                         eprintln!("Set mute failed: {err}");
+                                    }
+                                }
+                            }
+                            // Audio-only, not gated on `is_video` like the
+                            // picture controls below - Loudness compensation
+                            // applies to the mix regardless of whether the
+                            // current track has a video component.
+                            KeyCode::Char('l') => {
+                                if let (Some(rc), Some(loudness)) = (&rc, current_loudness) {
+                                    if let Err(err) = rc.set_loudness(!loudness).await {
+                                        eprintln!("Set loudness failed: {err}");
                                     }
                                 }
                             }
@@ -340,10 +354,10 @@ fn render(
     frame.render_widget(picture_panel(rendering, is_video), layout[4]);
 
     let help = if is_video {
-        "space play/pause · s stop · +/- volume · m mute · b/B brightness · c/C contrast · \
-         t/T color temp · h/H sharpness · q / Esc / Ctrl-C quit"
+        "space play/pause · s stop · +/- volume · m mute · l loudness · b/B brightness · \
+         c/C contrast · t/T color temp · h/H sharpness · q / Esc / Ctrl-C quit"
     } else {
-        "space play/pause · s stop · +/- volume · m mute · q / Esc / Ctrl-C quit"
+        "space play/pause · s stop · +/- volume · m mute · l loudness · q / Esc / Ctrl-C quit"
     };
     frame.render_widget(Paragraph::new(help).dim(), layout[5]);
 }
@@ -396,9 +410,10 @@ fn position_gauge(position: &PositionInfo) -> Gauge<'static> {
 fn volume_panel(rendering: Option<&RenderingControlSnapshot>) -> Paragraph<'static> {
     let text = match rendering {
         Some(snapshot) => format!(
-            "Volume: {}{}",
+            "Volume: {}{}{}",
             snapshot.volume,
-            if snapshot.muted { " (muted)" } else { "" }
+            if snapshot.muted { " (muted)" } else { "" },
+            if snapshot.loudness { " · Loudness: on" } else { "" }
         ),
         None => "RenderingControl not available on this device".to_string(),
     };
