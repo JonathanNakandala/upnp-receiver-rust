@@ -63,12 +63,28 @@ pub async fn handle_rendering_control_events(
             let muted = control.get_mute().await.unwrap_or(false);
             let brightness = control.get_brightness().await.unwrap_or(50);
             let contrast = control.get_contrast().await.unwrap_or(50);
+            let red_gain = control.get_red_video_gain().await.unwrap_or(500);
+            let green_gain = control.get_green_video_gain().await.unwrap_or(500);
+            let blue_gain = control.get_blue_video_gain().await.unwrap_or(500);
+            let red_black_level = control.get_red_video_black_level().await.unwrap_or(500);
+            let green_black_level = control.get_green_video_black_level().await.unwrap_or(500);
+            let blue_black_level = control.get_blue_video_black_level().await.unwrap_or(500);
+            let color_temperature = control.get_color_temperature().await.unwrap_or(50);
             last_change::rendering_control_last_change(
                 InstanceId::DEFAULT,
-                volume,
-                muted,
-                brightness,
-                contrast,
+                last_change::RenderingControlEventState {
+                    volume,
+                    muted,
+                    brightness,
+                    contrast,
+                    red_gain,
+                    green_gain,
+                    blue_gain,
+                    red_black_level,
+                    green_black_level,
+                    blue_black_level,
+                    color_temperature,
+                },
             )
         }
     };

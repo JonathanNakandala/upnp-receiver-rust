@@ -10,6 +10,13 @@ pub struct RenderingState {
     mute: bool,
     brightness: u16,
     contrast: u16,
+    red_gain: u16,
+    green_gain: u16,
+    blue_gain: u16,
+    red_black_level: u16,
+    green_black_level: u16,
+    blue_black_level: u16,
+    color_temperature: u16,
 }
 
 impl Default for RenderingState {
@@ -19,19 +26,35 @@ impl Default for RenderingState {
             mute: false,
             brightness: 50, // 50 = neutral/no adjustment
             contrast: 50,
+            red_gain: 500, // 500 = neutral/no adjustment (0-1000 range)
+            green_gain: 500,
+            blue_gain: 500,
+            red_black_level: 500,
+            green_black_level: 500,
+            blue_black_level: 500,
+            color_temperature: 50, // 50 = neutral = D65 (6500K)
         }
     }
 }
 
-/// Shared 0-100 range check for `Brightness`/`Contrast` - both use the same
-/// linear percent scale as `Volume`, with 50 as the neutral midpoint.
-pub fn validate_percent(value: u16, name: &str) -> Result<(), ServiceError> {
-    if value > 100 {
+/// Shared range check, `0..=max`. `Brightness`/`Contrast`/`ColorTemperature`
+/// use `max = 100` (a plain percent scale, 50 = neutral); the Gain/
+/// BlackLevel pair uses `max = 1000` (500 = neutral) - see
+/// `gstreamer::video::RenderParams`'s doc for why those need finer steps.
+pub fn validate_range(value: u16, max: u16, name: &str) -> Result<(), ServiceError> {
+    if value > max {
         return Err(ServiceError::InvalidValue(format!(
-            "{name} must be between 0 and 100, got {value}"
+            "{name} must be between 0 and {max}, got {value}"
         )));
     }
     Ok(())
+}
+
+/// `validate_range(value, 100, name)` - kept as its own name since
+/// `Brightness`/`Contrast`/`ColorTemperature`'s 0-100 percent scale is the
+/// common case callers reach for.
+pub fn validate_percent(value: u16, name: &str) -> Result<(), ServiceError> {
+    validate_range(value, 100, name)
 }
 
 // UPnP's `VolumeDB` has no spec-mandated scale, and implementations vary
@@ -82,6 +105,26 @@ pub trait RenderingControl: Send + Sync {
     async fn get_brightness(&self) -> Result<u16, ServiceError>;
     async fn set_contrast(&self, contrast: u16) -> Result<(), ServiceError>;
     async fn get_contrast(&self) -> Result<u16, ServiceError>;
+
+    /// UPnP's 2-point white balance pair per primary color - `Output = Gain
+    /// * Input + BlackLevel`. 0-1000, 500 = neutral for both (see
+    /// [`validate_range`]).
+    async fn set_red_video_gain(&self, gain: u16) -> Result<(), ServiceError>;
+    async fn get_red_video_gain(&self) -> Result<u16, ServiceError>;
+    async fn set_green_video_gain(&self, gain: u16) -> Result<(), ServiceError>;
+    async fn get_green_video_gain(&self) -> Result<u16, ServiceError>;
+    async fn set_blue_video_gain(&self, gain: u16) -> Result<(), ServiceError>;
+    async fn get_blue_video_gain(&self) -> Result<u16, ServiceError>;
+    async fn set_red_video_black_level(&self, level: u16) -> Result<(), ServiceError>;
+    async fn get_red_video_black_level(&self) -> Result<u16, ServiceError>;
+    async fn set_green_video_black_level(&self, level: u16) -> Result<(), ServiceError>;
+    async fn get_green_video_black_level(&self) -> Result<u16, ServiceError>;
+    async fn set_blue_video_black_level(&self, level: u16) -> Result<(), ServiceError>;
+    async fn get_blue_video_black_level(&self) -> Result<u16, ServiceError>;
+
+    /// UPnP's `ColorTemperature` - 0-100, 50 = neutral = D65 (6500K).
+    async fn set_color_temperature(&self, temperature: u16) -> Result<(), ServiceError>;
+    async fn get_color_temperature(&self) -> Result<u16, ServiceError>;
 
     /// UPnP's `GetVolumeDB` — derived from `get_volume` rather than tracked
     /// separately, so it can never drift from `Volume`/whatever the backend
@@ -187,6 +230,76 @@ impl RenderingControl for RenderingControlImpl {
 
     async fn get_contrast(&self) -> Result<u16, ServiceError> {
         Ok(self.state.read().await.contrast)
+    }
+
+    async fn set_red_video_gain(&self, gain: u16) -> Result<(), ServiceError> {
+        validate_range(gain, 1000, "RedVideoGain")?;
+        self.state.write().await.red_gain = gain;
+        Ok(())
+    }
+
+    async fn get_red_video_gain(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.red_gain)
+    }
+
+    async fn set_green_video_gain(&self, gain: u16) -> Result<(), ServiceError> {
+        validate_range(gain, 1000, "GreenVideoGain")?;
+        self.state.write().await.green_gain = gain;
+        Ok(())
+    }
+
+    async fn get_green_video_gain(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.green_gain)
+    }
+
+    async fn set_blue_video_gain(&self, gain: u16) -> Result<(), ServiceError> {
+        validate_range(gain, 1000, "BlueVideoGain")?;
+        self.state.write().await.blue_gain = gain;
+        Ok(())
+    }
+
+    async fn get_blue_video_gain(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.blue_gain)
+    }
+
+    async fn set_red_video_black_level(&self, level: u16) -> Result<(), ServiceError> {
+        validate_range(level, 1000, "RedVideoBlackLevel")?;
+        self.state.write().await.red_black_level = level;
+        Ok(())
+    }
+
+    async fn get_red_video_black_level(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.red_black_level)
+    }
+
+    async fn set_green_video_black_level(&self, level: u16) -> Result<(), ServiceError> {
+        validate_range(level, 1000, "GreenVideoBlackLevel")?;
+        self.state.write().await.green_black_level = level;
+        Ok(())
+    }
+
+    async fn get_green_video_black_level(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.green_black_level)
+    }
+
+    async fn set_blue_video_black_level(&self, level: u16) -> Result<(), ServiceError> {
+        validate_range(level, 1000, "BlueVideoBlackLevel")?;
+        self.state.write().await.blue_black_level = level;
+        Ok(())
+    }
+
+    async fn get_blue_video_black_level(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.blue_black_level)
+    }
+
+    async fn set_color_temperature(&self, temperature: u16) -> Result<(), ServiceError> {
+        validate_percent(temperature, "ColorTemperature")?;
+        self.state.write().await.color_temperature = temperature;
+        Ok(())
+    }
+
+    async fn get_color_temperature(&self) -> Result<u16, ServiceError> {
+        Ok(self.state.read().await.color_temperature)
     }
 }
 
@@ -303,5 +416,74 @@ mod tests {
         assert_eq!(control.get_contrast().await.unwrap(), 20);
 
         assert!(control.set_contrast(101).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_red_video_gain_control() {
+        let control = RenderingControlImpl::new();
+
+        assert_eq!(control.get_red_video_gain().await.unwrap(), 500);
+
+        control.set_red_video_gain(750).await.unwrap();
+        assert_eq!(control.get_red_video_gain().await.unwrap(), 750);
+
+        assert!(control.set_red_video_gain(1001).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_green_video_gain_control() {
+        let control = RenderingControlImpl::new();
+        control.set_green_video_gain(0).await.unwrap();
+        assert_eq!(control.get_green_video_gain().await.unwrap(), 0);
+        assert!(control.set_green_video_gain(1001).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_blue_video_gain_control() {
+        let control = RenderingControlImpl::new();
+        control.set_blue_video_gain(1000).await.unwrap();
+        assert_eq!(control.get_blue_video_gain().await.unwrap(), 1000);
+        assert!(control.set_blue_video_gain(1001).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_red_video_black_level_control() {
+        let control = RenderingControlImpl::new();
+
+        assert_eq!(control.get_red_video_black_level().await.unwrap(), 500);
+
+        control.set_red_video_black_level(300).await.unwrap();
+        assert_eq!(control.get_red_video_black_level().await.unwrap(), 300);
+
+        assert!(control.set_red_video_black_level(1001).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_green_video_black_level_control() {
+        let control = RenderingControlImpl::new();
+        control.set_green_video_black_level(300).await.unwrap();
+        assert_eq!(control.get_green_video_black_level().await.unwrap(), 300);
+        assert!(control.set_green_video_black_level(1001).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_blue_video_black_level_control() {
+        let control = RenderingControlImpl::new();
+        control.set_blue_video_black_level(300).await.unwrap();
+        assert_eq!(control.get_blue_video_black_level().await.unwrap(), 300);
+        assert!(control.set_blue_video_black_level(1001).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_color_temperature_control() {
+        let control = RenderingControlImpl::new();
+
+        // 50 = neutral = D65 (6500K) - see RenderParams::color_temperature's doc.
+        assert_eq!(control.get_color_temperature().await.unwrap(), 50);
+
+        control.set_color_temperature(0).await.unwrap();
+        assert_eq!(control.get_color_temperature().await.unwrap(), 0);
+
+        assert!(control.set_color_temperature(101).await.is_err());
     }
 }

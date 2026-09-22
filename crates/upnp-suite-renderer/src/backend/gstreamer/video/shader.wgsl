@@ -28,17 +28,38 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 @group(0) @binding(1) var uv_texture: texture_2d<f32>;
 @group(0) @binding(2) var frame_sampler: sampler;
 
-// UPnP RenderingControl's Brightness/Contrast (see `renderer.rs`'s
-// `RenderParams` - `contrast_factor` and `brightness_offset` are precomputed
-// there from the 0-100 UPnP scale, not raw UPnP values, so this shader
-// doesn't need to know that scale). Applied last, after YUV -> RGB, and
-// deliberately the very last operation in this shader - see this crate's
-// RenderingControl design notes on why: if HDR/wide-gamut output is ever
-// added, whatever tone-maps it down to this same display-referred RGB must
-// run *before* this adjustment, never after, or this pivot-at-0.5 math
-// (tuned for gamma-encoded SDR output) stops meaning what a control point
-// expects "more contrast" to mean.
+// UPnP RenderingControl's picture state, precomputed in `renderer.rs` from
+// the UPnP-facing values (0-100 for Brightness/Contrast/ColorTemperature,
+// 0-1000 for the Gain/BlackLevel pair - see `video::RenderParams`'s doc for
+// why) into the multipliers/offsets this shader actually applies, so this
+// shader stays agnostic of those scales.
+//
+// Composition order below is deliberate, in three stages, each applied to
+// the previous stage's output:
+//   1. gain/black_level - per-channel calibration (`Output = Gain * Input +
+//      BlackLevel`, the standard 2-point white balance model), correcting
+//      the signal toward accurate.
+//   2. color_temperature - a warm/cool tint relative to that corrected
+//      signal, still a per-channel multiply.
+//   3. contrast/brightness - the final global picture-preference layer, on
+//      top of an already color-corrected signal.
+// All three happen after YUV -> RGB, and deliberately the very last
+// operations in this shader - see this crate's RenderingControl design
+// notes on why: if HDR/wide-gamut output is ever added, whatever
+// tone-maps it down to this same display-referred RGB must run *before*
+// this whole block, never after, or the contrast pivot-at-0.5 math (tuned
+// for gamma-encoded SDR output) stops meaning what a control point expects
+// "more contrast" to mean.
 struct RenderParams {
+    red_gain: f32,
+    green_gain: f32,
+    blue_gain: f32,
+    red_black_level: f32,
+    green_black_level: f32,
+    blue_black_level: f32,
+    temp_red: f32,
+    temp_green: f32,
+    temp_blue: f32,
     contrast_factor: f32,
     brightness_offset: f32,
 }
@@ -63,7 +84,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let g = 1.164384 * y - 0.213249 * u - 0.532909 * v;
     let b = 1.164384 * y + 2.112402 * u;
 
-    let adjusted = (vec3<f32>(r, g, b) - 0.5) * render_params.contrast_factor
+    let gain = vec3<f32>(render_params.red_gain, render_params.green_gain, render_params.blue_gain);
+    let black_level = vec3<f32>(
+        render_params.red_black_level,
+        render_params.green_black_level,
+        render_params.blue_black_level,
+    );
+    let calibrated = vec3<f32>(r, g, b) * gain + black_level;
+
+    let temp = vec3<f32>(render_params.temp_red, render_params.temp_green, render_params.temp_blue);
+    let tinted = calibrated * temp;
+
+    let adjusted = (tinted - 0.5) * render_params.contrast_factor
         + 0.5 + render_params.brightness_offset;
     return vec4<f32>(clamp(adjusted, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }

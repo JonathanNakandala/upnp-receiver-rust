@@ -176,19 +176,37 @@ pub fn av_transport_last_change(event: &AVTransportEventState) -> String {
     wrap_property_set(&inner)
 }
 
+/// Bundles a RenderingControl `LastChange` event's fields - passed to
+/// [`rendering_control_last_change`] as one value rather than as ten-plus
+/// separate positional arguments (`clippy::too_many_arguments` territory,
+/// and easy to mis-order positionally - the same reasoning
+/// `gstreamer::backend`'s `PipelineHandles` bundling documents for the same
+/// problem). None of `brightness`/`contrast`/the Gain/BlackLevel pair/
+/// `color_temperature` carry a `channel` attribute on the wire (unlike
+/// `volume`/`muted`) - see `SetBrightnessRequest`'s doc for why.
+pub struct RenderingControlEventState {
+    pub volume: u16,
+    pub muted: bool,
+    pub brightness: u16,
+    pub contrast: u16,
+    pub red_gain: u16,
+    pub green_gain: u16,
+    pub blue_gain: u16,
+    pub red_black_level: u16,
+    pub green_black_level: u16,
+    pub blue_black_level: u16,
+    pub color_temperature: u16,
+}
+
 /// Builds the `LastChange` inner XML for a RenderingControl state change
-/// (volume, mute, brightness and/or contrast) and wraps it in the GENA
-/// `propertyset` envelope. `VolumeDB` is derived from `volume` (see
-/// [`crate::services::rendering_control::volume_to_db`]) rather than passed
-/// in separately, so it can never disagree with `Volume` in the same event.
-/// `Brightness`/`Contrast` carry no `channel` attribute (unlike
-/// `Volume`/`Mute`) - see `SetBrightnessRequest`'s doc for why.
+/// and wraps it in the GENA `propertyset` envelope. `VolumeDB` is derived
+/// from `state.volume` (see
+/// [`crate::services::rendering_control::volume_to_db`]) rather than
+/// carried in [`RenderingControlEventState`] separately, so it can never
+/// disagree with `Volume` in the same event.
 pub fn rendering_control_last_change(
     instance_id: InstanceId,
-    volume: u16,
-    muted: bool,
-    brightness: u16,
-    contrast: u16,
+    state: RenderingControlEventState,
 ) -> String {
     let inner = format!(
         concat!(
@@ -199,15 +217,29 @@ pub fn rendering_control_last_change(
             r#"<Mute channel="Master" val="{muted}"/>"#,
             r#"<Brightness val="{brightness}"/>"#,
             r#"<Contrast val="{contrast}"/>"#,
+            r#"<RedVideoGain val="{red_gain}"/>"#,
+            r#"<GreenVideoGain val="{green_gain}"/>"#,
+            r#"<BlueVideoGain val="{blue_gain}"/>"#,
+            r#"<RedVideoBlackLevel val="{red_black_level}"/>"#,
+            r#"<GreenVideoBlackLevel val="{green_black_level}"/>"#,
+            r#"<BlueVideoBlackLevel val="{blue_black_level}"/>"#,
+            r#"<ColorTemperature val="{color_temperature}"/>"#,
             r#"</InstanceID>"#,
             r#"</Event>"#
         ),
         instance_id = instance_id,
-        volume = volume,
-        volume_db = crate::services::rendering_control::volume_to_db(volume),
-        muted = if muted { "1" } else { "0" },
-        brightness = brightness,
-        contrast = contrast,
+        volume = state.volume,
+        volume_db = crate::services::rendering_control::volume_to_db(state.volume),
+        muted = if state.muted { "1" } else { "0" },
+        brightness = state.brightness,
+        contrast = state.contrast,
+        red_gain = state.red_gain,
+        green_gain = state.green_gain,
+        blue_gain = state.blue_gain,
+        red_black_level = state.red_black_level,
+        green_black_level = state.green_black_level,
+        blue_black_level = state.blue_black_level,
+        color_temperature = state.color_temperature,
     );
 
     wrap_property_set(&inner)
@@ -348,9 +380,28 @@ mod tests {
         ));
     }
 
+    /// A [`RenderingControlEventState`] with everything but `volume`/
+    /// `muted` at neutral - most tests here only care about one or two
+    /// fields, so this keeps them from having to spell out all eleven.
+    fn test_state(volume: u16, muted: bool) -> RenderingControlEventState {
+        RenderingControlEventState {
+            volume,
+            muted,
+            brightness: 50,
+            contrast: 50,
+            red_gain: 500,
+            green_gain: 500,
+            blue_gain: 500,
+            red_black_level: 500,
+            green_black_level: 500,
+            blue_black_level: 500,
+            color_temperature: 50,
+        }
+    }
+
     #[test]
     fn rendering_control_event_reports_volume_and_mute() {
-        let body = rendering_control_last_change(InstanceId::DEFAULT, 42, true, 50, 50);
+        let body = rendering_control_last_change(InstanceId::DEFAULT, test_state(42, true));
 
         assert!(body.contains("urn:schemas-upnp-org:metadata-1-0/RCS/"));
         assert!(body.contains("Volume channel=&quot;Master&quot; val=&quot;42&quot;"));
@@ -364,21 +415,44 @@ mod tests {
 
     #[test]
     fn rendering_control_event_reports_unmuted_as_zero() {
-        let body = rendering_control_last_change(InstanceId::DEFAULT, 10, false, 50, 50);
+        let body = rendering_control_last_change(InstanceId::DEFAULT, test_state(10, false));
         assert!(body.contains("Mute channel=&quot;Master&quot; val=&quot;0&quot;"));
     }
 
     #[test]
     fn rendering_control_event_reports_the_resolved_instance_id() {
-        let body = rendering_control_last_change(InstanceId::new(3), 10, false, 50, 50);
+        let body = rendering_control_last_change(InstanceId::new(3), test_state(10, false));
         assert!(body.contains("InstanceID val=&quot;3&quot;"));
     }
 
     #[test]
     fn rendering_control_event_reports_brightness_and_contrast() {
-        let body = rendering_control_last_change(InstanceId::DEFAULT, 10, false, 80, 20);
+        let mut state = test_state(10, false);
+        state.brightness = 80;
+        state.contrast = 20;
+        let body = rendering_control_last_change(InstanceId::DEFAULT, state);
         assert!(body.contains("Brightness val=&quot;80&quot;"));
         assert!(body.contains("Contrast val=&quot;20&quot;"));
+    }
+
+    #[test]
+    fn rendering_control_event_reports_gain_black_level_and_color_temperature() {
+        let mut state = test_state(10, false);
+        state.red_gain = 750;
+        state.green_gain = 250;
+        state.blue_gain = 1000;
+        state.red_black_level = 600;
+        state.green_black_level = 400;
+        state.blue_black_level = 500;
+        state.color_temperature = 0;
+        let body = rendering_control_last_change(InstanceId::DEFAULT, state);
+        assert!(body.contains("RedVideoGain val=&quot;750&quot;"));
+        assert!(body.contains("GreenVideoGain val=&quot;250&quot;"));
+        assert!(body.contains("BlueVideoGain val=&quot;1000&quot;"));
+        assert!(body.contains("RedVideoBlackLevel val=&quot;600&quot;"));
+        assert!(body.contains("GreenVideoBlackLevel val=&quot;400&quot;"));
+        assert!(body.contains("BlueVideoBlackLevel val=&quot;500&quot;"));
+        assert!(body.contains("ColorTemperature val=&quot;0&quot;"));
     }
 
     #[test]

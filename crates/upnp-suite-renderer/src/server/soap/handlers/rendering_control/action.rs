@@ -1,10 +1,15 @@
-use crate::server::eventing::{rendering_control_last_change, EventManager};
+use crate::server::eventing::{rendering_control_last_change, EventManager, RenderingControlEventState};
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::rendering_control::{
-    GetBrightnessResponse, GetContrastResponse, GetMuteResponse, GetVolumeDBRangeResponse,
-    GetVolumeDBResponse, GetVolumeResponse, ListPresetsResponse, RenderingControlAction,
-    RenderingControlResponse, SelectPresetResponse, SetBrightnessResponse, SetContrastResponse,
-    SetMuteResponse, SetVolumeDBResponse, SetVolumeResponse,
+    GetBlueVideoBlackLevelResponse, GetBlueVideoGainResponse, GetBrightnessResponse,
+    GetColorTemperatureResponse, GetContrastResponse, GetGreenVideoBlackLevelResponse,
+    GetGreenVideoGainResponse, GetMuteResponse, GetRedVideoBlackLevelResponse,
+    GetRedVideoGainResponse, GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse,
+    ListPresetsResponse, RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
+    SetBlueVideoBlackLevelResponse, SetBlueVideoGainResponse, SetBrightnessResponse,
+    SetColorTemperatureResponse, SetContrastResponse, SetGreenVideoBlackLevelResponse,
+    SetGreenVideoGainResponse, SetMuteResponse, SetRedVideoBlackLevelResponse,
+    SetRedVideoGainResponse, SetVolumeDBResponse, SetVolumeResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::instance::InstanceId;
@@ -13,12 +18,11 @@ use crate::services::MediaRenderer;
 use std::sync::Arc;
 use tracing::{info, warn};
 
-/// Publishes a `LastChange` NOTIFY reflecting current volume/mute/
-/// brightness/contrast right after a state-changing action succeeds, so
-/// subscribed control points find out immediately instead of waiting for
-/// their next poll. `instance_id`/`control` are the instance the triggering
-/// action was actually resolved against — see `RenderingControlAction::handle`
-/// below.
+/// Publishes a `LastChange` NOTIFY reflecting current picture/audio state
+/// right after a state-changing action succeeds, so subscribed control
+/// points find out immediately instead of waiting for their next poll.
+/// `instance_id`/`control` are the instance the triggering action was
+/// actually resolved against — see `RenderingControlAction::handle` below.
 async fn publish_rendering_state(
     instance_id: InstanceId,
     control: &dyn RenderingControl,
@@ -28,12 +32,28 @@ async fn publish_rendering_state(
     let muted = control.get_mute().await.unwrap_or(false);
     let brightness = control.get_brightness().await.unwrap_or(50);
     let contrast = control.get_contrast().await.unwrap_or(50);
+    let red_gain = control.get_red_video_gain().await.unwrap_or(500);
+    let green_gain = control.get_green_video_gain().await.unwrap_or(500);
+    let blue_gain = control.get_blue_video_gain().await.unwrap_or(500);
+    let red_black_level = control.get_red_video_black_level().await.unwrap_or(500);
+    let green_black_level = control.get_green_video_black_level().await.unwrap_or(500);
+    let blue_black_level = control.get_blue_video_black_level().await.unwrap_or(500);
+    let color_temperature = control.get_color_temperature().await.unwrap_or(50);
     events.broadcast(rendering_control_last_change(
         instance_id,
-        volume,
-        muted,
-        brightness,
-        contrast,
+        RenderingControlEventState {
+            volume,
+            muted,
+            brightness,
+            contrast,
+            red_gain,
+            green_gain,
+            blue_gain,
+            red_black_level,
+            green_black_level,
+            blue_black_level,
+            color_temperature,
+        },
     ));
 }
 
@@ -67,6 +87,20 @@ impl UPnPAction for RenderingControlAction {
             Self::GetBrightness(_) => "GetBrightness",
             Self::SetContrast(_) => "SetContrast",
             Self::GetContrast(_) => "GetContrast",
+            Self::SetRedVideoGain(_) => "SetRedVideoGain",
+            Self::GetRedVideoGain(_) => "GetRedVideoGain",
+            Self::SetGreenVideoGain(_) => "SetGreenVideoGain",
+            Self::GetGreenVideoGain(_) => "GetGreenVideoGain",
+            Self::SetBlueVideoGain(_) => "SetBlueVideoGain",
+            Self::GetBlueVideoGain(_) => "GetBlueVideoGain",
+            Self::SetRedVideoBlackLevel(_) => "SetRedVideoBlackLevel",
+            Self::GetRedVideoBlackLevel(_) => "GetRedVideoBlackLevel",
+            Self::SetGreenVideoBlackLevel(_) => "SetGreenVideoBlackLevel",
+            Self::GetGreenVideoBlackLevel(_) => "GetGreenVideoBlackLevel",
+            Self::SetBlueVideoBlackLevel(_) => "SetBlueVideoBlackLevel",
+            Self::GetBlueVideoBlackLevel(_) => "GetBlueVideoBlackLevel",
+            Self::SetColorTemperature(_) => "SetColorTemperature",
+            Self::GetColorTemperature(_) => "GetColorTemperature",
         }
     }
 
@@ -347,6 +381,317 @@ impl UPnPAction for RenderingControlAction {
                 Ok(RenderingControlResponse::Contrast(GetContrastResponse {
                     current_contrast,
                 }))
+            }
+            Self::SetRedVideoGain(req) => {
+                let result = control.set_red_video_gain(req.desired_red_video_gain).await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_red_video_gain = req.desired_red_video_gain,
+                        "Handling SetRedVideoGain"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_red_video_gain = req.desired_red_video_gain,
+                        error = %err,
+                        "Handling SetRedVideoGain"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetRedVideoGain(
+                    SetRedVideoGainResponse {},
+                ))
+            }
+            Self::GetRedVideoGain(req) => {
+                let result = control.get_red_video_gain().await;
+                match &result {
+                    Ok(current_red_video_gain) => info!(
+                        instance_id = req.instance_id,
+                        current_red_video_gain,
+                        "Handling GetRedVideoGain"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetRedVideoGain"
+                    ),
+                }
+                let current_red_video_gain = result?;
+                Ok(RenderingControlResponse::RedVideoGain(
+                    GetRedVideoGainResponse {
+                        current_red_video_gain,
+                    },
+                ))
+            }
+            Self::SetGreenVideoGain(req) => {
+                let result = control
+                    .set_green_video_gain(req.desired_green_video_gain)
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_green_video_gain = req.desired_green_video_gain,
+                        "Handling SetGreenVideoGain"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_green_video_gain = req.desired_green_video_gain,
+                        error = %err,
+                        "Handling SetGreenVideoGain"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetGreenVideoGain(
+                    SetGreenVideoGainResponse {},
+                ))
+            }
+            Self::GetGreenVideoGain(req) => {
+                let result = control.get_green_video_gain().await;
+                match &result {
+                    Ok(current_green_video_gain) => info!(
+                        instance_id = req.instance_id,
+                        current_green_video_gain,
+                        "Handling GetGreenVideoGain"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetGreenVideoGain"
+                    ),
+                }
+                let current_green_video_gain = result?;
+                Ok(RenderingControlResponse::GreenVideoGain(
+                    GetGreenVideoGainResponse {
+                        current_green_video_gain,
+                    },
+                ))
+            }
+            Self::SetBlueVideoGain(req) => {
+                let result = control.set_blue_video_gain(req.desired_blue_video_gain).await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_blue_video_gain = req.desired_blue_video_gain,
+                        "Handling SetBlueVideoGain"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_blue_video_gain = req.desired_blue_video_gain,
+                        error = %err,
+                        "Handling SetBlueVideoGain"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetBlueVideoGain(
+                    SetBlueVideoGainResponse {},
+                ))
+            }
+            Self::GetBlueVideoGain(req) => {
+                let result = control.get_blue_video_gain().await;
+                match &result {
+                    Ok(current_blue_video_gain) => info!(
+                        instance_id = req.instance_id,
+                        current_blue_video_gain,
+                        "Handling GetBlueVideoGain"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetBlueVideoGain"
+                    ),
+                }
+                let current_blue_video_gain = result?;
+                Ok(RenderingControlResponse::BlueVideoGain(
+                    GetBlueVideoGainResponse {
+                        current_blue_video_gain,
+                    },
+                ))
+            }
+            Self::SetRedVideoBlackLevel(req) => {
+                let result = control
+                    .set_red_video_black_level(req.desired_red_video_black_level)
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_red_video_black_level = req.desired_red_video_black_level,
+                        "Handling SetRedVideoBlackLevel"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_red_video_black_level = req.desired_red_video_black_level,
+                        error = %err,
+                        "Handling SetRedVideoBlackLevel"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetRedVideoBlackLevel(
+                    SetRedVideoBlackLevelResponse {},
+                ))
+            }
+            Self::GetRedVideoBlackLevel(req) => {
+                let result = control.get_red_video_black_level().await;
+                match &result {
+                    Ok(current_red_video_black_level) => info!(
+                        instance_id = req.instance_id,
+                        current_red_video_black_level,
+                        "Handling GetRedVideoBlackLevel"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetRedVideoBlackLevel"
+                    ),
+                }
+                let current_red_video_black_level = result?;
+                Ok(RenderingControlResponse::RedVideoBlackLevel(
+                    GetRedVideoBlackLevelResponse {
+                        current_red_video_black_level,
+                    },
+                ))
+            }
+            Self::SetGreenVideoBlackLevel(req) => {
+                let result = control
+                    .set_green_video_black_level(req.desired_green_video_black_level)
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_green_video_black_level = req.desired_green_video_black_level,
+                        "Handling SetGreenVideoBlackLevel"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_green_video_black_level = req.desired_green_video_black_level,
+                        error = %err,
+                        "Handling SetGreenVideoBlackLevel"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetGreenVideoBlackLevel(
+                    SetGreenVideoBlackLevelResponse {},
+                ))
+            }
+            Self::GetGreenVideoBlackLevel(req) => {
+                let result = control.get_green_video_black_level().await;
+                match &result {
+                    Ok(current_green_video_black_level) => info!(
+                        instance_id = req.instance_id,
+                        current_green_video_black_level,
+                        "Handling GetGreenVideoBlackLevel"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetGreenVideoBlackLevel"
+                    ),
+                }
+                let current_green_video_black_level = result?;
+                Ok(RenderingControlResponse::GreenVideoBlackLevel(
+                    GetGreenVideoBlackLevelResponse {
+                        current_green_video_black_level,
+                    },
+                ))
+            }
+            Self::SetBlueVideoBlackLevel(req) => {
+                let result = control
+                    .set_blue_video_black_level(req.desired_blue_video_black_level)
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_blue_video_black_level = req.desired_blue_video_black_level,
+                        "Handling SetBlueVideoBlackLevel"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_blue_video_black_level = req.desired_blue_video_black_level,
+                        error = %err,
+                        "Handling SetBlueVideoBlackLevel"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetBlueVideoBlackLevel(
+                    SetBlueVideoBlackLevelResponse {},
+                ))
+            }
+            Self::GetBlueVideoBlackLevel(req) => {
+                let result = control.get_blue_video_black_level().await;
+                match &result {
+                    Ok(current_blue_video_black_level) => info!(
+                        instance_id = req.instance_id,
+                        current_blue_video_black_level,
+                        "Handling GetBlueVideoBlackLevel"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetBlueVideoBlackLevel"
+                    ),
+                }
+                let current_blue_video_black_level = result?;
+                Ok(RenderingControlResponse::BlueVideoBlackLevel(
+                    GetBlueVideoBlackLevelResponse {
+                        current_blue_video_black_level,
+                    },
+                ))
+            }
+            Self::SetColorTemperature(req) => {
+                let result = control
+                    .set_color_temperature(req.desired_color_temperature)
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_color_temperature = req.desired_color_temperature,
+                        "Handling SetColorTemperature"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_color_temperature = req.desired_color_temperature,
+                        error = %err,
+                        "Handling SetColorTemperature"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetColorTemperature(
+                    SetColorTemperatureResponse {},
+                ))
+            }
+            Self::GetColorTemperature(req) => {
+                let result = control.get_color_temperature().await;
+                match &result {
+                    Ok(current_color_temperature) => info!(
+                        instance_id = req.instance_id,
+                        current_color_temperature,
+                        "Handling GetColorTemperature"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetColorTemperature"
+                    ),
+                }
+                let current_color_temperature = result?;
+                Ok(RenderingControlResponse::ColorTemperature(
+                    GetColorTemperatureResponse {
+                        current_color_temperature,
+                    },
+                ))
             }
         }
     }

@@ -21,6 +21,6 @@ pub use handler::{
 };
 pub use last_change::{
     av_transport_last_change, connection_manager_current_ids_event, rendering_control_last_change,
-    transport_actions_for, AVTransportEventState,
+    transport_actions_for, AVTransportEventState, RenderingControlEventState,
 };
 pub use manager::EventManager;

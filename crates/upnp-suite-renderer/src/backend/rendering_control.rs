@@ -1,5 +1,5 @@
 use crate::services::error::{ConnectionError, ServiceError};
-use crate::services::rendering_control::{validate_percent, RenderingControl};
+use crate::services::rendering_control::{validate_percent, validate_range, RenderingControl};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -92,6 +92,111 @@ impl RenderingControl for MediaBackendRenderingControl {
     async fn get_contrast(&self) -> Result<u16, ServiceError> {
         self.backend
             .get_contrast()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_red_video_gain(&self, gain: u16) -> Result<(), ServiceError> {
+        validate_range(gain, 1000, "RedVideoGain")?;
+        self.backend
+            .set_red_video_gain(gain)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_red_video_gain(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_red_video_gain()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_green_video_gain(&self, gain: u16) -> Result<(), ServiceError> {
+        validate_range(gain, 1000, "GreenVideoGain")?;
+        self.backend
+            .set_green_video_gain(gain)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_green_video_gain(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_green_video_gain()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_blue_video_gain(&self, gain: u16) -> Result<(), ServiceError> {
+        validate_range(gain, 1000, "BlueVideoGain")?;
+        self.backend
+            .set_blue_video_gain(gain)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_blue_video_gain(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_blue_video_gain()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_red_video_black_level(&self, level: u16) -> Result<(), ServiceError> {
+        validate_range(level, 1000, "RedVideoBlackLevel")?;
+        self.backend
+            .set_red_video_black_level(level)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_red_video_black_level(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_red_video_black_level()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_green_video_black_level(&self, level: u16) -> Result<(), ServiceError> {
+        validate_range(level, 1000, "GreenVideoBlackLevel")?;
+        self.backend
+            .set_green_video_black_level(level)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_green_video_black_level(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_green_video_black_level()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_blue_video_black_level(&self, level: u16) -> Result<(), ServiceError> {
+        validate_range(level, 1000, "BlueVideoBlackLevel")?;
+        self.backend
+            .set_blue_video_black_level(level)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_blue_video_black_level(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_blue_video_black_level()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_color_temperature(&self, temperature: u16) -> Result<(), ServiceError> {
+        validate_percent(temperature, "ColorTemperature")?;
+        self.backend
+            .set_color_temperature(temperature)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_color_temperature(&self) -> Result<u16, ServiceError> {
+        self.backend
+            .get_color_temperature()
             .await
             .map_err(Self::convert_error)
     }
