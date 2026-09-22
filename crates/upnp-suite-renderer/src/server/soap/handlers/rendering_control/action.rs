@@ -1,23 +1,25 @@
 use crate::server::eventing::{rendering_control_last_change, EventManager, RenderingControlEventState};
 use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::rendering_control::{
+    GetAllAvailableTransformsResponse, GetAllowedTransformsResponse,
     GetBlueVideoBlackLevelResponse, GetBlueVideoGainResponse, GetBrightnessResponse,
     GetColorTemperatureResponse, GetContrastResponse, GetGreenVideoBlackLevelResponse,
     GetGreenVideoGainResponse, GetHorizontalKeystoneResponse, GetLoudnessResponse, GetMuteResponse,
     GetRedVideoBlackLevelResponse, GetRedVideoGainResponse, GetSharpnessResponse,
-    GetStateVariablesResponse, GetVerticalKeystoneResponse, GetVolumeDBRangeResponse,
-    GetVolumeDBResponse, GetVolumeResponse,
-    ListPresetsResponse, RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
+    GetStateVariablesResponse, GetTransformsResponse, GetVerticalKeystoneResponse,
+    GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse, ListPresetsResponse,
+    RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
     SetBlueVideoBlackLevelResponse, SetBlueVideoGainResponse, SetBrightnessResponse,
     SetColorTemperatureResponse, SetContrastResponse, SetGreenVideoBlackLevelResponse,
     SetGreenVideoGainResponse, SetHorizontalKeystoneResponse, SetLoudnessResponse, SetMuteResponse,
     SetRedVideoBlackLevelResponse, SetRedVideoGainResponse, SetSharpnessResponse,
-    SetVerticalKeystoneResponse, SetVolumeDBResponse, SetVolumeResponse,
+    SetTransformsResponse, SetVerticalKeystoneResponse, SetVolumeDBResponse, SetVolumeResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::instance::InstanceId;
 use crate::services::rendering_control::RenderingControl;
 use crate::services::MediaRenderer;
+use quick_xml::events::Event;
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -168,6 +170,326 @@ async fn state_variable_value(
     })
 }
 
+/// A transform's numeric range or, for the two boolean ones, that it's
+/// boolean - drives [`allowed_transform_settings_xml`]'s output.
+enum TransformValueKind {
+    Range { min: i32, max: i32, step: i32 },
+    Boolean,
+}
+
+/// One entry per Annex B.21 "legacy compatible transform" this renderer
+/// aliases - every action it implements that Annex B.21 gives a transform
+/// name for, and nothing else (this renderer doesn't implement e.g.
+/// Rotation/3DSettings, so those transforms don't exist here). `Volume`/
+/// `VolumeDB`/`Mute`/`Loudness` embed their channel in the transform name
+/// itself per B.21.1-B.21.4 (e.g. `Volume_Master`) rather than taking it as
+/// a separate argument the way the underlying actions do - this renderer
+/// only ever has a `Master` channel, so `_Master` is the only suffix that
+/// exists. Ranges mirror this renderer's own validation
+/// (`services::rendering_control::validate_range`/`validate_percent`/
+/// `validate_signed_range`), not just what Annex B.21 itself specifies
+/// (which leaves most maxima vendor-defined).
+struct TransformDef {
+    name: &'static str,
+    friendly_name: &'static str,
+    kind: TransformValueKind,
+}
+
+const TRANSFORM_DEFS: &[TransformDef] = &[
+    TransformDef {
+        name: "Volume_Master",
+        friendly_name: "Volume",
+        kind: TransformValueKind::Range { min: 0, max: 100, step: 1 },
+    },
+    TransformDef {
+        name: "VolumeDB_Master",
+        friendly_name: "Volume (dB)",
+        kind: TransformValueKind::Range {
+            min: crate::services::rendering_control::VOLUME_DB_MIN as i32,
+            max: crate::services::rendering_control::VOLUME_DB_MAX as i32,
+            step: 1,
+        },
+    },
+    TransformDef { name: "Mute_Master", friendly_name: "Mute", kind: TransformValueKind::Boolean },
+    TransformDef {
+        name: "Loudness_Master",
+        friendly_name: "Loudness",
+        kind: TransformValueKind::Boolean,
+    },
+    TransformDef {
+        name: "Brightness",
+        friendly_name: "Brightness",
+        kind: TransformValueKind::Range { min: 0, max: 100, step: 1 },
+    },
+    TransformDef {
+        name: "Sharpness",
+        friendly_name: "Sharpness",
+        kind: TransformValueKind::Range { min: 0, max: 100, step: 1 },
+    },
+    TransformDef {
+        name: "Contrast",
+        friendly_name: "Contrast",
+        kind: TransformValueKind::Range { min: 0, max: 100, step: 1 },
+    },
+    TransformDef {
+        name: "RedVideoGain",
+        friendly_name: "Red video gain",
+        kind: TransformValueKind::Range { min: 0, max: 1000, step: 1 },
+    },
+    TransformDef {
+        name: "GreenVideoGain",
+        friendly_name: "Green video gain",
+        kind: TransformValueKind::Range { min: 0, max: 1000, step: 1 },
+    },
+    TransformDef {
+        name: "BlueVideoGain",
+        friendly_name: "Blue video gain",
+        kind: TransformValueKind::Range { min: 0, max: 1000, step: 1 },
+    },
+    TransformDef {
+        name: "RedVideoBlackLevel",
+        friendly_name: "Red video black level",
+        kind: TransformValueKind::Range { min: 0, max: 1000, step: 1 },
+    },
+    TransformDef {
+        name: "GreenVideoBlackLevel",
+        friendly_name: "Green video black level",
+        kind: TransformValueKind::Range { min: 0, max: 1000, step: 1 },
+    },
+    TransformDef {
+        name: "BlueVideoBlackLevel",
+        friendly_name: "Blue video black level",
+        kind: TransformValueKind::Range { min: 0, max: 1000, step: 1 },
+    },
+    TransformDef {
+        name: "ColorTemperature",
+        friendly_name: "Color temperature",
+        kind: TransformValueKind::Range { min: 0, max: 100, step: 1 },
+    },
+    TransformDef {
+        name: "HorizontalKeystone",
+        friendly_name: "Horizontal keystone",
+        kind: TransformValueKind::Range { min: -50, max: 50, step: 1 },
+    },
+    TransformDef {
+        name: "VerticalKeystone",
+        friendly_name: "Vertical keystone",
+        kind: TransformValueKind::Range { min: -50, max: 50, step: 1 },
+    },
+];
+
+/// The [`state_variable_value`] name a transform name aliases - strips the
+/// `_Master` suffix Annex B.21.1-B.21.4 bake into `Volume`/`VolumeDB`/
+/// `Mute`/`Loudness`'s transform names; every other transform name here is
+/// already identical to its state variable name.
+fn transform_base_name(transform_name: &str) -> Option<&str> {
+    match transform_name {
+        "Volume_Master" => Some("Volume"),
+        "VolumeDB_Master" => Some("VolumeDB"),
+        "Mute_Master" => Some("Mute"),
+        "Loudness_Master" => Some("Loudness"),
+        name if TRANSFORM_DEFS.iter().any(|d| d.name == name) => Some(name),
+        _ => None,
+    }
+}
+
+/// [`GetTransforms`]'s per-transform value lookup - reuses
+/// [`state_variable_value`] (a transform's current value is always the same
+/// as its aliased state variable's), just discarding the `channel`
+/// attribute that reflection dialect carries and this one doesn't (a
+/// transform's `Master` channel is already baked into its name, not a
+/// separate attribute - see `current_transform_settings_xml`).
+async fn transform_value(
+    control: &dyn RenderingControl,
+    transform_name: &str,
+) -> Option<Result<String, SoapError>> {
+    let base = transform_base_name(transform_name)?;
+    match state_variable_value(control, base).await {
+        Some(Ok((value, _has_channel))) => Some(Ok(value)),
+        Some(Err(err)) => Some(Err(err)),
+        None => None,
+    }
+}
+
+/// Why [`apply_transform`] didn't apply a requested transform - distinct
+/// UPnP error codes per 5.4.41.4 (711 vs. 712), and per that same subclause
+/// `SetTransforms` keeps going and applies whatever it can rather than
+/// aborting on the first failure.
+enum TransformApplyError {
+    /// Not one of [`TRANSFORM_DEFS`] - UPnP error 711.
+    UnknownTransform,
+    /// A known transform, but a value it couldn't parse or that its
+    /// underlying `set_xxx` rejected (out of range) - UPnP error 712.
+    UnsupportedValue,
+}
+
+/// Applies one parsed `(name, value)` pair from a `SetTransforms` request by
+/// calling the same `RenderingControl` setter the aliased action would.
+async fn apply_transform(
+    control: &dyn RenderingControl,
+    name: &str,
+    value: &str,
+) -> Result<(), TransformApplyError> {
+    let range = |v: &str| v.parse::<u16>().map_err(|_| TransformApplyError::UnsupportedValue);
+    let signed = |v: &str| v.parse::<i16>().map_err(|_| TransformApplyError::UnsupportedValue);
+    let boolean = |v: &str| match v {
+        "1" | "true" | "True" => Ok(true),
+        "0" | "false" | "False" => Ok(false),
+        _ => Err(TransformApplyError::UnsupportedValue),
+    };
+
+    let result = match name {
+        "Volume_Master" => control.set_volume(range(value)?).await,
+        "VolumeDB_Master" => control.set_volume_db(signed(value)?).await,
+        "Mute_Master" => control.set_mute(boolean(value)?).await,
+        "Loudness_Master" => control.set_loudness(boolean(value)?).await,
+        "Brightness" => control.set_brightness(range(value)?).await,
+        "Contrast" => control.set_contrast(range(value)?).await,
+        "Sharpness" => control.set_sharpness(range(value)?).await,
+        "RedVideoGain" => control.set_red_video_gain(range(value)?).await,
+        "GreenVideoGain" => control.set_green_video_gain(range(value)?).await,
+        "BlueVideoGain" => control.set_blue_video_gain(range(value)?).await,
+        "RedVideoBlackLevel" => control.set_red_video_black_level(range(value)?).await,
+        "GreenVideoBlackLevel" => control.set_green_video_black_level(range(value)?).await,
+        "BlueVideoBlackLevel" => control.set_blue_video_black_level(range(value)?).await,
+        "ColorTemperature" => control.set_color_temperature(range(value)?).await,
+        "HorizontalKeystone" => control.set_horizontal_keystone(signed(value)?).await,
+        "VerticalKeystone" => control.set_vertical_keystone(signed(value)?).await,
+        _ => return Err(TransformApplyError::UnknownTransform),
+    };
+    result.map_err(|_| TransformApplyError::UnsupportedValue)
+}
+
+/// Builds `GetAllowedTransforms`/`GetAllAvailableTransforms`'s
+/// `<TransformList>` XML document from [`TRANSFORM_DEFS`] - static and
+/// identical between the two actions, since this renderer doesn't restrict
+/// which transforms apply by InstanceID or content type the way the spec
+/// allows.
+fn allowed_transform_settings_xml() -> String {
+    let mut transforms = String::new();
+    for def in TRANSFORM_DEFS {
+        match def.kind {
+            TransformValueKind::Range { min, max, step } => {
+                transforms.push_str(&format!(
+                    r#"<transform name="{name}" shared="0"><friendlyName>{friendly}</friendlyName><allowedValueRange><minimum>{min}</minimum><maximum>{max}</maximum><step>{step}</step></allowedValueRange></transform>"#,
+                    name = def.name,
+                    friendly = def.friendly_name,
+                ));
+            }
+            TransformValueKind::Boolean => {
+                transforms.push_str(&format!(
+                    r#"<transform name="{name}" shared="0"><friendlyName>{friendly}</friendlyName><allowedValueList><allowedValue>0</allowedValue><allowedValue>1</allowedValue></allowedValueList></transform>"#,
+                    name = def.name,
+                    friendly = def.friendly_name,
+                ));
+            }
+        }
+    }
+    format!(
+        concat!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+            r#"<TransformList xmlns="urn:schemas-upnp-org:av:AllowedTransformSettings">"#,
+            "{transforms}",
+            r#"</TransformList>"#
+        ),
+        transforms = transforms,
+    )
+}
+
+/// Builds `GetTransforms`'s `<TransformSettings>` XML document - current
+/// values of every transform in [`TRANSFORM_DEFS`], via [`transform_value`].
+async fn current_transform_settings_xml(control: &dyn RenderingControl) -> Result<String, SoapError> {
+    let mut transforms = String::new();
+    for def in TRANSFORM_DEFS {
+        let value = match transform_value(control, def.name).await {
+            Some(result) => result?,
+            // Unreachable: every TRANSFORM_DEFS name round-trips through
+            // transform_base_name by construction.
+            None => continue,
+        };
+        transforms.push_str(&format!(
+            r#"<transform name="{name}"><value>{value}</value></transform>"#,
+            name = def.name,
+        ));
+    }
+    Ok(format!(
+        concat!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+            r#"<TransformSettings xmlns="urn:schemas-upnp-org:av:TransformSettings">"#,
+            "{transforms}",
+            r#"</TransformSettings>"#
+        ),
+        transforms = transforms,
+    ))
+}
+
+fn local_tag(name: &[u8]) -> &str {
+    let s = std::str::from_utf8(name).unwrap_or("");
+    s.rsplit(':').next().unwrap_or(s)
+}
+
+/// Parses `SetTransforms`'s `DesiredTransformValues` argument: each
+/// `<transform name="...">`'s first `<value>` child, in document order (per
+/// 5.4.41, transforms are applied in the order the control point sent
+/// them). None of the transforms in [`TRANSFORM_DEFS`] are multi-value, so
+/// a `<value index="N">` sibling beyond the first is ignored rather than
+/// supported.
+fn parse_transform_settings(xml: &str) -> Result<Vec<(String, String)>, SoapError> {
+    let mut reader = quick_xml::reader::Reader::from_str(xml);
+    reader.config_mut().trim_text(true);
+
+    let mut pairs = Vec::new();
+    let mut current_name: Option<String> = None;
+    let mut current_value: Option<String> = None;
+    let mut in_value = false;
+
+    loop {
+        let event = reader.read_event().map_err(|e| {
+            SoapError::Soap(SoapProtocolError::ParseError(format!(
+                "Ill-formed DesiredTransformValues: {e}"
+            )))
+        })?;
+        match event {
+            Event::Start(e) => {
+                let tag = local_tag(e.name().into_inner()).to_string();
+                if tag == "transform" {
+                    current_name = e
+                        .attributes()
+                        .flatten()
+                        .find(|a| local_tag(a.key.into_inner()) == "name")
+                        .and_then(|a| a.unescape_value().ok().map(|v| v.into_owned()));
+                    current_value = None;
+                } else if tag == "value" && current_value.is_none() {
+                    in_value = true;
+                }
+            }
+            Event::Text(t) if in_value => {
+                current_value = Some(t.unescape().map_err(|e| {
+                    SoapError::Soap(SoapProtocolError::ParseError(format!(
+                        "Ill-formed DesiredTransformValues: {e}"
+                    )))
+                })?.into_owned());
+                in_value = false;
+            }
+            Event::End(e) => {
+                let tag = local_tag(e.name().into_inner());
+                if tag == "value" {
+                    in_value = false;
+                } else if tag == "transform" {
+                    if let (Some(name), Some(value)) = (current_name.take(), current_value.take())
+                    {
+                        pairs.push((name, value));
+                    }
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+
+    Ok(pairs)
+}
+
 impl UPnPAction for RenderingControlAction {
     type Response = RenderingControlResponse;
 
@@ -209,6 +531,10 @@ impl UPnPAction for RenderingControlAction {
             Self::SetLoudness(_) => "SetLoudness",
             Self::GetLoudness(_) => "GetLoudness",
             Self::GetStateVariables(_) => "GetStateVariables",
+            Self::GetAllowedTransforms(_) => "GetAllowedTransforms",
+            Self::GetTransforms(_) => "GetTransforms",
+            Self::SetTransforms(_) => "SetTransforms",
+            Self::GetAllAvailableTransforms(_) => "GetAllAvailableTransforms",
         }
     }
 
@@ -1045,6 +1371,86 @@ impl UPnPAction for RenderingControlAction {
                 Ok(RenderingControlResponse::StateVariables(
                     GetStateVariablesResponse {
                         state_variable_value_pairs,
+                    },
+                ))
+            }
+            Self::GetAllowedTransforms(req) => {
+                info!(instance_id = req.instance_id, "Handling GetAllowedTransforms");
+                Ok(RenderingControlResponse::AllowedTransforms(
+                    GetAllowedTransformsResponse {
+                        current_allowed_transform_settings: allowed_transform_settings_xml(),
+                    },
+                ))
+            }
+            Self::GetTransforms(req) => {
+                let current_transform_values =
+                    current_transform_settings_xml(control.as_ref()).await?;
+                info!(instance_id = req.instance_id, "Handling GetTransforms");
+                Ok(RenderingControlResponse::Transforms(GetTransformsResponse {
+                    current_transform_values,
+                }))
+            }
+            Self::SetTransforms(req) => {
+                let pairs = parse_transform_settings(&req.desired_transform_values)?;
+                if pairs.is_empty() {
+                    warn!(instance_id = req.instance_id, "Handling SetTransforms");
+                    return Err(SoapError::Soap(SoapProtocolError::TransformsNotAllowed(
+                        "DesiredTransformValues named no transforms".to_string(),
+                    )));
+                }
+
+                let mut applied = 0usize;
+                let mut unknown_transform: Option<String> = None;
+                let mut unsupported_value: Option<String> = None;
+                for (name, value) in &pairs {
+                    match apply_transform(control.as_ref(), name, value).await {
+                        Ok(()) => applied += 1,
+                        Err(TransformApplyError::UnknownTransform) => {
+                            unknown_transform.get_or_insert_with(|| name.clone());
+                        }
+                        Err(TransformApplyError::UnsupportedValue) => {
+                            unsupported_value.get_or_insert_with(|| name.clone());
+                        }
+                    }
+                }
+
+                // Per 5.4.41: the action succeeds if *any* requested
+                // transform succeeds - the rest silently keep their prior
+                // value, discoverable only via the LastChange NOTIFY this
+                // still publishes below, not via this response.
+                if applied == 0 {
+                    warn!(
+                        instance_id = req.instance_id,
+                        requested = pairs.len(),
+                        "Handling SetTransforms"
+                    );
+                    if let Some(name) = unknown_transform {
+                        return Err(SoapError::Soap(SoapProtocolError::TransformsNotAllowed(
+                            name,
+                        )));
+                    }
+                    return Err(SoapError::Soap(SoapProtocolError::UnsupportedTransformValue(
+                        unsupported_value.unwrap_or_default(),
+                    )));
+                }
+
+                info!(
+                    instance_id = req.instance_id,
+                    applied,
+                    requested = pairs.len(),
+                    "Handling SetTransforms"
+                );
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetTransforms(
+                    SetTransformsResponse {},
+                ))
+            }
+            Self::GetAllAvailableTransforms(_) => {
+                info!("Handling GetAllAvailableTransforms");
+                Ok(RenderingControlResponse::AllAvailableTransforms(
+                    GetAllAvailableTransformsResponse {
+                        all_allowed_transform_settings: allowed_transform_settings_xml(),
                     },
                 ))
             }

@@ -40,6 +40,10 @@ pub enum RenderingControlAction {
     SetLoudness(SetLoudnessRequest),
     GetLoudness(GetLoudnessRequest),
     GetStateVariables(GetStateVariablesRequest),
+    GetAllowedTransforms(GetAllowedTransformsRequest),
+    GetTransforms(GetTransformsRequest),
+    SetTransforms(SetTransformsRequest),
+    GetAllAvailableTransforms(GetAllAvailableTransformsRequest),
 }
 
 impl RenderingControlAction {
@@ -83,6 +87,16 @@ impl RenderingControlAction {
             Self::SetLoudness(r) => r.instance_id,
             Self::GetLoudness(r) => r.instance_id,
             Self::GetStateVariables(r) => r.instance_id,
+            Self::GetAllowedTransforms(r) => r.instance_id,
+            Self::GetTransforms(r) => r.instance_id,
+            Self::SetTransforms(r) => r.instance_id,
+            // GetAllAvailableTransforms takes no InstanceID at all (see
+            // Table 114 in the spec) - it reports this device's whole
+            // transform catalog, not anything instance-specific, so there's
+            // nothing to resolve here. `RenderingControlAction::handle`
+            // still resolves a `control` via this value, so it needs to be
+            // a real instance - `InstanceId::DEFAULT`'s raw value always is.
+            Self::GetAllAvailableTransforms(_) => InstanceId::DEFAULT.get(),
         };
         InstanceId::new(raw)
     }
@@ -383,6 +397,41 @@ pub struct GetStateVariablesRequest {
     pub state_variable_list: String,
 }
 
+// Annex B.21 "legacy compatible transforms" - the same reflection idea as
+// GetStateVariables above, but viewed as named `transform` elements instead
+// of `stateVariable` ones, covering only the 16 transforms Annex B.21
+// defines as one-to-one aliases of actions this renderer already
+// implements. See action.rs's TRANSFORM_DEFS/apply_transform for the actual
+// name<->action mapping. The spec requires these four actions be
+// implemented as a set (5.4.39-41, 5.4.45).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetAllowedTransformsRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetTransformsRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetTransformsRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub desired_transform_values: String,
+}
+
+/// No `InstanceID` - see this action's Table 114 in the spec; it reports
+/// the device's whole transform catalog, not anything instance-specific.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetAllAvailableTransformsRequest {}
+
 // Add response types
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -572,6 +621,31 @@ pub struct GetStateVariablesResponse {
     pub state_variable_value_pairs: String,
 }
 
+/// `current_allowed_transform_settings` is the already-built `<TransformList>`
+/// XML document as a plain string - same double-escaping-on-the-wire
+/// reasoning as `GetStateVariablesResponse` above.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetAllowedTransformsResponse {
+    pub current_allowed_transform_settings: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetTransformsResponse {
+    pub current_transform_values: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SetTransformsResponse {}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetAllAvailableTransformsResponse {
+    pub all_allowed_transform_settings: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum RenderingControlResponse {
@@ -611,4 +685,8 @@ pub enum RenderingControlResponse {
     SetLoudness(SetLoudnessResponse),
     Loudness(GetLoudnessResponse),
     StateVariables(GetStateVariablesResponse),
+    AllowedTransforms(GetAllowedTransformsResponse),
+    Transforms(GetTransformsResponse),
+    SetTransforms(SetTransformsResponse),
+    AllAvailableTransforms(GetAllAvailableTransformsResponse),
 }

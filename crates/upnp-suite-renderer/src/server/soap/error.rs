@@ -167,6 +167,12 @@ pub enum SoapProtocolError {
 
     #[error("Invalid StateVariableList: {0}")]
     InvalidStateVariableList(String),
+
+    #[error("Transforms not allowed: {0}")]
+    TransformsNotAllowed(String),
+
+    #[error("Unsupported value for transform: {0}")]
+    UnsupportedTransformValue(String),
 }
 
 impl From<UnknownInstance> for SoapProtocolError {
@@ -234,6 +240,14 @@ impl SoapProtocolError {
             SoapProtocolError::InvalidStateVariableList(_) => UPnPErrorCode {
                 code: 704,
                 description: "Invalid StateVariableList",
+            },
+            SoapProtocolError::TransformsNotAllowed(_) => UPnPErrorCode {
+                code: 711,
+                description: "Transforms Not Allowed",
+            },
+            SoapProtocolError::UnsupportedTransformValue(_) => UPnPErrorCode {
+                code: 712,
+                description: "Unsupported Values for Transforms",
             },
         }
     }

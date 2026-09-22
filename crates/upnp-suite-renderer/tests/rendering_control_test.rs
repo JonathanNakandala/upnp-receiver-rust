@@ -657,3 +657,133 @@ async fn test_get_state_variables_rejects_unknown_name() {
     let resp = client.get_state_variables("NotARealVariable").await;
     assert_response(resp, 400).await;
 }
+
+// Annex B.21 "legacy compatible transforms" - GetAllowedTransforms/
+// GetTransforms/SetTransforms/GetAllAvailableTransforms alias the actions
+// above under named `transform` elements instead. Only covers what's
+// distinct from GetStateVariables above: transform naming (the `_Master`
+// suffix on Volume/VolumeDB/Mute/Loudness), that SetTransforms actually
+// changes state, and that GetAllAvailableTransforms takes no InstanceID.
+
+#[test(tokio::test)]
+async fn test_get_allowed_transforms_lists_every_transform() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_allowed_transforms().await;
+    let body = assert_response(resp, 200).await;
+    for name in ["Volume_Master", "VolumeDB_Master", "Mute_Master", "Loudness_Master", "Brightness"] {
+        assert!(
+            body.contains(&format!(r#"name="{name}""#)),
+            "Missing {name} in GetAllowedTransforms response: {}",
+            body
+        );
+    }
+}
+
+#[test(tokio::test)]
+async fn test_get_all_available_transforms_matches_get_allowed_transforms() {
+    let (_server, client) = setup().await;
+
+    let allowed = assert_response(client.get_allowed_transforms().await, 200).await;
+    let all_available = assert_response(client.get_all_available_transforms().await, 200).await;
+    assert!(all_available.contains("Volume_Master"), "{}", all_available);
+    // Same catalog either way - this renderer doesn't restrict transforms by
+    // InstanceID/content type.
+    assert!(allowed.contains("Volume_Master"), "{}", allowed);
+}
+
+#[test(tokio::test)]
+async fn test_get_transforms_reports_default_volume() {
+    let (_server, client) = setup().await;
+
+    let resp = client.get_transforms().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains(r#"name="Volume_Master""#) && body.contains("&gt;50&lt;/value&gt;"),
+        "Expected default Volume (50) under Volume_Master: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_transforms_changes_volume_and_get_volume() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_transforms(
+            r#"<TransformSettings xmlns="urn:schemas-upnp-org:av:TransformSettings"><transform name="Volume_Master"><value>77</value></transform></TransformSettings>"#,
+        )
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_volume().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentVolume>77</CurrentVolume>"),
+        "SetTransforms(Volume_Master) was not reflected in GetVolume: {}",
+        body
+    );
+
+    let resp = client.get_transforms().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("&gt;77&lt;/value&gt;"),
+        "SetTransforms(Volume_Master) was not reflected in GetTransforms: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_transforms_rejects_unknown_transform() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_transforms(
+            r#"<TransformSettings xmlns="urn:schemas-upnp-org:av:TransformSettings"><transform name="NotARealTransform"><value>1</value></transform></TransformSettings>"#,
+        )
+        .await;
+    assert_response(resp, 400).await;
+}
+
+#[test(tokio::test)]
+async fn test_set_transforms_rejects_out_of_range_value() {
+    let (_server, client) = setup().await;
+
+    let resp = client
+        .set_transforms(
+            r#"<TransformSettings xmlns="urn:schemas-upnp-org:av:TransformSettings"><transform name="Volume_Master"><value>500</value></transform></TransformSettings>"#,
+        )
+        .await;
+    assert_response(resp, 400).await;
+
+    // State should be unchanged after a rejected update.
+    let resp = client.get_volume().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentVolume>50</CurrentVolume>"),
+        "Volume should not have changed after invalid SetTransforms: {}",
+        body
+    );
+}
+
+#[test(tokio::test)]
+async fn test_set_transforms_applies_whichever_transforms_succeed() {
+    let (_server, client) = setup().await;
+
+    // One good transform, one unknown - per 5.4.41 the action succeeds as
+    // long as at least one requested transform applies.
+    let resp = client
+        .set_transforms(
+            r#"<TransformSettings xmlns="urn:schemas-upnp-org:av:TransformSettings"><transform name="Brightness"><value>80</value></transform><transform name="NotARealTransform"><value>1</value></transform></TransformSettings>"#,
+        )
+        .await;
+    assert_response(resp, 200).await;
+
+    let resp = client.get_brightness().await;
+    let body = assert_response(resp, 200).await;
+    assert!(
+        body.contains("<CurrentBrightness>80</CurrentBrightness>"),
+        "The valid transform in a mixed request should still have applied: {}",
+        body
+    );
+}

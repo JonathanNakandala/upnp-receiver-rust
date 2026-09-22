@@ -600,6 +600,70 @@
                 </argument>
             </argumentList>
         </action>
+        <!-- Annex B.21 "legacy compatible transforms" - GetAllowedTransforms/
+             GetTransforms/SetTransforms/GetAllAvailableTransforms are a set:
+             the spec requires implementing all four together if any one is
+             implemented. See action.rs's TRANSFORM_DEFS for the actual
+             name<->action mapping (one entry per action this renderer
+             implements that Annex B.21 names a transform for). -->
+        <action>
+            <name>GetAllowedTransforms</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>CurrentAllowedTransformSettings</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>AllowedTransformSettings</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>GetTransforms</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>CurrentTransformValues</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>TransformSettings</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>SetTransforms</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>DesiredTransformValues</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>TransformSettings</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <!-- Unlike the three actions above, takes no InstanceID - it
+             reports this device's whole transform catalog, not anything
+             instance-specific (see Table 114 in the spec). -->
+        <action>
+            <name>GetAllAvailableTransforms</name>
+            <argumentList>
+                <argument>
+                    <name>AllAllowedTransformSettings</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>AllowedTransformSettings</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
     </actionList>
     <serviceStateTable>
         <!-- Evented as a bundled LastChange NOTIFY (GENA), not individually —
@@ -802,6 +866,31 @@
              returns - see action.rs's GetStateVariables handling. -->
         <stateVariable sendEvents="no">
             <name>A_ARG_TYPE_StateVariableValuePairs</name>
+            <dataType>string</dataType>
+        </stateVariable>
+        <!-- The <TransformList> XML document GetAllowedTransforms/
+             GetAllAvailableTransforms return - see action.rs's
+             allowed_transform_settings_xml. Per spec (5.2.20) this is
+             normally also bundled into the LastChange NOTIFY; this renderer
+             deliberately doesn't (its value never actually changes at
+             runtime, since transform availability here doesn't depend on
+             InstanceID or content type), so it stays sendEvents="no" with
+             no LastChange entry rather than claim eventing it doesn't do. -->
+        <stateVariable sendEvents="no">
+            <name>AllowedTransformSettings</name>
+            <dataType>string</dataType>
+        </stateVariable>
+        <!-- The <TransformSettings> XML document GetTransforms returns and
+             SetTransforms accepts - see action.rs's
+             current_transform_settings_xml/parse_transform_settings. Same
+             eventing caveat as AllowedTransformSettings above: per spec
+             (5.2.21) this is normally bundled into LastChange too, but
+             since it's just a reformatting of state variables already
+             evented individually there (Volume, Brightness, ...), this
+             renderer doesn't duplicate it into a second XML blob on every
+             NOTIFY. -->
+        <stateVariable sendEvents="no">
+            <name>TransformSettings</name>
             <dataType>string</dataType>
         </stateVariable>
     </serviceStateTable>

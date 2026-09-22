@@ -1174,6 +1174,120 @@ impl SoapClient {
             .unwrap()
     }
 
+    pub async fn get_allowed_transforms(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetAllowedTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                    </u:GetAllowedTransforms>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetAllowedTransforms\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_transforms(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                    </u:GetTransforms>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetTransforms\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    /// `desired_transform_values` is the raw inner `<TransformSettings>...`
+    /// document - escaped here before embedding, the way a real control
+    /// point sends it (see `action.rs`'s `parse_transform_settings`, which
+    /// expects it back out unescaped).
+    pub async fn set_transforms(&self, desired_transform_values: &str) -> reqwest::Response {
+        let escaped = desired_transform_values
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        let body = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:SetTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                        <InstanceID>0</InstanceID>
+                        <DesiredTransformValues>{}</DesiredTransformValues>
+                    </u:SetTransforms>
+                </s:Body>
+            </s:Envelope>"#,
+            escaped
+        );
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetTransforms\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_all_available_transforms(&self) -> reqwest::Response {
+        let body = r#"<?xml version="1.0" encoding="utf-8"?>
+            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+                <s:Body>
+                    <u:GetAllAvailableTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"/>
+                </s:Body>
+            </s:Envelope>"#;
+
+        self.client
+            .post(format!(
+                "{}/services/RenderingControl/control",
+                self.base_url
+            ))
+            .header("Content-Type", "text/xml")
+            .header(
+                "SOAPAction",
+                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetAllAvailableTransforms\"",
+            )
+            .body(body)
+            .send()
+            .await
+            .unwrap()
+    }
+
     /// Self-closing zero-argument form, matching how real clients (e.g.
     /// BubbleUPnP) actually send it on the wire.
     pub async fn get_protocol_info(&self) -> reqwest::Response {
