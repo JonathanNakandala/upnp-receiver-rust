@@ -72,6 +72,7 @@ pub async fn handle_rendering_control_events(
             let color_temperature = control.get_color_temperature().await.unwrap_or(50);
             let horizontal_keystone = control.get_horizontal_keystone().await.unwrap_or(0);
             let vertical_keystone = control.get_vertical_keystone().await.unwrap_or(0);
+            let sharpness = control.get_sharpness().await.unwrap_or(0);
             last_change::rendering_control_last_change(
                 InstanceId::DEFAULT,
                 last_change::RenderingControlEventState {
@@ -88,6 +89,7 @@ pub async fn handle_rendering_control_events(
                     color_temperature,
                     horizontal_keystone,
                     vertical_keystone,
+                    sharpness,
                 },
             )
         }

@@ -510,6 +510,36 @@
                 </argument>
             </argumentList>
         </action>
+        <action>
+            <name>SetSharpness</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>DesiredSharpness</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>Sharpness</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
+        <action>
+            <name>GetSharpness</name>
+            <argumentList>
+                <argument>
+                    <name>InstanceID</name>
+                    <direction>in</direction>
+                    <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
+                </argument>
+                <argument>
+                    <name>CurrentSharpness</name>
+                    <direction>out</direction>
+                    <relatedStateVariable>Sharpness</relatedStateVariable>
+                </argument>
+            </argumentList>
+        </action>
     </actionList>
     <serviceStateTable>
         <!-- Evented as a bundled LastChange NOTIFY (GENA), not individually —
@@ -658,6 +688,19 @@
             <allowedValueRange>
                 <minimum>-50</minimum>
                 <maximum>50</maximum>
+                <step>1</step>
+            </allowedValueRange>
+        </stateVariable>
+        <!-- Unsharp masking on luma only - 0-100, 0 = neutral. Unlike every
+             other picture control above, neutral sits at this range's own
+             minimum, not its midpoint - there's no "soften" concept for
+             Sharpness. See shader.wgsl's sharpen_luma doc for the technique. -->
+        <stateVariable sendEvents="no">
+            <name>Sharpness</name>
+            <dataType>ui2</dataType>
+            <allowedValueRange>
+                <minimum>0</minimum>
+                <maximum>100</maximum>
                 <step>1</step>
             </allowedValueRange>
         </stateVariable>

@@ -112,12 +112,52 @@ struct RenderParams {
     // not here, but declared in the same uniform block as everything else.
     horizontal_keystone: f32,
     vertical_keystone: f32,
+    // Sharpness: read in `fs_main`, see `sharpen_luma` below for why this
+    // is luma-only and unlike every other field here, 0 (not 50) is the
+    // spec's own neutral/minimum.
+    sharpness_amount: f32,
 }
 @group(1) @binding(0) var<uniform> render_params: RenderParams;
 
+// UPnP's `Sharpness` - unsharp masking (`sharpened = original + amount *
+// (original - blurred)`), the standard sharpening technique used across
+// video/photo processing (TV "Sharpness" controls, ffmpeg's `unsharp`,
+// Photoshop's Sharpen filter). Implemented here as the discrete 5-tap
+// Laplacian kernel (`4*center - N - S - E - W`), the textbook single-pass
+// approximation of unsharp masking when a separate blur pass isn't
+// affordable - exactly this renderer's situation, one fragment shader
+// invocation per pixel, no intermediate render target.
+//
+// Luma-only, deliberately: real hardware sharpening (TVs, video
+// processors) never touches chroma - chroma already carries a fraction of
+// luma's spatial resolution (this renderer's own NV12/P010 4:2:0 chroma
+// plane is half resolution in both dimensions), and sharpening it produces
+// visible color fringing around edges rather than perceived detail, since
+// the human eye's sharpness perception is almost entirely luma-driven
+// anyway. `uv_sample` (chroma) is untouched by this.
+//
+// `amount = 0` (UPnP's own minimum, and this renderer's neutral point -
+// unlike every other RenderParams field, where neutral sits at the
+// midpoint of its range) means `sharpened == y_sample` exactly: the
+// Laplacian term is still computed but multiplied by zero, so this is a
+// true no-op at the spec's minimum, not just "close to unsharpened."
+fn sharpen_luma(uv: vec2<f32>, amount: f32) -> f32 {
+    let dims = vec2<f32>(textureDimensions(y_texture));
+    let texel = 1.0 / dims;
+
+    let center = textureSample(y_texture, frame_sampler, uv).r;
+    let north = textureSample(y_texture, frame_sampler, uv - vec2<f32>(0.0, texel.y)).r;
+    let south = textureSample(y_texture, frame_sampler, uv + vec2<f32>(0.0, texel.y)).r;
+    let west = textureSample(y_texture, frame_sampler, uv - vec2<f32>(texel.x, 0.0)).r;
+    let east = textureSample(y_texture, frame_sampler, uv + vec2<f32>(texel.x, 0.0)).r;
+
+    let laplacian = center * 4.0 - north - south - east - west;
+    return center + amount * laplacian;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let y_sample = textureSample(y_texture, frame_sampler, in.uv).r;
+    let y_sample = sharpen_luma(in.uv, render_params.sharpness_amount);
     let uv_sample = textureSample(uv_texture, frame_sampler, in.uv).rg;
 
     // BT.709, studio/limited range (the common case for compressed video:

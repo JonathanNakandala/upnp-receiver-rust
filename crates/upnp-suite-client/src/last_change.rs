@@ -60,6 +60,10 @@ pub struct RenderingControlSnapshot {
     /// See `RenderingControlClient::set_horizontal_keystone`'s doc.
     pub horizontal_keystone: i16,
     pub vertical_keystone: i16,
+    /// 0-100, 0 = neutral - unlike every other field here, neutral sits at
+    /// the spec's own minimum, not a midpoint. See
+    /// `RenderingControlClient::set_sharpness`'s doc.
+    pub sharpness: u16,
 }
 
 impl Default for RenderingControlSnapshot {
@@ -78,6 +82,7 @@ impl Default for RenderingControlSnapshot {
             color_temperature: 50,
             horizontal_keystone: 0,
             vertical_keystone: 0,
+            sharpness: 0,
         }
     }
 }
@@ -158,6 +163,10 @@ pub fn parse_rendering_control_last_change(
         .get("VerticalKeystone")
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
+    let sharpness = fields
+        .get("Sharpness")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
 
     Ok(RenderingControlSnapshot {
         volume,
@@ -173,6 +182,7 @@ pub fn parse_rendering_control_last_change(
         color_temperature,
         horizontal_keystone,
         vertical_keystone,
+        sharpness,
     })
 }
 
@@ -361,6 +371,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_sharpness() {
+        let body = notify_body(concat!(
+            r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">"#,
+            r#"<InstanceID val="0">"#,
+            r#"<Sharpness val="75"/>"#,
+            r#"</InstanceID>"#,
+            r#"</Event>"#
+        ));
+
+        let snapshot = parse_rendering_control_last_change(&body).unwrap();
+        assert_eq!(snapshot.sharpness, 75);
+    }
+
+    #[test]
     fn rendering_control_last_change_defaults_picture_state_when_absent() {
         // A control point talking to an older, pre-picture-controls build
         // of this renderer (or any RenderingControl device that never
@@ -386,6 +410,7 @@ mod tests {
         assert_eq!(snapshot.color_temperature, 50);
         assert_eq!(snapshot.horizontal_keystone, 0);
         assert_eq!(snapshot.vertical_keystone, 0);
+        assert_eq!(snapshot.sharpness, 0);
     }
 
     #[test]

@@ -402,6 +402,31 @@ impl<'a> RenderingControlClient<'a> {
         Ok(())
     }
 
+    /// UPnP's `Sharpness` - 0-100, 0 = neutral. Unlike every other picture
+    /// control here, neutral sits at the range's own minimum, not its
+    /// midpoint - there's no "soften" concept, only "how much sharpening".
+    pub async fn get_sharpness(&self) -> Result<u16, ClientError> {
+        let fields = self
+            .invoke("GetSharpness", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+        fields
+            .get("CurrentSharpness")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| ClientError::MalformedResponse("response missing CurrentSharpness".into()))
+    }
+
+    pub async fn set_sharpness(&self, sharpness: u16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetSharpness",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredSharpness", &sharpness.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_volume_db_range(&self) -> Result<VolumeDbRange, ClientError> {
         let fields = self
             .invoke(

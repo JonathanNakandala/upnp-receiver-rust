@@ -1172,6 +1172,16 @@ impl MediaBackend for GStreamerBackend {
         Ok(self.state.lock().unwrap().picture.vertical_keystone)
     }
 
+    async fn set_sharpness(&self, sharpness: u16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.sharpness = sharpness;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_sharpness(&self) -> Result<u16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.sharpness)
+    }
+
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {
         Ok(self.state.lock().unwrap().uri.clone())
     }

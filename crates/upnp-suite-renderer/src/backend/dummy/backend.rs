@@ -41,6 +41,7 @@ pub struct DummyBackend {
     color_temperature: Mutex<u16>,
     horizontal_keystone: Mutex<i16>,
     vertical_keystone: Mutex<i16>,
+    sharpness: Mutex<u16>,
 }
 
 impl DummyBackend {
@@ -63,6 +64,7 @@ impl DummyBackend {
             color_temperature: Mutex::new(50),
             horizontal_keystone: Mutex::new(0),
             vertical_keystone: Mutex::new(0),
+            sharpness: Mutex::new(0),
         }
     }
 
@@ -315,6 +317,15 @@ impl MediaBackend for DummyBackend {
 
     async fn get_vertical_keystone(&self) -> Result<i16, MediaBackendError> {
         Ok(*self.vertical_keystone.lock().await)
+    }
+
+    async fn set_sharpness(&self, sharpness: u16) -> Result<(), MediaBackendError> {
+        *self.sharpness.lock().await = sharpness;
+        Ok(())
+    }
+
+    async fn get_sharpness(&self) -> Result<u16, MediaBackendError> {
+        Ok(*self.sharpness.lock().await)
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {

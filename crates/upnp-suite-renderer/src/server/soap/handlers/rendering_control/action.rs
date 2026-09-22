@@ -4,14 +4,14 @@ use crate::server::soap::types::rendering_control::{
     GetBlueVideoBlackLevelResponse, GetBlueVideoGainResponse, GetBrightnessResponse,
     GetColorTemperatureResponse, GetContrastResponse, GetGreenVideoBlackLevelResponse,
     GetGreenVideoGainResponse, GetHorizontalKeystoneResponse, GetMuteResponse,
-    GetRedVideoBlackLevelResponse, GetRedVideoGainResponse, GetVerticalKeystoneResponse,
-    GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse, ListPresetsResponse,
-    RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
+    GetRedVideoBlackLevelResponse, GetRedVideoGainResponse, GetSharpnessResponse,
+    GetVerticalKeystoneResponse, GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse,
+    ListPresetsResponse, RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
     SetBlueVideoBlackLevelResponse, SetBlueVideoGainResponse, SetBrightnessResponse,
     SetColorTemperatureResponse, SetContrastResponse, SetGreenVideoBlackLevelResponse,
     SetGreenVideoGainResponse, SetHorizontalKeystoneResponse, SetMuteResponse,
-    SetRedVideoBlackLevelResponse, SetRedVideoGainResponse, SetVerticalKeystoneResponse,
-    SetVolumeDBResponse, SetVolumeResponse,
+    SetRedVideoBlackLevelResponse, SetRedVideoGainResponse, SetSharpnessResponse,
+    SetVerticalKeystoneResponse, SetVolumeDBResponse, SetVolumeResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::instance::InstanceId;
@@ -43,6 +43,7 @@ async fn publish_rendering_state(
     let color_temperature = control.get_color_temperature().await.unwrap_or(50);
     let horizontal_keystone = control.get_horizontal_keystone().await.unwrap_or(0);
     let vertical_keystone = control.get_vertical_keystone().await.unwrap_or(0);
+    let sharpness = control.get_sharpness().await.unwrap_or(0);
     events.broadcast(rendering_control_last_change(
         instance_id,
         RenderingControlEventState {
@@ -59,6 +60,7 @@ async fn publish_rendering_state(
             color_temperature,
             horizontal_keystone,
             vertical_keystone,
+            sharpness,
         },
     ));
 }
@@ -111,6 +113,8 @@ impl UPnPAction for RenderingControlAction {
             Self::GetHorizontalKeystone(_) => "GetHorizontalKeystone",
             Self::SetVerticalKeystone(_) => "SetVerticalKeystone",
             Self::GetVerticalKeystone(_) => "GetVerticalKeystone",
+            Self::SetSharpness(_) => "SetSharpness",
+            Self::GetSharpness(_) => "GetSharpness",
         }
     }
 
@@ -792,6 +796,47 @@ impl UPnPAction for RenderingControlAction {
                         current_vertical_keystone,
                     },
                 ))
+            }
+            Self::SetSharpness(req) => {
+                let result = control.set_sharpness(req.desired_sharpness).await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_sharpness = req.desired_sharpness,
+                        "Handling SetSharpness"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_sharpness = req.desired_sharpness,
+                        error = %err,
+                        "Handling SetSharpness"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetSharpness(
+                    SetSharpnessResponse {},
+                ))
+            }
+            Self::GetSharpness(req) => {
+                let result = control.get_sharpness().await;
+                match &result {
+                    Ok(current_sharpness) => info!(
+                        instance_id = req.instance_id,
+                        current_sharpness,
+                        "Handling GetSharpness"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetSharpness"
+                    ),
+                }
+                let current_sharpness = result?;
+                Ok(RenderingControlResponse::Sharpness(GetSharpnessResponse {
+                    current_sharpness,
+                }))
             }
         }
     }

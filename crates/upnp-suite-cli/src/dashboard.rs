@@ -8,7 +8,8 @@
 //! `+`/`-` step volume, `m` toggles mute, and - only when the current
 //! track's DIDL-Lite metadata looks like video (see
 //! [`upnp_suite_client::suggests_video`]) - `b`/`B` step brightness, `c`/`C`
-//! step contrast, and `t`/`T` step color temperature cooler/warmer. Issued
+//! step contrast, `t`/`T` step color temperature cooler/warmer, and `h`/`H`
+//! step sharpness. Issued
 //! as SOAP actions against the selected device and reflected back once its
 //! GENA NOTIFY (or the next position poll) catches up.
 //!
@@ -172,6 +173,8 @@ pub async fn run(wait: Duration) {
                             rendering_rx.as_ref().map(|rx| rx.borrow().contrast);
                         let current_color_temperature =
                             rendering_rx.as_ref().map(|rx| rx.borrow().color_temperature);
+                        let current_sharpness =
+                            rendering_rx.as_ref().map(|rx| rx.borrow().sharpness);
 
                         match key.code {
                             KeyCode::Char(' ') => {
@@ -269,6 +272,27 @@ pub async fn run(wait: Duration) {
                                     }
                                 }
                             }
+                            // 0 is the neutral/minimum here (not a
+                            // midpoint like brightness/contrast/temperature
+                            // above), so `h` saturates at 0 rather than
+                            // wrapping or going negative.
+                            KeyCode::Char('h') if is_video => {
+                                if let (Some(rc), Some(sharpness)) = (&rc, current_sharpness) {
+                                    let new_sharpness = sharpness.saturating_sub(PICTURE_STEP);
+                                    if let Err(err) = rc.set_sharpness(new_sharpness).await {
+                                        eprintln!("Set sharpness failed: {err}");
+                                    }
+                                }
+                            }
+                            KeyCode::Char('H') if is_video => {
+                                if let (Some(rc), Some(sharpness)) = (&rc, current_sharpness) {
+                                    let new_sharpness =
+                                        sharpness.saturating_add(PICTURE_STEP).min(100);
+                                    if let Err(err) = rc.set_sharpness(new_sharpness).await {
+                                        eprintln!("Set sharpness failed: {err}");
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -317,7 +341,7 @@ fn render(
 
     let help = if is_video {
         "space play/pause · s stop · +/- volume · m mute · b/B brightness · c/C contrast · \
-         t/T color temp · q / Esc / Ctrl-C quit"
+         t/T color temp · h/H sharpness · q / Esc / Ctrl-C quit"
     } else {
         "space play/pause · s stop · +/- volume · m mute · q / Esc / Ctrl-C quit"
     };
@@ -385,18 +409,23 @@ fn volume_panel(rendering: Option<&RenderingControlSnapshot>) -> Paragraph<'stat
 /// Picture state is UPnP state regardless of content type (see this
 /// module's doc), so this always shows the current values when available -
 /// `is_video` only decides the *reason* shown when the hotkeyed ones
-/// (Brightness/Contrast/ColorTemperature) can't be adjusted from here, not
-/// whether the panel appears at all. Gain/BlackLevel have no hotkeys at all
-/// (see the module doc) - shown here read-only regardless of `is_video`.
+/// (Brightness/Contrast/ColorTemperature/Sharpness) can't be adjusted from
+/// here, not whether the panel appears at all. Gain/BlackLevel/Keystone have
+/// no hotkeys at all (see the module doc) - shown here read-only regardless
+/// of `is_video`.
 fn picture_panel(rendering: Option<&RenderingControlSnapshot>, is_video: bool) -> Paragraph<'static> {
     let lines = match rendering {
         Some(snapshot) => {
             let mut adjustable = format!(
-                "Brightness: {} · Contrast: {} · ColorTemp: {} (0-100, 50=neutral=D65)",
-                snapshot.brightness, snapshot.contrast, snapshot.color_temperature
+                "Brightness: {} · Contrast: {} · ColorTemp: {} (0-100, 50=neutral=D65) · \
+                 Sharpness: {} (0-100, 0=neutral)",
+                snapshot.brightness,
+                snapshot.contrast,
+                snapshot.color_temperature,
+                snapshot.sharpness
             );
             if !is_video {
-                adjustable.push_str(" - current track isn't video, b/B/c/C/t/T disabled");
+                adjustable.push_str(" - current track isn't video, b/B/c/C/t/T/h/H disabled");
             }
             let calibration = format!(
                 "Gain R/G/B: {}/{}/{} · BlackLevel R/G/B: {}/{}/{} (0-1000, 500=neutral)",
