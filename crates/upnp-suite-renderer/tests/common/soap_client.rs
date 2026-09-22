@@ -426,7 +426,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>Master</Channel>
                         <DesiredVolume>{}</DesiredVolume>
@@ -444,7 +444,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetVolume\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetVolume\"",
             )
             .body(body)
             .send()
@@ -464,7 +464,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>{}</InstanceID>
                         <Channel>Master</Channel>
                         <DesiredVolume>{}</DesiredVolume>
@@ -482,7 +482,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetVolume\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetVolume\"",
             )
             .body(body)
             .send()
@@ -495,7 +495,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetVolumeDB xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetVolumeDB xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>Master</Channel>
                         <DesiredVolume>{}</DesiredVolume>
@@ -513,7 +513,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetVolumeDB\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetVolumeDB\"",
             )
             .body(body)
             .send()
@@ -525,7 +525,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetVolumeDB xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetVolumeDB xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>Master</Channel>
                     </u:GetVolumeDB>
@@ -540,7 +540,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetVolumeDB\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetVolumeDB\"",
             )
             .body(body)
             .send()
@@ -552,7 +552,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetVolumeDBRange xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetVolumeDBRange xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>Master</Channel>
                     </u:GetVolumeDBRange>
@@ -567,7 +567,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetVolumeDBRange\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetVolumeDBRange\"",
             )
             .body(body)
             .send()
@@ -579,7 +579,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:ListPresets xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:ListPresets xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                     </u:ListPresets>
                 </s:Body>
@@ -593,7 +593,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#ListPresets\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#ListPresets\"",
             )
             .body(body)
             .send()
@@ -606,7 +606,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SelectPreset xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SelectPreset xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <PresetName>{}</PresetName>
                     </u:SelectPreset>
@@ -623,7 +623,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SelectPreset\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SelectPreset\"",
             )
             .body(body)
             .send()
@@ -635,7 +635,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>Master</Channel>
                     </u:GetVolume>
@@ -650,7 +650,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetVolume\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetVolume\"",
             )
             .body(body)
             .send()
@@ -663,7 +663,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetMute xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetMute xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>Master</Channel>
                         <DesiredMute>{}</DesiredMute>
@@ -681,7 +681,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetMute\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetMute\"",
             )
             .body(body)
             .send()
@@ -693,7 +693,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetMute xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetMute xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>Master</Channel>
                     </u:GetMute>
@@ -708,7 +708,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetMute\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetMute\"",
             )
             .body(body)
             .send()
@@ -725,7 +725,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>{}</Channel>
                     </u:GetVolume>
@@ -742,7 +742,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetVolume\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetVolume\"",
             )
             .body(body)
             .send()
@@ -754,7 +754,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetBrightness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetBrightness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                     </u:GetBrightness>
                 </s:Body>
@@ -768,7 +768,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetBrightness\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetBrightness\"",
             )
             .body(body)
             .send()
@@ -781,7 +781,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetBrightness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetBrightness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <DesiredBrightness>{}</DesiredBrightness>
                     </u:SetBrightness>
@@ -798,7 +798,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetBrightness\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetBrightness\"",
             )
             .body(body)
             .send()
@@ -810,7 +810,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetContrast xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetContrast xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                     </u:GetContrast>
                 </s:Body>
@@ -824,7 +824,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetContrast\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetContrast\"",
             )
             .body(body)
             .send()
@@ -837,7 +837,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetContrast xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetContrast xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <DesiredContrast>{}</DesiredContrast>
                     </u:SetContrast>
@@ -854,7 +854,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetContrast\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetContrast\"",
             )
             .body(body)
             .send()
@@ -866,7 +866,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetRedVideoGain xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetRedVideoGain xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                     </u:GetRedVideoGain>
                 </s:Body>
@@ -880,7 +880,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetRedVideoGain\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetRedVideoGain\"",
             )
             .body(body)
             .send()
@@ -893,7 +893,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetRedVideoGain xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetRedVideoGain xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <DesiredRedVideoGain>{}</DesiredRedVideoGain>
                     </u:SetRedVideoGain>
@@ -910,7 +910,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetRedVideoGain\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetRedVideoGain\"",
             )
             .body(body)
             .send()
@@ -922,7 +922,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetColorTemperature xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetColorTemperature xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                     </u:GetColorTemperature>
                 </s:Body>
@@ -936,7 +936,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetColorTemperature\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetColorTemperature\"",
             )
             .body(body)
             .send()
@@ -949,7 +949,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetColorTemperature xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetColorTemperature xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <DesiredColorTemperature>{}</DesiredColorTemperature>
                     </u:SetColorTemperature>
@@ -966,7 +966,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetColorTemperature\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetColorTemperature\"",
             )
             .body(body)
             .send()
@@ -978,7 +978,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetHorizontalKeystone xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetHorizontalKeystone xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                     </u:GetHorizontalKeystone>
                 </s:Body>
@@ -992,7 +992,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetHorizontalKeystone\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetHorizontalKeystone\"",
             )
             .body(body)
             .send()
@@ -1005,7 +1005,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetHorizontalKeystone xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetHorizontalKeystone xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <DesiredHorizontalKeystone>{}</DesiredHorizontalKeystone>
                     </u:SetHorizontalKeystone>
@@ -1022,7 +1022,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetHorizontalKeystone\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetHorizontalKeystone\"",
             )
             .body(body)
             .send()
@@ -1034,7 +1034,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetSharpness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetSharpness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                     </u:GetSharpness>
                 </s:Body>
@@ -1048,7 +1048,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetSharpness\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetSharpness\"",
             )
             .body(body)
             .send()
@@ -1061,7 +1061,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetSharpness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetSharpness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <DesiredSharpness>{}</DesiredSharpness>
                     </u:SetSharpness>
@@ -1078,7 +1078,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetSharpness\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetSharpness\"",
             )
             .body(body)
             .send()
@@ -1090,7 +1090,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetLoudness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetLoudness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>Master</Channel>
                     </u:GetLoudness>
@@ -1105,7 +1105,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetLoudness\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetLoudness\"",
             )
             .body(body)
             .send()
@@ -1118,7 +1118,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetLoudness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetLoudness xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <Channel>Master</Channel>
                         <DesiredLoudness>{}</DesiredLoudness>
@@ -1136,7 +1136,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetLoudness\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetLoudness\"",
             )
             .body(body)
             .send()
@@ -1149,7 +1149,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetStateVariables xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetStateVariables xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <StateVariableList>{}</StateVariableList>
                     </u:GetStateVariables>
@@ -1166,7 +1166,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetStateVariables\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetStateVariables\"",
             )
             .body(body)
             .send()
@@ -1209,7 +1209,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetStateVariables xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetStateVariables xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <RenderingControlUDN>{rendering_control_udn}</RenderingControlUDN>
                         <ServiceType>{service_type}</ServiceType>
@@ -1228,7 +1228,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetStateVariables\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetStateVariables\"",
             )
             .body(body)
             .send()
@@ -1240,7 +1240,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetAllowedTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetAllowedTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                     </u:GetAllowedTransforms>
                 </s:Body>
@@ -1254,7 +1254,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetAllowedTransforms\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetAllowedTransforms\"",
             )
             .body(body)
             .send()
@@ -1266,7 +1266,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:GetTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                     </u:GetTransforms>
                 </s:Body>
@@ -1280,7 +1280,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetTransforms\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetTransforms\"",
             )
             .body(body)
             .send()
@@ -1301,7 +1301,7 @@ impl SoapClient {
             r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:SetTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+                    <u:SetTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3">
                         <InstanceID>0</InstanceID>
                         <DesiredTransformValues>{}</DesiredTransformValues>
                     </u:SetTransforms>
@@ -1318,7 +1318,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#SetTransforms\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#SetTransforms\"",
             )
             .body(body)
             .send()
@@ -1330,7 +1330,7 @@ impl SoapClient {
         let body = r#"<?xml version="1.0" encoding="utf-8"?>
             <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
                 <s:Body>
-                    <u:GetAllAvailableTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1"/>
+                    <u:GetAllAvailableTransforms xmlns:u="urn:schemas-upnp-org:service:RenderingControl:3"/>
                 </s:Body>
             </s:Envelope>"#;
 
@@ -1342,7 +1342,7 @@ impl SoapClient {
             .header("Content-Type", "text/xml")
             .header(
                 "SOAPAction",
-                "\"urn:schemas-upnp-org:service:RenderingControl:1#GetAllAvailableTransforms\"",
+                "\"urn:schemas-upnp-org:service:RenderingControl:3#GetAllAvailableTransforms\"",
             )
             .body(body)
             .send()

@@ -793,7 +793,7 @@ async fn test_set_transforms_applies_whichever_transforms_succeed() {
 // RenderingControlUDN/ServiceType/ServiceId compatibility check before
 // applying anything (5.4.38), unlike every other action in this file.
 
-const SERVICE_TYPE: &str = "urn:schemas-upnp-org:service:RenderingControl:1";
+const SERVICE_TYPE: &str = "urn:schemas-upnp-org:service:RenderingControl:3";
 const SERVICE_ID: &str = "urn:upnp-org:serviceId:RenderingControl";
 
 #[test(tokio::test)]

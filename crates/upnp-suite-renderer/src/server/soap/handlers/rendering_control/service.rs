@@ -27,7 +27,7 @@ impl UPnPService for RenderingControlService {
     type Action = RenderingControlAction;
 
     fn service_type() -> &'static str {
-        "urn:schemas-upnp-org:service:RenderingControl:1"
+        super::action::SERVICE_TYPE
     }
 
     fn service_id() -> &'static str {

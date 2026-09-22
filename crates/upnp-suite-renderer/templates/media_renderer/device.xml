@@ -37,7 +37,7 @@
                 <eventSubURL>/services/AVTransport/events</eventSubURL>
             </service>
             <service>
-                <serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>
+                <serviceType>urn:schemas-upnp-org:service:RenderingControl:3</serviceType>
                 <serviceId>urn:upnp-org:serviceId:RenderingControl</serviceId>
                 <SCPDURL>/services/RenderingControl/description.xml</SCPDURL>
                 <controlURL>/services/RenderingControl/control</controlURL>
