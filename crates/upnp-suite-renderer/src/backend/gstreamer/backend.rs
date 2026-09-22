@@ -1152,6 +1152,26 @@ impl MediaBackend for GStreamerBackend {
         Ok(self.state.lock().unwrap().picture.color_temperature)
     }
 
+    async fn set_horizontal_keystone(&self, keystone: i16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.horizontal_keystone = keystone;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_horizontal_keystone(&self) -> Result<i16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.horizontal_keystone)
+    }
+
+    async fn set_vertical_keystone(&self, keystone: i16) -> Result<(), MediaBackendError> {
+        self.state.lock().unwrap().picture.vertical_keystone = keystone;
+        self.push_render_params();
+        Ok(())
+    }
+
+    async fn get_vertical_keystone(&self) -> Result<i16, MediaBackendError> {
+        Ok(self.state.lock().unwrap().picture.vertical_keystone)
+    }
+
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {
         Ok(self.state.lock().unwrap().uri.clone())
     }

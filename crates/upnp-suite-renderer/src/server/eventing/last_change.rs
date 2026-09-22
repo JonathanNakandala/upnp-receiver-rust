@@ -196,6 +196,8 @@ pub struct RenderingControlEventState {
     pub green_black_level: u16,
     pub blue_black_level: u16,
     pub color_temperature: u16,
+    pub horizontal_keystone: i16,
+    pub vertical_keystone: i16,
 }
 
 /// Builds the `LastChange` inner XML for a RenderingControl state change
@@ -224,6 +226,8 @@ pub fn rendering_control_last_change(
             r#"<GreenVideoBlackLevel val="{green_black_level}"/>"#,
             r#"<BlueVideoBlackLevel val="{blue_black_level}"/>"#,
             r#"<ColorTemperature val="{color_temperature}"/>"#,
+            r#"<HorizontalKeystone val="{horizontal_keystone}"/>"#,
+            r#"<VerticalKeystone val="{vertical_keystone}"/>"#,
             r#"</InstanceID>"#,
             r#"</Event>"#
         ),
@@ -240,6 +244,8 @@ pub fn rendering_control_last_change(
         green_black_level = state.green_black_level,
         blue_black_level = state.blue_black_level,
         color_temperature = state.color_temperature,
+        horizontal_keystone = state.horizontal_keystone,
+        vertical_keystone = state.vertical_keystone,
     );
 
     wrap_property_set(&inner)
@@ -396,6 +402,8 @@ mod tests {
             green_black_level: 500,
             blue_black_level: 500,
             color_temperature: 50,
+            horizontal_keystone: 0,
+            vertical_keystone: 0,
         }
     }
 

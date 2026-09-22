@@ -55,6 +55,11 @@ pub struct RenderingControlSnapshot {
     pub blue_black_level: u16,
     /// 0-100, 50 = neutral = D65 (6500K).
     pub color_temperature: u16,
+    /// -50..=50, 0 = neutral - a trapezoidal warp of the displayed video's
+    /// shape (real projector keystone correction), not a color adjustment.
+    /// See `RenderingControlClient::set_horizontal_keystone`'s doc.
+    pub horizontal_keystone: i16,
+    pub vertical_keystone: i16,
 }
 
 impl Default for RenderingControlSnapshot {
@@ -71,6 +76,8 @@ impl Default for RenderingControlSnapshot {
             green_black_level: 500,
             blue_black_level: 500,
             color_temperature: 50,
+            horizontal_keystone: 0,
+            vertical_keystone: 0,
         }
     }
 }
@@ -143,6 +150,14 @@ pub fn parse_rendering_control_last_change(
         .get("ColorTemperature")
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
+    let horizontal_keystone = fields
+        .get("HorizontalKeystone")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let vertical_keystone = fields
+        .get("VerticalKeystone")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
 
     Ok(RenderingControlSnapshot {
         volume,
@@ -156,6 +171,8 @@ pub fn parse_rendering_control_last_change(
         green_black_level,
         blue_black_level,
         color_temperature,
+        horizontal_keystone,
+        vertical_keystone,
     })
 }
 
@@ -328,6 +345,22 @@ mod tests {
     }
 
     #[test]
+    fn parses_keystone() {
+        let body = notify_body(concat!(
+            r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">"#,
+            r#"<InstanceID val="0">"#,
+            r#"<HorizontalKeystone val="-25"/>"#,
+            r#"<VerticalKeystone val="10"/>"#,
+            r#"</InstanceID>"#,
+            r#"</Event>"#
+        ));
+
+        let snapshot = parse_rendering_control_last_change(&body).unwrap();
+        assert_eq!(snapshot.horizontal_keystone, -25);
+        assert_eq!(snapshot.vertical_keystone, 10);
+    }
+
+    #[test]
     fn rendering_control_last_change_defaults_picture_state_when_absent() {
         // A control point talking to an older, pre-picture-controls build
         // of this renderer (or any RenderingControl device that never
@@ -351,6 +384,8 @@ mod tests {
         assert_eq!(snapshot.green_black_level, 500);
         assert_eq!(snapshot.blue_black_level, 500);
         assert_eq!(snapshot.color_temperature, 50);
+        assert_eq!(snapshot.horizontal_keystone, 0);
+        assert_eq!(snapshot.vertical_keystone, 0);
     }
 
     #[test]

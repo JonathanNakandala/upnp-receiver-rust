@@ -1,5 +1,7 @@
 use crate::services::error::{ConnectionError, ServiceError};
-use crate::services::rendering_control::{validate_percent, validate_range, RenderingControl};
+use crate::services::rendering_control::{
+    validate_percent, validate_range, validate_signed_range, RenderingControl,
+};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -197,6 +199,36 @@ impl RenderingControl for MediaBackendRenderingControl {
     async fn get_color_temperature(&self) -> Result<u16, ServiceError> {
         self.backend
             .get_color_temperature()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_horizontal_keystone(&self, keystone: i16) -> Result<(), ServiceError> {
+        validate_signed_range(keystone, -50, 50, "HorizontalKeystone")?;
+        self.backend
+            .set_horizontal_keystone(keystone)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_horizontal_keystone(&self) -> Result<i16, ServiceError> {
+        self.backend
+            .get_horizontal_keystone()
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn set_vertical_keystone(&self, keystone: i16) -> Result<(), ServiceError> {
+        validate_signed_range(keystone, -50, 50, "VerticalKeystone")?;
+        self.backend
+            .set_vertical_keystone(keystone)
+            .await
+            .map_err(Self::convert_error)
+    }
+
+    async fn get_vertical_keystone(&self) -> Result<i16, ServiceError> {
+        self.backend
+            .get_vertical_keystone()
             .await
             .map_err(Self::convert_error)
     }

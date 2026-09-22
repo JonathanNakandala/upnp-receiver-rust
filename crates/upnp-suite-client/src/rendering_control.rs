@@ -348,6 +348,60 @@ impl<'a> RenderingControlClient<'a> {
         Ok(())
     }
 
+    /// UPnP's `HorizontalKeystone`/`VerticalKeystone` - -50..=50, 0 =
+    /// neutral. A trapezoidal warp of the displayed video's shape (real
+    /// projector keystone correction), not a color adjustment. No
+    /// `Channel` argument, same reasoning as `Brightness`/`Contrast`.
+    pub async fn get_horizontal_keystone(&self) -> Result<i16, ClientError> {
+        let fields = self
+            .invoke("GetHorizontalKeystone", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+        fields
+            .get("CurrentHorizontalKeystone")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse(
+                    "response missing CurrentHorizontalKeystone".into(),
+                )
+            })
+    }
+
+    pub async fn set_horizontal_keystone(&self, keystone: i16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetHorizontalKeystone",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredHorizontalKeystone", &keystone.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_vertical_keystone(&self) -> Result<i16, ClientError> {
+        let fields = self
+            .invoke("GetVerticalKeystone", &[("InstanceID", DEFAULT_INSTANCE_ID)])
+            .await?;
+        fields
+            .get("CurrentVerticalKeystone")
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(|| {
+                ClientError::MalformedResponse("response missing CurrentVerticalKeystone".into())
+            })
+    }
+
+    pub async fn set_vertical_keystone(&self, keystone: i16) -> Result<(), ClientError> {
+        self.invoke(
+            "SetVerticalKeystone",
+            &[
+                ("InstanceID", DEFAULT_INSTANCE_ID),
+                ("DesiredVerticalKeystone", &keystone.to_string()),
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_volume_db_range(&self) -> Result<VolumeDbRange, ClientError> {
         let fields = self
             .invoke(

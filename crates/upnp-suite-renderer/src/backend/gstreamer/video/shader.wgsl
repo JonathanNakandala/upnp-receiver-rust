@@ -1,18 +1,64 @@
-// Full-viewport triangle: three vertices generated purely from
-// `vertex_index`, no vertex buffer needed. Standard trick - the triangle
-// extends past the clip volume on two corners, which gets clipped away,
-// leaving exactly the viewport covered.
+// A real quad (6 vertices, 2 triangles, `renderer.rs`'s `QUAD_VERTICES`) -
+// not the single oversized-triangle-from-vertex_index trick this used to
+// be. That trick only works because its "extends past the clip volume"
+// vertices are at fixed positions with no per-vertex data; Keystone needs
+// each corner warped independently (see `keystone_scale` below), which
+// only makes sense for vertices actually placed at the quad's real
+// corners - so this went back to a plain vertex buffer once Keystone
+// needed real per-corner positions to warp.
+struct VertexInput {
+    @location(0) uv: vec2<f32>,
+};
+
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
 };
 
+// UPnP's HorizontalKeystone/VerticalKeystone, as a trapezoidal warp of the
+// quad's corners - not a fragment effect, a vertex position change. Per the
+// spec: negative Horizontal shrinks the left edge (left/right edges stay
+// parallel, left just gets shorter toward a point as the value approaches
+// its minimum); positive shrinks the right edge the same way. Vertical is
+// the same shape rotated 90 degrees (negative shrinks the bottom, positive
+// the top). `pos` is the *other* axis's coordinate in [0, 1] (`uv.x` for
+// the horizontal case, `uv.y` for the vertical case) - that's what "which
+// edge" means geometrically: the edge at `pos = 0` shrinks under
+// `shrink_near`, the edge at `pos = 1` under `shrink_far`, and interpolates
+// linearly between them. `shrink_near`/`shrink_far` are each in [0, 1] (one
+// of them is always 0 - a single keystone value only ever shrinks one
+// edge), so the result stays in [0, 1] too: this only ever shrinks toward
+// the quad's center, never expands past its original bounds, which is why
+// it composes cleanly with `letterboxed_viewport`'s aspect-correct
+// viewport rect without needing to know about it.
+fn keystone_scale(pos: f32, shrink_near: f32, shrink_far: f32) -> f32 {
+    return 1.0 - shrink_near * (1.0 - pos) - shrink_far * pos;
+}
+
 @vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
-    var uv = vec2<f32>(f32((vertex_index << 1u) & 2u), f32(vertex_index & 2u));
+fn vs_main(in: VertexInput) -> VertexOutput {
+    let uv = in.uv;
+
+    let h_shrink_left = max(-render_params.horizontal_keystone, 0.0);
+    let h_shrink_right = max(render_params.horizontal_keystone, 0.0);
+    let y_scale = keystone_scale(uv.x, h_shrink_left, h_shrink_right);
+
+    let v_shrink_bottom = max(-render_params.vertical_keystone, 0.0);
+    let v_shrink_top = max(render_params.vertical_keystone, 0.0);
+    let x_scale = keystone_scale(uv.y, v_shrink_bottom, v_shrink_top);
+
+    // Both computed from the same original `uv`, not chained one into the
+    // other - keeps the two axes independent regardless of which combination
+    // of Horizontal/Vertical values is active at once.
+    let warped = vec2<f32>(0.5 + (uv.x - 0.5) * x_scale, 0.5 + (uv.y - 0.5) * y_scale);
+
     var out: VertexOutput;
-    out.clip_position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-    // Flip Y: clip space has +Y up, texture space has +Y down.
+    out.clip_position = vec4<f32>(warped * 2.0 - 1.0, 0.0, 1.0);
+    // Flip Y: clip space has +Y up, texture space has +Y down. Uses the
+    // *original* `uv`, not `warped` - a warped quad's corners still map to
+    // the source image's plain corners; only their on-screen position
+    // moved, which is exactly what stretches the sampled image into the
+    // trapezoid shape.
     out.uv = vec2<f32>(uv.x, 1.0 - uv.y);
     return out;
 }
@@ -62,6 +108,10 @@ struct RenderParams {
     temp_blue: f32,
     contrast_factor: f32,
     brightness_offset: f32,
+    // Keystone: see the vertex shader section below - these are read there,
+    // not here, but declared in the same uniform block as everything else.
+    horizontal_keystone: f32,
+    vertical_keystone: f32,
 }
 @group(1) @binding(0) var<uniform> render_params: RenderParams;
 

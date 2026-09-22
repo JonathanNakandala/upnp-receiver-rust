@@ -17,6 +17,8 @@ pub struct RenderingState {
     green_black_level: u16,
     blue_black_level: u16,
     color_temperature: u16,
+    horizontal_keystone: i16,
+    vertical_keystone: i16,
 }
 
 impl Default for RenderingState {
@@ -33,6 +35,8 @@ impl Default for RenderingState {
             green_black_level: 500,
             blue_black_level: 500,
             color_temperature: 50, // 50 = neutral = D65 (6500K)
+            horizontal_keystone: 0, // 0 = neutral (no warp)
+            vertical_keystone: 0,
         }
     }
 }
@@ -55,6 +59,19 @@ pub fn validate_range(value: u16, max: u16, name: &str) -> Result<(), ServiceErr
 /// common case callers reach for.
 pub fn validate_percent(value: u16, name: &str) -> Result<(), ServiceError> {
     validate_range(value, 100, name)
+}
+
+/// Signed counterpart to [`validate_range`] - `HorizontalKeystone`/
+/// `VerticalKeystone`'s `i2` type and negative-capable range (the spec
+/// requires their minimum be `<= 0`, unlike every other picture control
+/// here) don't fit `validate_range`'s unsigned `0..=max`.
+pub fn validate_signed_range(value: i16, min: i16, max: i16, name: &str) -> Result<(), ServiceError> {
+    if value < min || value > max {
+        return Err(ServiceError::InvalidValue(format!(
+            "{name} must be between {min} and {max}, got {value}"
+        )));
+    }
+    Ok(())
 }
 
 // UPnP's `VolumeDB` has no spec-mandated scale, and implementations vary
@@ -125,6 +142,14 @@ pub trait RenderingControl: Send + Sync {
     /// UPnP's `ColorTemperature` - 0-100, 50 = neutral = D65 (6500K).
     async fn set_color_temperature(&self, temperature: u16) -> Result<(), ServiceError>;
     async fn get_color_temperature(&self) -> Result<u16, ServiceError>;
+
+    /// UPnP's `HorizontalKeystone`/`VerticalKeystone` - -50..=50, 0 =
+    /// neutral. A trapezoidal warp of the displayed shape, not a color
+    /// adjustment - see [`validate_signed_range`].
+    async fn set_horizontal_keystone(&self, keystone: i16) -> Result<(), ServiceError>;
+    async fn get_horizontal_keystone(&self) -> Result<i16, ServiceError>;
+    async fn set_vertical_keystone(&self, keystone: i16) -> Result<(), ServiceError>;
+    async fn get_vertical_keystone(&self) -> Result<i16, ServiceError>;
 
     /// UPnP's `GetVolumeDB` — derived from `get_volume` rather than tracked
     /// separately, so it can never drift from `Volume`/whatever the backend
@@ -300,6 +325,26 @@ impl RenderingControl for RenderingControlImpl {
 
     async fn get_color_temperature(&self) -> Result<u16, ServiceError> {
         Ok(self.state.read().await.color_temperature)
+    }
+
+    async fn set_horizontal_keystone(&self, keystone: i16) -> Result<(), ServiceError> {
+        validate_signed_range(keystone, -50, 50, "HorizontalKeystone")?;
+        self.state.write().await.horizontal_keystone = keystone;
+        Ok(())
+    }
+
+    async fn get_horizontal_keystone(&self) -> Result<i16, ServiceError> {
+        Ok(self.state.read().await.horizontal_keystone)
+    }
+
+    async fn set_vertical_keystone(&self, keystone: i16) -> Result<(), ServiceError> {
+        validate_signed_range(keystone, -50, 50, "VerticalKeystone")?;
+        self.state.write().await.vertical_keystone = keystone;
+        Ok(())
+    }
+
+    async fn get_vertical_keystone(&self) -> Result<i16, ServiceError> {
+        Ok(self.state.read().await.vertical_keystone)
     }
 }
 
@@ -485,5 +530,31 @@ mod tests {
         assert_eq!(control.get_color_temperature().await.unwrap(), 0);
 
         assert!(control.set_color_temperature(101).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_horizontal_keystone_control() {
+        let control = RenderingControlImpl::new();
+
+        assert_eq!(control.get_horizontal_keystone().await.unwrap(), 0);
+
+        control.set_horizontal_keystone(-30).await.unwrap();
+        assert_eq!(control.get_horizontal_keystone().await.unwrap(), -30);
+
+        assert!(control.set_horizontal_keystone(-51).await.is_err());
+        assert!(control.set_horizontal_keystone(51).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vertical_keystone_control() {
+        let control = RenderingControlImpl::new();
+
+        assert_eq!(control.get_vertical_keystone().await.unwrap(), 0);
+
+        control.set_vertical_keystone(50).await.unwrap();
+        assert_eq!(control.get_vertical_keystone().await.unwrap(), 50);
+
+        assert!(control.set_vertical_keystone(-51).await.is_err());
+        assert!(control.set_vertical_keystone(51).await.is_err());
     }
 }

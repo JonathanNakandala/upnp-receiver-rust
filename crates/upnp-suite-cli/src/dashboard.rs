@@ -18,13 +18,15 @@
 //! adjusting a video picture setting for audio-only playback has no visible
 //! effect to show for it here.
 //!
-//! The RGB Gain/BlackLevel pair (2-point white balance calibration) is
-//! shown in the Picture panel but has no dedicated hotkeys - these are
-//! per-channel calibration controls, six of them, meant to be set once with
-//! a measurement device rather than nudged live, and six more hotkeys would
-//! clutter this dashboard for a control nobody uses this way. They're still
-//! fully queryable/settable through [`upnp_suite_client::RenderingControlClient`]
-//! for anything that wants real calibration tooling.
+//! The RGB Gain/BlackLevel pair (2-point white balance calibration) and
+//! HorizontalKeystone/VerticalKeystone (projector geometry correction) are
+//! shown in the Picture panel but have no dedicated hotkeys - these are
+//! calibration/installation controls meant to be set once (with a
+//! measurement device, or once per physical setup) rather than nudged live,
+//! and eight more hotkeys would clutter this dashboard for controls nobody
+//! uses this way. They're still fully queryable/settable through
+//! [`upnp_suite_client::RenderingControlClient`] for anything that wants
+//! real calibration tooling.
 
 use std::time::Duration;
 
@@ -296,7 +298,7 @@ fn render(
             Constraint::Length(7),
             Constraint::Length(3),
             Constraint::Length(3),
-            Constraint::Length(4),
+            Constraint::Length(5),
             Constraint::Min(0),
         ])
         .split(frame.area());
@@ -405,7 +407,15 @@ fn picture_panel(rendering: Option<&RenderingControlSnapshot>, is_video: bool) -
                 snapshot.green_black_level,
                 snapshot.blue_black_level,
             );
-            vec![Line::from(adjustable), Line::from(calibration.dim())]
+            let geometry = format!(
+                "Keystone H/V: {}/{} (-50..50, 0=neutral)",
+                snapshot.horizontal_keystone, snapshot.vertical_keystone
+            );
+            vec![
+                Line::from(adjustable),
+                Line::from(calibration.dim()),
+                Line::from(geometry.dim()),
+            ]
         }
         None => vec![Line::from("RenderingControl not available on this device")],
     };

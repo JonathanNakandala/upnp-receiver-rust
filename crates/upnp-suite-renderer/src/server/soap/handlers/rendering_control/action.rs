@@ -3,13 +3,15 @@ use crate::server::soap::error::{SoapError, SoapProtocolError};
 use crate::server::soap::types::rendering_control::{
     GetBlueVideoBlackLevelResponse, GetBlueVideoGainResponse, GetBrightnessResponse,
     GetColorTemperatureResponse, GetContrastResponse, GetGreenVideoBlackLevelResponse,
-    GetGreenVideoGainResponse, GetMuteResponse, GetRedVideoBlackLevelResponse,
-    GetRedVideoGainResponse, GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse,
-    ListPresetsResponse, RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
+    GetGreenVideoGainResponse, GetHorizontalKeystoneResponse, GetMuteResponse,
+    GetRedVideoBlackLevelResponse, GetRedVideoGainResponse, GetVerticalKeystoneResponse,
+    GetVolumeDBRangeResponse, GetVolumeDBResponse, GetVolumeResponse, ListPresetsResponse,
+    RenderingControlAction, RenderingControlResponse, SelectPresetResponse,
     SetBlueVideoBlackLevelResponse, SetBlueVideoGainResponse, SetBrightnessResponse,
     SetColorTemperatureResponse, SetContrastResponse, SetGreenVideoBlackLevelResponse,
-    SetGreenVideoGainResponse, SetMuteResponse, SetRedVideoBlackLevelResponse,
-    SetRedVideoGainResponse, SetVolumeDBResponse, SetVolumeResponse,
+    SetGreenVideoGainResponse, SetHorizontalKeystoneResponse, SetMuteResponse,
+    SetRedVideoBlackLevelResponse, SetRedVideoGainResponse, SetVerticalKeystoneResponse,
+    SetVolumeDBResponse, SetVolumeResponse,
 };
 use crate::server::soap::types::UPnPAction;
 use crate::services::instance::InstanceId;
@@ -39,6 +41,8 @@ async fn publish_rendering_state(
     let green_black_level = control.get_green_video_black_level().await.unwrap_or(500);
     let blue_black_level = control.get_blue_video_black_level().await.unwrap_or(500);
     let color_temperature = control.get_color_temperature().await.unwrap_or(50);
+    let horizontal_keystone = control.get_horizontal_keystone().await.unwrap_or(0);
+    let vertical_keystone = control.get_vertical_keystone().await.unwrap_or(0);
     events.broadcast(rendering_control_last_change(
         instance_id,
         RenderingControlEventState {
@@ -53,6 +57,8 @@ async fn publish_rendering_state(
             green_black_level,
             blue_black_level,
             color_temperature,
+            horizontal_keystone,
+            vertical_keystone,
         },
     ));
 }
@@ -101,6 +107,10 @@ impl UPnPAction for RenderingControlAction {
             Self::GetBlueVideoBlackLevel(_) => "GetBlueVideoBlackLevel",
             Self::SetColorTemperature(_) => "SetColorTemperature",
             Self::GetColorTemperature(_) => "GetColorTemperature",
+            Self::SetHorizontalKeystone(_) => "SetHorizontalKeystone",
+            Self::GetHorizontalKeystone(_) => "GetHorizontalKeystone",
+            Self::SetVerticalKeystone(_) => "SetVerticalKeystone",
+            Self::GetVerticalKeystone(_) => "GetVerticalKeystone",
         }
     }
 
@@ -690,6 +700,96 @@ impl UPnPAction for RenderingControlAction {
                 Ok(RenderingControlResponse::ColorTemperature(
                     GetColorTemperatureResponse {
                         current_color_temperature,
+                    },
+                ))
+            }
+            Self::SetHorizontalKeystone(req) => {
+                let result = control
+                    .set_horizontal_keystone(req.desired_horizontal_keystone)
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_horizontal_keystone = req.desired_horizontal_keystone,
+                        "Handling SetHorizontalKeystone"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_horizontal_keystone = req.desired_horizontal_keystone,
+                        error = %err,
+                        "Handling SetHorizontalKeystone"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetHorizontalKeystone(
+                    SetHorizontalKeystoneResponse {},
+                ))
+            }
+            Self::GetHorizontalKeystone(req) => {
+                let result = control.get_horizontal_keystone().await;
+                match &result {
+                    Ok(current_horizontal_keystone) => info!(
+                        instance_id = req.instance_id,
+                        current_horizontal_keystone,
+                        "Handling GetHorizontalKeystone"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetHorizontalKeystone"
+                    ),
+                }
+                let current_horizontal_keystone = result?;
+                Ok(RenderingControlResponse::HorizontalKeystone(
+                    GetHorizontalKeystoneResponse {
+                        current_horizontal_keystone,
+                    },
+                ))
+            }
+            Self::SetVerticalKeystone(req) => {
+                let result = control
+                    .set_vertical_keystone(req.desired_vertical_keystone)
+                    .await;
+                match &result {
+                    Ok(_) => info!(
+                        instance_id = req.instance_id,
+                        desired_vertical_keystone = req.desired_vertical_keystone,
+                        "Handling SetVerticalKeystone"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        desired_vertical_keystone = req.desired_vertical_keystone,
+                        error = %err,
+                        "Handling SetVerticalKeystone"
+                    ),
+                }
+                result?;
+                publish_rendering_state(instance_id, control.as_ref(), &renderer.rendering_control_events)
+                    .await;
+                Ok(RenderingControlResponse::SetVerticalKeystone(
+                    SetVerticalKeystoneResponse {},
+                ))
+            }
+            Self::GetVerticalKeystone(req) => {
+                let result = control.get_vertical_keystone().await;
+                match &result {
+                    Ok(current_vertical_keystone) => info!(
+                        instance_id = req.instance_id,
+                        current_vertical_keystone,
+                        "Handling GetVerticalKeystone"
+                    ),
+                    Err(err) => warn!(
+                        instance_id = req.instance_id,
+                        error = %err,
+                        "Handling GetVerticalKeystone"
+                    ),
+                }
+                let current_vertical_keystone = result?;
+                Ok(RenderingControlResponse::VerticalKeystone(
+                    GetVerticalKeystoneResponse {
+                        current_vertical_keystone,
                     },
                 ))
             }

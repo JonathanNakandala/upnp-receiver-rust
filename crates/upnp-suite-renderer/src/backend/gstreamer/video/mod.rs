@@ -157,6 +157,17 @@ pub struct RenderParams {
     /// `renderer::kelvin_to_rgb`'s doc for the warm/cool curve and why this
     /// is a cosmetic control, not real display calibration.
     pub color_temperature: u16,
+    /// -50..=50, 0 = neutral - a trapezoidal warp of the video's displayed
+    /// shape (real projector keystone correction), not a color effect. Per
+    /// spec: negative shrinks the left edge, positive the right, left/right
+    /// edges staying parallel throughout. See `renderer.rs`'s
+    /// `keystone_scale` doc for the exact geometry and why this needed a
+    /// real vertex buffer instead of this renderer's previous zero-buffer
+    /// full-viewport-triangle trick.
+    pub horizontal_keystone: i16,
+    /// Same shape as `horizontal_keystone`, rotated 90 degrees: negative
+    /// shrinks the bottom edge, positive the top.
+    pub vertical_keystone: i16,
 }
 
 impl Default for RenderParams {
@@ -171,6 +182,8 @@ impl Default for RenderParams {
             green_black_level: 500,
             blue_black_level: 500,
             color_temperature: 50,
+            horizontal_keystone: 0,
+            vertical_keystone: 0,
         }
     }
 }

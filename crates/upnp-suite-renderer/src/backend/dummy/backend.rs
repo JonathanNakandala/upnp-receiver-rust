@@ -39,6 +39,8 @@ pub struct DummyBackend {
     green_black_level: Mutex<u16>,
     blue_black_level: Mutex<u16>,
     color_temperature: Mutex<u16>,
+    horizontal_keystone: Mutex<i16>,
+    vertical_keystone: Mutex<i16>,
 }
 
 impl DummyBackend {
@@ -59,6 +61,8 @@ impl DummyBackend {
             green_black_level: Mutex::new(500),
             blue_black_level: Mutex::new(500),
             color_temperature: Mutex::new(50),
+            horizontal_keystone: Mutex::new(0),
+            vertical_keystone: Mutex::new(0),
         }
     }
 
@@ -293,6 +297,24 @@ impl MediaBackend for DummyBackend {
 
     async fn get_color_temperature(&self) -> Result<u16, MediaBackendError> {
         Ok(*self.color_temperature.lock().await)
+    }
+
+    async fn set_horizontal_keystone(&self, keystone: i16) -> Result<(), MediaBackendError> {
+        *self.horizontal_keystone.lock().await = keystone;
+        Ok(())
+    }
+
+    async fn get_horizontal_keystone(&self) -> Result<i16, MediaBackendError> {
+        Ok(*self.horizontal_keystone.lock().await)
+    }
+
+    async fn set_vertical_keystone(&self, keystone: i16) -> Result<(), MediaBackendError> {
+        *self.vertical_keystone.lock().await = keystone;
+        Ok(())
+    }
+
+    async fn get_vertical_keystone(&self) -> Result<i16, MediaBackendError> {
+        Ok(*self.vertical_keystone.lock().await)
     }
 
     async fn get_current_uri(&self) -> Result<Option<String>, MediaBackendError> {

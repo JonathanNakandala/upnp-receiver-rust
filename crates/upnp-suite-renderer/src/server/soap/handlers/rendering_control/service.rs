@@ -6,12 +6,14 @@ use crate::server::soap::types::UPnPService;
 use crate::server::soap::types::rendering_control::{
     GetBlueVideoBlackLevelRequest, GetBlueVideoGainRequest, GetBrightnessRequest,
     GetColorTemperatureRequest, GetContrastRequest, GetGreenVideoBlackLevelRequest,
-    GetGreenVideoGainRequest, GetMuteRequest, GetRedVideoBlackLevelRequest,
-    GetRedVideoGainRequest, GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest,
-    ListPresetsRequest, RenderingControlAction, SelectPresetRequest, SetBlueVideoBlackLevelRequest,
-    SetBlueVideoGainRequest, SetBrightnessRequest, SetColorTemperatureRequest,
-    SetContrastRequest, SetGreenVideoBlackLevelRequest, SetGreenVideoGainRequest, SetMuteRequest,
-    SetRedVideoBlackLevelRequest, SetRedVideoGainRequest, SetVolumeDBRequest, SetVolumeRequest,
+    GetGreenVideoGainRequest, GetHorizontalKeystoneRequest, GetMuteRequest,
+    GetRedVideoBlackLevelRequest, GetRedVideoGainRequest, GetVerticalKeystoneRequest,
+    GetVolumeDBRangeRequest, GetVolumeDBRequest, GetVolumeRequest, ListPresetsRequest,
+    RenderingControlAction, SelectPresetRequest, SetBlueVideoBlackLevelRequest,
+    SetBlueVideoGainRequest, SetBrightnessRequest, SetColorTemperatureRequest, SetContrastRequest,
+    SetGreenVideoBlackLevelRequest, SetGreenVideoGainRequest, SetHorizontalKeystoneRequest,
+    SetMuteRequest, SetRedVideoBlackLevelRequest, SetRedVideoGainRequest,
+    SetVerticalKeystoneRequest, SetVolumeDBRequest, SetVolumeRequest,
 };
 
 pub struct RenderingControlService;
@@ -188,6 +190,34 @@ impl UPnPService for RenderingControlService {
                     action_name,
                 )?;
                 Ok(RenderingControlAction::GetColorTemperature(request))
+            }
+            "SetHorizontalKeystone" => {
+                let request = extract_and_parse_soap_body::<SetHorizontalKeystoneRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::SetHorizontalKeystone(request))
+            }
+            "GetHorizontalKeystone" => {
+                let request = extract_and_parse_soap_body::<GetHorizontalKeystoneRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::GetHorizontalKeystone(request))
+            }
+            "SetVerticalKeystone" => {
+                let request = extract_and_parse_soap_body::<SetVerticalKeystoneRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::SetVerticalKeystone(request))
+            }
+            "GetVerticalKeystone" => {
+                let request = extract_and_parse_soap_body::<GetVerticalKeystoneRequest>(
+                    content,
+                    action_name,
+                )?;
+                Ok(RenderingControlAction::GetVerticalKeystone(request))
             }
             _ => Err(SoapError::Soap(SoapProtocolError::NotImplemented(format!(
                 "Action not Implemented Yet: {}",
