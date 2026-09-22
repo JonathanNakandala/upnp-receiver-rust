@@ -36,15 +36,43 @@ pub struct AVTransportSnapshot {
 }
 
 /// What a RenderingControl `LastChange` NOTIFY reports.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RenderingControlSnapshot {
     pub volume: u16,
     pub muted: bool,
     /// 0-100, 50 = neutral/no adjustment. Unlike `volume`/`muted`, these
-    /// carry no `channel` attribute on the wire - see
-    /// `RenderingControlClient::set_brightness`'s doc for why.
+    /// (and everything below) carry no `channel` attribute on the wire -
+    /// see `RenderingControlClient::set_brightness`'s doc for why.
     pub brightness: u16,
     pub contrast: u16,
+    /// 0-1000, 500 = neutral - see `RenderingControlClient::set_red_video_gain`'s
+    /// doc for why this pair uses a wider range than `brightness`/`contrast`.
+    pub red_gain: u16,
+    pub green_gain: u16,
+    pub blue_gain: u16,
+    pub red_black_level: u16,
+    pub green_black_level: u16,
+    pub blue_black_level: u16,
+    /// 0-100, 50 = neutral = D65 (6500K).
+    pub color_temperature: u16,
+}
+
+impl Default for RenderingControlSnapshot {
+    fn default() -> Self {
+        Self {
+            volume: 0,
+            muted: false,
+            brightness: 50,
+            contrast: 50,
+            red_gain: 500,
+            green_gain: 500,
+            blue_gain: 500,
+            red_black_level: 500,
+            green_black_level: 500,
+            blue_black_level: 500,
+            color_temperature: 50,
+        }
+    }
 }
 
 pub fn parse_av_transport_last_change(
@@ -87,12 +115,47 @@ pub fn parse_rendering_control_last_change(
         .get("Contrast")
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
+    let red_gain = fields
+        .get("RedVideoGain")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+    let green_gain = fields
+        .get("GreenVideoGain")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+    let blue_gain = fields
+        .get("BlueVideoGain")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+    let red_black_level = fields
+        .get("RedVideoBlackLevel")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+    let green_black_level = fields
+        .get("GreenVideoBlackLevel")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+    let blue_black_level = fields
+        .get("BlueVideoBlackLevel")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+    let color_temperature = fields
+        .get("ColorTemperature")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50);
 
     Ok(RenderingControlSnapshot {
         volume,
         muted,
         brightness,
         contrast,
+        red_gain,
+        green_gain,
+        blue_gain,
+        red_black_level,
+        green_black_level,
+        blue_black_level,
+        color_temperature,
     })
 }
 
@@ -239,10 +302,36 @@ mod tests {
     }
 
     #[test]
-    fn rendering_control_last_change_defaults_brightness_and_contrast_when_absent() {
-        // A control point talking to an older, pre-Brightness/Contrast
-        // build of this renderer (or any RenderingControl device that
-        // never implemented them) still needs a usable snapshot.
+    fn parses_gain_black_level_and_color_temperature() {
+        let body = notify_body(concat!(
+            r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">"#,
+            r#"<InstanceID val="0">"#,
+            r#"<RedVideoGain val="750"/>"#,
+            r#"<GreenVideoGain val="250"/>"#,
+            r#"<BlueVideoGain val="1000"/>"#,
+            r#"<RedVideoBlackLevel val="600"/>"#,
+            r#"<GreenVideoBlackLevel val="400"/>"#,
+            r#"<BlueVideoBlackLevel val="500"/>"#,
+            r#"<ColorTemperature val="0"/>"#,
+            r#"</InstanceID>"#,
+            r#"</Event>"#
+        ));
+
+        let snapshot = parse_rendering_control_last_change(&body).unwrap();
+        assert_eq!(snapshot.red_gain, 750);
+        assert_eq!(snapshot.green_gain, 250);
+        assert_eq!(snapshot.blue_gain, 1000);
+        assert_eq!(snapshot.red_black_level, 600);
+        assert_eq!(snapshot.green_black_level, 400);
+        assert_eq!(snapshot.blue_black_level, 500);
+        assert_eq!(snapshot.color_temperature, 0);
+    }
+
+    #[test]
+    fn rendering_control_last_change_defaults_picture_state_when_absent() {
+        // A control point talking to an older, pre-picture-controls build
+        // of this renderer (or any RenderingControl device that never
+        // implemented them) still needs a usable snapshot.
         let body = notify_body(concat!(
             r#"<Event xmlns="urn:schemas-upnp-org:metadata-1-0/RCS/">"#,
             r#"<InstanceID val="0">"#,
@@ -255,6 +344,13 @@ mod tests {
         let snapshot = parse_rendering_control_last_change(&body).unwrap();
         assert_eq!(snapshot.brightness, 50);
         assert_eq!(snapshot.contrast, 50);
+        assert_eq!(snapshot.red_gain, 500);
+        assert_eq!(snapshot.green_gain, 500);
+        assert_eq!(snapshot.blue_gain, 500);
+        assert_eq!(snapshot.red_black_level, 500);
+        assert_eq!(snapshot.green_black_level, 500);
+        assert_eq!(snapshot.blue_black_level, 500);
+        assert_eq!(snapshot.color_temperature, 50);
     }
 
     #[test]
