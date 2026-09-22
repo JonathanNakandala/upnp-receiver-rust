@@ -39,6 +39,7 @@ pub enum RenderingControlAction {
     GetSharpness(GetSharpnessRequest),
     SetLoudness(SetLoudnessRequest),
     GetLoudness(GetLoudnessRequest),
+    GetStateVariables(GetStateVariablesRequest),
 }
 
 impl RenderingControlAction {
@@ -81,6 +82,7 @@ impl RenderingControlAction {
             Self::GetSharpness(r) => r.instance_id,
             Self::SetLoudness(r) => r.instance_id,
             Self::GetLoudness(r) => r.instance_id,
+            Self::GetStateVariables(r) => r.instance_id,
         };
         InstanceId::new(raw)
     }
@@ -369,6 +371,18 @@ pub struct GetLoudnessRequest {
     pub channel: String,
 }
 
+// A generic reflection action, not tied to one state variable - takes a CSV
+// of names (or "*" for all of them) and returns their current values as one
+// XML blob. See action.rs's ALL_STATE_VARIABLE_NAMES/state_variable_value
+// for what it actually reports.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetStateVariablesRequest {
+    #[serde(rename = "InstanceID")]
+    pub instance_id: u32,
+    pub state_variable_list: String,
+}
+
 // Add response types
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]
@@ -547,6 +561,17 @@ pub struct GetLoudnessResponse {
     pub current_loudness: bool,
 }
 
+/// `state_variable_value_pairs` is the already-built `<stateVariableValuePairs>`
+/// XML document as a plain string - `quick_xml::se::to_string` escapes it
+/// like any other string field when this response gets embedded in the SOAP
+/// envelope, the same double-escaping `LastChange` NOTIFY bodies rely on
+/// (see `server::eventing::last_change`).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct GetStateVariablesResponse {
+    pub state_variable_value_pairs: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum RenderingControlResponse {
@@ -585,4 +610,5 @@ pub enum RenderingControlResponse {
     Sharpness(GetSharpnessResponse),
     SetLoudness(SetLoudnessResponse),
     Loudness(GetLoudnessResponse),
+    StateVariables(GetStateVariablesResponse),
 }

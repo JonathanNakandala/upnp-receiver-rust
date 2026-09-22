@@ -164,6 +164,9 @@ pub enum SoapProtocolError {
 
     #[error("Invalid channel: {0}")]
     InvalidChannel(String),
+
+    #[error("Invalid StateVariableList: {0}")]
+    InvalidStateVariableList(String),
 }
 
 impl From<UnknownInstance> for SoapProtocolError {
@@ -227,6 +230,10 @@ impl SoapProtocolError {
             SoapProtocolError::InvalidChannel(_) => UPnPErrorCode {
                 code: 703,
                 description: "Invalid Channel",
+            },
+            SoapProtocolError::InvalidStateVariableList(_) => UPnPErrorCode {
+                code: 704,
+                description: "Invalid StateVariableList",
             },
         }
     }
