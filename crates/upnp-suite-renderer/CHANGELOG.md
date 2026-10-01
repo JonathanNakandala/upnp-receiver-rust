@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.5.0](https://github.com/JonathanNakandala/upnp-receiver-rust/compare/upnp-suite-renderer-v0.4.0...upnp-suite-renderer-v0.5.0) (2026-10-01)
+
+
+### Features
+
+* brightness / contrast control ([38e9c45](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/38e9c4539c0cb560e72d384bef532b3c230e28ac))
+* **gstreamer:** implement Horizontal/Vertical Keystone ([c201ff3](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/c201ff37b070f3ce08cdab3df752f56d26b213a9))
+* **gstreamer:** implement Loudness compensation ([230647f](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/230647f8d3f0d23e5058cca4d41cebe077abd944))
+* **gstreamer:** implement sharpness control ([48616ec](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/48616ec9fcfdaab05815d6855deccc5c3ceeb3f0))
+* **gstreamer:** RGB Gain/BlackLevel and ColorTemperature ([e9343fd](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/e9343fd0d3fd46afd7cfa6e12c833c5e90a1d2eb))
+* **rendering-control:** implement GetStateVariables ([270bff0](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/270bff0149284431cfce85430e6fa7c9988a2e63))
+* **rendering-control:** implement SetStateVariables ([6bef265](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/6bef265d9072dcda32ac1a894d574ed051e53a4c))
+* **RenderingControl:** advertise v3 ([38b643e](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/38b643e46f34675a350c015adcb10c624c45affd))
+* **RenderingControl:** GetAllowedTransforms / GetTransforms / SetTransforms / GetAllAvailableTransforms ([8731a6a](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/8731a6a2d1b957a261e9defbc73e582e89c595c9))
+
+
+### Bug Fixes
+
+* **gstreamer:** resize and scale fullscreen video correctly ([63f0988](https://github.com/JonathanNakandala/upnp-receiver-rust/commit/63f098838ed1c52da7d511be834b645a6f82e58c))
+
 ## [0.4.0](https://github.com/JonathanNakandala/upnp-receiver-rust/compare/upnp-suite-renderer-v0.3.1...upnp-suite-renderer-v0.4.0) (2026-09-21)
 
 
